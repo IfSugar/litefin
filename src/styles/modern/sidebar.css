@@ -562,8 +562,31 @@ html[data-layout-sidebar="floating-buttons"] .sidebar:hover .logo-text,
 html[data-layout-sidebar="floating-buttons"] .sidebar-hover-trigger,
 html[data-layout-sidebar="floating-island"] .logo-text,
 html[data-layout-sidebar="floating-island"] .sidebar:hover .logo-text,
-html[data-layout-sidebar="floating-island"] .sidebar-hover-trigger {
+html[data-layout-sidebar="floating-island"] .sidebar-hover-trigger,
+html[data-layout-sidebar="modern-collapsed"] .sidebar .back-text,
+html[data-layout-sidebar="modern-collapsed"] .sidebar:hover .back-text,
+html[data-layout-sidebar="floating-buttons"] .sidebar .back-text,
+html[data-layout-sidebar="floating-buttons"] .sidebar:hover .back-text,
+html[data-layout-sidebar="floating-island"] .sidebar .back-text,
+html[data-layout-sidebar="floating-island"] .sidebar:hover .back-text {
     display: none !important;
+}
+
+/* ----------------------------------------------------------------------------
+ * Back Button Modern Layout Tweaks & Squircle Suppression
+ * ---------------------------------------------------------------------------- */
+html[data-layout-sidebar^="modern"] .sidebar-back-btn .item-icon::before,
+html[data-layout-sidebar="floating-buttons"] .sidebar-back-btn .item-icon::before,
+html[data-layout-sidebar="floating-island"] .sidebar-back-btn .item-icon::before {
+    display: none !important;
+}
+
+/* Fluid spring push for the Litefin brand logo in modern layouts */
+html[data-layout-sidebar^="modern"] .sidebar.has-back-button #sidebar-logo-header,
+html[data-layout-sidebar="floating-buttons"] .sidebar.has-back-button #sidebar-logo-header,
+html[data-layout-sidebar="floating-island"] .sidebar.has-back-button #sidebar-logo-header {
+    margin-top: 4px;
+    margin-bottom: 12px;
 }
 
 /* Hide logo action tooltip in normal expanded modern and classic sidebars */

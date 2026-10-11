@@ -132,6 +132,9 @@ class PlayerPage extends Page {
         this._playbackStallTimer = null;
         this._onNetworkOffline = null;
         this._onNetworkOnline = null;
+
+        // Lifecycle destruction tracker
+        this._isDestroyed = false;
     }
 
     /**
@@ -5097,6 +5100,20 @@ class PlayerPage extends Page {
         this._resumeVideoDisplayAfterProfileSelection = '';
         this._backgroundPrepared = false;
         log.info('destroy() called');
+
+        // Defensive safety net: if destroy is invoked directly without _stopAndExit having run
+        // (e.g. emergency external route discard), report stopped to server with synchronous XHR
+        if (!this._isExiting && this._hasReportedStart && this._item) {
+            try {
+                const mediaSource = this._cachedMediaSource || this._player?.getCurrentMediaSource?.();
+                const positionTicks = this._player?.getCurrentPositionTicks?.() || this._resumePosition || 0;
+                const durationTicks =
+                    this._player?.getDurationTicks?.() || mediaSource?.RunTimeTicks || this._item?.RunTimeTicks || 0;
+                this._reportPlaybackStopped(mediaSource, positionTicks, true, durationTicks);
+            } catch (err) {
+                log.warn('Defensive stop report on destroy failed:', err);
+            }
+        }
 
         // Cancel any pending auto-recovery timers
         this._cancelAutoRecovery();

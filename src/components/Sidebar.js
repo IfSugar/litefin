@@ -21,6 +21,7 @@ import { sidebarLayoutManager } from '../utils/SidebarLayoutManager.js';
 import { sidebarIcons, getLibraryIcon } from '../utils/Icons.js';
 import { seerr } from '../api/seerrClient.js';
 import { layoutManager } from '../ui/LayoutManager.js';
+import { platformInfo } from '../utils/PlatformInfo.js';
 
 const log = logger.create('Sidebar');
 
@@ -57,6 +58,15 @@ class Sidebar extends Component {
     render() {
         return `
             <nav class="sidebar collapsed" id="main-sidebar">
+                <!-- Native Back Navigation Control (Web & Desktop) -->
+                <!-- Displayed when viewing 2nd-level routes in desktop/web environments with spring animation -->
+                <button class="sidebar-item sidebar-back-btn" id="sidebar-back-btn" tabindex="0" aria-label="${i18n.t('Back') || 'Back'}" style="display: none;">
+                    <div class="item-icon back-icon">
+                        ${sidebarIcons.back}
+                    </div>
+                    <span class="item-text back-text" data-i18n="Back">${i18n.t('Back') || 'Back'}</span>
+                </button>
+
                 <!-- Logo Section -->
                 <div class="sidebar-header" id="sidebar-logo-header">
                     <div class="logo-icon">
@@ -387,6 +397,9 @@ class Sidebar extends Component {
 
         // Initial setup of indicator
         this._updateIndicator();
+
+        // Initial setup of Desktop & Web back button state
+        this._updateBackButtonState();
     }
 
     async _updateSeerrVisibility() {
@@ -787,6 +800,7 @@ class Sidebar extends Component {
         const items = this.el.querySelectorAll('.sidebar-item');
         items.forEach((item) => {
             if (item.id === 'sidebar-logo-header') return; // Handled above
+            if (item.id === 'sidebar-back-btn') return; // Handled explicitly below
             if (item.id === 'sidebar-libraries') return; // Handled by accordion toggle
 
             this._bindItem(item, () => {
@@ -814,6 +828,18 @@ class Sidebar extends Component {
                 }
             });
         });
+
+        // macOS-style back button click and keyboard activation
+        const backBtn = this.el.querySelector('#sidebar-back-btn');
+        if (backBtn) {
+            this._bindItem(backBtn, (e) => {
+                if (e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                }
+                router.back();
+            });
+        }
 
         // Libraries accordion toggle button handler
         const librariesBtn = this.el.querySelector('#sidebar-libraries');
@@ -1390,6 +1416,7 @@ class Sidebar extends Component {
         this.activePath = path;
         this._updateActiveState();
         this._updateTransparentCollapsed();
+        this._updateBackButtonState();
         setTimeout(() => this._updateSidebarItemsAlign(), 0);
     }
 
@@ -1680,6 +1707,7 @@ class Sidebar extends Component {
         for (let i = 0; i < itemsLen; i++) {
             const el = items[i];
             if (el.id === 'sidebar-logo-header') continue;
+            if (el.id === 'sidebar-back-btn') continue;
 
             if (el.classList.contains('library-item')) {
                 // Dynamically injected library shortcut
@@ -1846,11 +1874,47 @@ class Sidebar extends Component {
         // Invalidate the focus cache so the updated DOM structure is re-scanned
         focusManager.invalidateCache('sidebar');
 
+        // Re-evaluate back button state for desktop and web layouts
+        this._updateBackButtonState();
+
         // Re-evaluate sidebar vertical alignment (center vs top) and floating island geometry once DOM reflow settles
         setTimeout(() => {
             this._updateSidebarItemsAlign();
             this._updateFloatingIslandGeometry();
         }, 0);
+    }
+
+    /**
+     * =========================================================================
+     * Desktop & Web Back Button State Synchronizer
+     * =========================================================================
+     * Evaluates route depth and navigation history on Desktop and Web platforms.
+     * When there is an ancestor page in the stack (router.canGoBack() is true),
+     * dynamically surfaces the sleek back button and pushes the
+     * Litefin brand logo downward with fluid spring physics.
+     * =========================================================================
+     * @private
+     */
+    _updateBackButtonState() {
+        if (!this.el) return;
+
+        // Dedicated mouse/pointer back control is only surfaced on Desktop and Web.
+        // TV platforms (Tizen, webOS, Android TV) use remote control Back hardware keys.
+        const isDesktopOrWeb = platformInfo.isWeb || platformInfo.isDesktop;
+        const canBack = isDesktopOrWeb && router.canGoBack();
+
+        // Toggle state class on parent container to trigger CSS spring transition pushing logo down
+        this.el.classList.toggle('has-back-button', canBack);
+
+        // Control interactive display and accessibility tabindex on the back button
+        const backBtn = this.el.querySelector('#sidebar-back-btn');
+        if (backBtn) {
+            backBtn.style.display = canBack ? 'flex' : 'none';
+            backBtn.tabIndex = canBack ? 0 : -1;
+        }
+
+        // Invalidate FocusManager DOM cache so spatial navigation and arrow keys recognize state
+        focusManager.invalidateCache('sidebar');
     }
 
     /**

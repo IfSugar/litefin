@@ -340,6 +340,153 @@ body:not(.sidebar-mode-hidden) .sidebar.collapsed:not(:hover) .item-icon {
     transform: translate3d(250px, 0, 0);
 }
 
+/* ----------------------------------------------------------------------------
+ * Navigation Back Control for Desktop & Web
+ * ----------------------------------------------------------------------------
+ * Implements a sleek, fluid, translucent circular back button.
+ * Features a subtle glass backdrop, smooth hover state transitions,
+ * and fluid spring cubic-bezier timing.
+ * ---------------------------------------------------------------------------- */
+.sidebar-back-btn {
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    height: 52px;
+    min-height: 52px;
+    display: none;
+    align-items: center;
+    position: relative;
+    box-sizing: border-box;
+    background: transparent;
+    border: none;
+    outline: none;
+    cursor: pointer;
+    z-index: 15;
+    -webkit-transition: opacity 0.3s cubic-bezier(0.34, 1.56, 0.64, 1),
+                        -webkit-transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+    transition: opacity 0.3s cubic-bezier(0.34, 1.56, 0.64, 1),
+                transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* Glassmorphic circular icon container centered in the 100px sidebar rail */
+.sidebar-back-btn .back-icon {
+    width: 100px;
+    width: var(--sidebar-width-collapsed, 100px);
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    position: relative;
+    z-index: 10;
+}
+
+/* Translucent Circular Capsule */
+.sidebar-back-btn .back-icon svg {
+    width: 36px;
+    height: 36px;
+    padding: 7px;
+    box-sizing: border-box;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    color: rgba(255, 255, 255, 0.85);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+    -webkit-backdrop-filter: blur(20px);
+    backdrop-filter: blur(20px);
+    -webkit-transition: background-color 0.25s cubic-bezier(0.2, 0, 0, 1),
+                        border-color 0.25s cubic-bezier(0.2, 0, 0, 1),
+                        color 0.2s ease,
+                        box-shadow 0.25s ease,
+                        -webkit-transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+    transition: background-color 0.25s cubic-bezier(0.2, 0, 0, 1),
+                border-color 0.25s cubic-bezier(0.2, 0, 0, 1),
+                color 0.2s ease,
+                box-shadow 0.25s ease,
+                transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* Hover and Focus interaction states: Elevated glow and spring scale */
+.sidebar-back-btn:hover .back-icon svg,
+.sidebar-back-btn:focus .back-icon svg,
+.sidebar-back-btn.focused .back-icon svg {
+    background: rgba(255, 255, 255, 0.18);
+    border-color: rgba(255, 255, 255, 0.28);
+    color: #ffffff;
+    -webkit-transform: scale(1.08);
+    transform: scale(1.08);
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.3), 0 0 16px rgba(var(--jf-accent-rgb, 0, 164, 220), 0.35);
+}
+
+/* Active / Pressed state: tactile bounce feedback */
+.sidebar-back-btn:active .back-icon svg {
+    -webkit-transform: scale(0.92);
+    transform: scale(0.92);
+}
+
+/* Typography label for expanded state */
+.sidebar-back-btn .back-text {
+    display: inline-block;
+    vertical-align: middle;
+    font-size: 1.35rem;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    color: rgba(255, 255, 255, 0.85);
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.2s ease, visibility 0.2s ease, color 0.15s ease;
+    margin-left: 2px;
+}
+
+.sidebar.expanded .sidebar-back-btn .back-text,
+.sidebar:hover .sidebar-back-btn .back-text {
+    opacity: 1;
+    visibility: visible;
+}
+
+.sidebar-back-btn:hover .back-text,
+.sidebar-back-btn:focus .back-text,
+.sidebar-back-btn.focused .back-text {
+    color: #ffffff;
+}
+
+/* Entrance spring animation when back button surfaces */
+@keyframes backButtonEntrance {
+    0% {
+        opacity: 0;
+        transform: translateY(-8px) scale(0.85);
+    }
+    100% {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+.sidebar.has-back-button .sidebar-back-btn {
+    animation: backButtonEntrance 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+/* Pushed down logo header animation and styling when back button is active */
+.sidebar.has-back-button #sidebar-logo-header {
+    margin-top: 4px;
+    margin-bottom: 12px;
+}
+
+/* RTL layout orientation: reflect back arrow */
+[dir="rtl"] .sidebar-back-btn .back-icon svg {
+    transform: rotate(180deg);
+}
+
+[dir="rtl"] .sidebar-back-btn:hover .back-icon svg,
+[dir="rtl"] .sidebar-back-btn:focus .back-icon svg,
+[dir="rtl"] .sidebar-back-btn.focused .back-icon svg {
+    transform: rotate(180deg) scale(1.08);
+}
+
+[dir="rtl"] .sidebar-back-btn:active .back-icon svg {
+    transform: rotate(180deg) scale(0.92);
+}
+
 /* Header / Logo */
 .sidebar-header {
     display: flex;
@@ -350,6 +497,10 @@ body:not(.sidebar-mode-hidden) .sidebar.collapsed:not(:hover) .item-icon {
     padding-left: 0;
     /* Centered in collapsed via flex */
     justify-content: flex-start;
+    -webkit-transition: margin 0.35s cubic-bezier(0.34, 1.56, 0.64, 1),
+                        -webkit-transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+    transition: margin 0.35s cubic-bezier(0.34, 1.56, 0.64, 1),
+                transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 .logo-icon {
