@@ -9,7 +9,7 @@
 
 import { api } from '../api/ApiClient.js';
 import { seerr } from '../api/seerrClient.js';
-import { SEERR_STATUS, seerrStatusKey, seerrSeasonStatusKey } from '../api/seerrNormalize.js';
+import { SEERR_STATUS, seerrStatusKey, seerrSeasonStatusKey, isSeerrAnimeItem } from '../api/seerrNormalize.js';
 import { focusManager } from '../ui/FocusManager.js';
 import { router } from '../core/Router.js';
 import { toast } from '../ui/Toast.js';
@@ -287,9 +287,13 @@ class SeerrRequestModal {
 
         // --------------------------------------------------------------------
         // Auto-Detect Default Server, Profile, and Root Folder:
-        // Based on media type ('movie' vs 'tv') and cached user preferences.
+        // Based on media type ('movie' vs 'tv'), the anime sub-type for TV
+        // series (Seerr routes anime to its dedicated profile/directory),
+        // and cached user preferences.
         // --------------------------------------------------------------------
         const mediaType = item._mediaType || 'movie';
+        const isAnime = isSeerrAnimeItem(item);
+        const subType = isAnime ? 'anime' : mediaType;
         const savedServerId = storage.getItem(`${STORAGE_KEY_DEFAULT_SERVER}${mediaType}`);
 
         let selectedServer = null;
@@ -397,19 +401,23 @@ class SeerrRequestModal {
                 const serverObj = detail?.server || detail;
                 const serverId = selectedServer.id;
 
-                // 1. Quality Profile: check cached preference for this server, then server active profile, then first
-                const savedProfileId = storage.getItem(`${STORAGE_KEY_DEFAULT_PROFILE}${mediaType}:${serverId}`);
+                // 1. Quality Profile: check cached preference for this server, then server active profile, then first.
+                // Anime series prefer the server's dedicated anime profile when one is configured.
+                const savedProfileId = storage.getItem(`${STORAGE_KEY_DEFAULT_PROFILE}${subType}:${serverId}`);
+                const activeProfileId = (isAnime && serverObj?.activeAnimeProfileId) || serverObj?.activeProfileId;
                 selectedProfile =
                     (savedProfileId != null ? detail?.profiles?.find((p) => String(p.id) === String(savedProfileId)) : null) ||
-                    detail?.profiles?.find((profile) => profile.id === serverObj?.activeProfileId) ||
+                    detail?.profiles?.find((profile) => profile.id === activeProfileId) ||
                     detail?.profiles?.[0] ||
                     null;
 
-                // 2. Root Folder: check cached preference for this server, then server active directory, then first
-                const savedFolder = storage.getItem(`${STORAGE_KEY_DEFAULT_FOLDER}${mediaType}:${serverId}`);
+                // 2. Root Folder: check cached preference for this server, then server active directory, then first.
+                // Anime series prefer the server's dedicated anime directory when one is configured.
+                const savedFolder = storage.getItem(`${STORAGE_KEY_DEFAULT_FOLDER}${subType}:${serverId}`);
+                const activeDirectory = (isAnime && serverObj?.activeAnimeDirectory) || serverObj?.activeDirectory;
                 selectedRootFolder =
                     (savedFolder ? detail?.rootFolders?.find((f) => f.path === savedFolder) : null) ||
-                    detail?.rootFolders?.find((folder) => folder.path === serverObj?.activeDirectory) ||
+                    detail?.rootFolders?.find((folder) => folder.path === activeDirectory) ||
                     detail?.rootFolders?.[0] ||
                     null;
 
@@ -458,7 +466,7 @@ class SeerrRequestModal {
                 if (choice) {
                     selectedProfile = choice;
                     // Persist selected quality profile preference for this server and media type
-                    storage.setItem(`${STORAGE_KEY_DEFAULT_PROFILE}${mediaType}:${selectedServer.id}`, String(choice.id));
+                    storage.setItem(`${STORAGE_KEY_DEFAULT_PROFILE}${subType}:${selectedServer.id}`, String(choice.id));
                     profileButton.querySelector('.seerr-option-value').textContent = choice.name;
                 }
             });
@@ -481,7 +489,7 @@ class SeerrRequestModal {
                 if (choice) {
                     selectedRootFolder = choice;
                     // Persist selected root folder preference for this server and media type
-                    storage.setItem(`${STORAGE_KEY_DEFAULT_FOLDER}${mediaType}:${selectedServer.id}`, choice.path);
+                    storage.setItem(`${STORAGE_KEY_DEFAULT_FOLDER}${subType}:${selectedServer.id}`, choice.path);
                     rootButton.querySelector('.seerr-option-value').textContent = choice.path;
                 }
             });
@@ -516,12 +524,16 @@ class SeerrRequestModal {
             });
             const serverObj = detail?.server || detail;
 
+            // Anime series prefer the server's dedicated anime language profile when one is configured
+            const activeLanguageProfileId =
+                (isAnime && serverObj?.activeAnimeLanguageProfileId) || serverObj?.activeLanguageProfileId;
+
             // Return fully resolved request payload attributes
             return {
                 serverId: selectedServer.id,
                 profileId: selectedProfile?.id,
                 rootFolder: selectedRootFolder?.path,
-                languageProfileId: serverObj?.activeLanguageProfileId,
+                languageProfileId: activeLanguageProfileId,
                 is4k: !!(serverObj?.is4k ?? selectedServer.is4k),
                 userId: targetUserId
             };
