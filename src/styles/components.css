@@ -788,6 +788,15 @@ progress.card-progress::-webkit-progress-value {
     display: inline-block;
 }
 
+/* A focused selected row is filled with the adaptive focus background, so the filled checkmark
+   must follow the same dynamic contrast variable instead of the fixed primary text color, or it
+   disappears against a light focus fill. Hover is excluded here because the global hover rule
+   changes no background, leaving --jf-text-primary legible. */
+.modal-option-btn.selected.focused .check-icon .icon-filled,
+.modal-option-btn.selected:focus .check-icon .icon-filled {
+    color: var(--jf-btn-primary-focus-color) !important;
+}
+
 /* Filter/Sort column layout: flex for modern/legacy, floats for ultra-legacy (Chrome 32) */
 .filter-split-container {
     display: flex;
@@ -2094,18 +2103,21 @@ html[data-layout-quirks="c26"] .media-fallback {
     z-index: 3;
 }
 
-/* Active Filter Pill */
+/* Active Filter Pill — the label uses the dynamic on-accent contrast color so a light/white
+   custom accent does not render white-on-white text. */
 .modal-filter-pill.active {
     background: var(--jf-accent, #00a4dc);
-    color: #ffffff;
+    color: var(--jf-accent-content-color, #ffffff);
     border-color: var(--jf-accent, #00a4dc);
 }
 
-/* Focused Active Filter Pill */
+/* Focused Active Filter Pill — the focus background is a hardcoded #ffffff for all pills, so the
+   accent-colored label would vanish against it with light accents; use the same fixed dark text
+   as the non-active pills' inverted focus feedback. */
 .modal-filter-pill.active:focus,
 .modal-filter-pill.active.focused {
     background: #ffffff !important;
-    color: var(--jf-accent, #0077aa) !important;
+    color: #111111 !important;
     border-color: #ffffff !important;
     transform: scale(1.04);
 }
@@ -2148,16 +2160,17 @@ html[data-layout-quirks="c26"] .media-fallback {
     transform: scale(1.15);
 }
 
-/* Star in Focused Row Highlight */
+/* Star in Focused Row Highlight — follows the dynamic focus text color (the exact pairing of
+   --jf-btn-primary-focus-bg) instead of a hardcoded white tone that vanishes on light fills. */
 .modal-option-btn:focus .modal-star-btn.active,
 .modal-option-btn.focused .modal-star-btn.active {
-    color: #ffffff;
+    color: var(--jf-btn-primary-focus-color);
 }
 
 /* Inactive Star in Focused Row */
 .modal-option-btn:focus .modal-star-btn:not(.active),
 .modal-option-btn.focused .modal-star-btn:not(.active) {
-    color: rgba(255, 255, 255, 0.7);
+    color: var(--jf-btn-primary-focus-color);
 }
 
 /* Favorite Languages Management Modal Container */
