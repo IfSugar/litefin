@@ -218,8 +218,8 @@ class App {
             // Check if a one-time profile skip is armed (e.g., after user switch reload)
             const skipProfilesOnce = storage.getItem('litefin:skip_profiles_once') === 'true';
 
-            // Check if running on standard web browser vs smart TV environment
-            const isWeb = platformInfo.isWeb;
+            // Check if running on standard web browser or desktop app vs smart TV environment
+            const isWeb = platformInfo.isWeb || platformInfo.isDesktop;
 
             // Inspect the initial hash route to determine target page
             const initialPath = window.location.hash.slice(1) || '/';
@@ -956,11 +956,11 @@ class App {
                 //
                 // For DetailsPage launches we still REPLACE to prevent history bloat.
                 //
-                // Standard web exception:
-                // We disable this optimization on standard web browsers to prevent breaking
-                // the browser's native back button behavior and page reload flow.
+                // Standard web and desktop exception:
+                // We disable this optimization on web/desktop to prevent breaking
+                // the native back button behavior and window history flow.
                 const isFromLiveTv = currentPath.startsWith('/livetv');
-                const shouldReplace = !fromSlideshow && !fromBrowse && !isFromLiveTv && !platformInfo.isWeb;
+                const shouldReplace = !fromSlideshow && !fromBrowse && !isFromLiveTv && !platformInfo.isWeb && !platformInfo.isDesktop;
 
                 router.navigate(`/player/${itemToPlay.Id}/${resumeParam}${queryParam}`, {
                     replace: shouldReplace

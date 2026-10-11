@@ -74,7 +74,8 @@ class HeroCarousel {
         const intervalInSeconds = (this._autoScrollInterval / 1000).toFixed(1) + 's';
 
         let navArrowsHtml = '';
-        if ((platformInfo.isWeb || platformInfo.isWebOS) && this._items.length > 1) {
+        // Render navigation arrows on pointer-driven platforms (Web, Desktop, WebOS Magic Remote)
+        if ((platformInfo.isWeb || platformInfo.isDesktop || platformInfo.isWebOS) && this._items.length > 1) {
             navArrowsHtml = `
                 <div class="hero-nav-arrows">
                     <button class="hero-arrow hero-arrow-left" aria-label="Previous" tabindex="-1">
@@ -511,7 +512,8 @@ class HeroCarousel {
             this._handleFocus();
         }
 
-        if (platformInfo.isWeb || platformInfo.isWebOS) {
+        // Bind click navigation for mouse/pointer devices (Web browsers, Desktop app, WebOS)
+        if (platformInfo.isWeb || platformInfo.isDesktop || platformInfo.isWebOS) {
             const leftBtn = this._container.querySelector('.hero-arrow-left');
             const rightBtn = this._container.querySelector('.hero-arrow-right');
             if (leftBtn && rightBtn) {

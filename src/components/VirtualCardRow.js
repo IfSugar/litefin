@@ -480,7 +480,14 @@ export class VirtualCardRow {
             }
         }
 
-        if ((platformInfo.isWeb || platformInfo.isWebOS) && this.totalItems > 4) {
+        // ---------------------------------------------------------------------
+        // Interactive Scroll Navigation Arrows
+        // ---------------------------------------------------------------------
+        // Render left/right scroll arrow controls for mouse/pointer driven
+        // environments (Web browsers, Desktop Tauri app, and WebOS Magic Remote)
+        // whenever the row contains more cards than fit within the initial view.
+        // ---------------------------------------------------------------------
+        if ((platformInfo.isWeb || platformInfo.isDesktop || platformInfo.isWebOS) && this.totalItems > 4) {
             this._injectScrollArrows();
         }
     }

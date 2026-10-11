@@ -751,10 +751,10 @@ const DEFAULTS = {
      *
      * For desktop/mobile web browsers, we display the OSD back button by default
      * (false) to ensure users have a clear visual navigation path to return
-     * to the details page without relying on keyboard shortcuts or browser back.
      * =========================================================================
      */
-    osdHideBackButton: !platformInfo.isWeb,
+    // OSD back button is visible on Web and Desktop pointer interfaces, hidden on TV remotes
+    osdHideBackButton: !platformInfo.isWeb && !platformInfo.isDesktop,
 
     // Combine skip (seek, chapter, track) buttons into single buttons with multi-click actions
     osdCombineSkipButtons: false,

@@ -4891,7 +4891,8 @@ class PlayerPage extends Page {
                 this.params.fromSlideshow === 'true' ||
                 this.params.fromBrowse === 'true' ||
                 this.params.fromGuide === 'true' ||
-                platformInfo.isWeb
+                platformInfo.isWeb ||
+                platformInfo.isDesktop
             ) {
                 router.back();
             } else {

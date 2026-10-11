@@ -308,6 +308,11 @@ class PlatformInfo {
             return false;
         }
 
+        // Direct flag check if platform detected as desktop application shell
+        if (this._platform === 'desktop') {
+            return true;
+        }
+
         // Check for dedicated desktop application shell wrapper (Tauri on desktop)
         if (typeof window !== 'undefined') {
             if (window.__TAURI__ || window.__TAURI_METADATA__ || window.__TAURI_INTERNALS__) {
@@ -319,22 +324,7 @@ class PlatformInfo {
             }
         }
 
-        // User Agent parsing for desktop operating systems
-        if (typeof navigator !== 'undefined' && navigator.userAgent) {
-            const ua = navigator.userAgent;
-
-            // Reject any explicit mobile or television indicators
-            if (/Mobile|Android|iPhone|iPad|iPod|Tizen|Web[O0]S|SmartTV/i.test(ua)) {
-                return false;
-            }
-
-            // Identify desktop operating systems (Windows, macOS, Linux, ChromeOS)
-            if (/Win32|Win64|Windows|Macintosh|Mac OS X|Linux|CrOS/i.test(ua)) {
-                return true;
-            }
-        }
-
-        // Return false when no desktop indicator is matched
+        // Standard web browsers running on PC fall through to false (isWeb = true)
         return false;
     }
 
