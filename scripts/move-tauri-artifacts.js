@@ -231,7 +231,84 @@ export async function moveTauriOutputs() {
     }
 
     // ------------------------------------------------------------------------
-    // 2. Android APK Packages
+    // 2. Portable Standalone Executable (litefin.exe / litefin)
+    // ------------------------------------------------------------------------
+    // Tauri/Cargo compiles the standalone unbundled portable executable into
+    // target/release or target/debug before wrapping it into installers.
+    //
+    // We relocate this standalone binary directly into the Litefin repository
+    // root using our versioned naming convention:
+    //   - Release: Litefin-${version}.exe (Windows) or Litefin-${version} (Linux/macOS)
+    //   - Debug:   Litefin-${version}-debug.exe or Litefin-${version}-debug
+    // ------------------------------------------------------------------------
+    const baseTargetDir = path.join(rootDir, 'src-tauri', 'target');
+    const portableCandidateDirs = [];
+
+    // Check standard Cargo output directories
+    const defaultReleaseDir = path.join(baseTargetDir, 'release');
+    const defaultDebugDir = path.join(baseTargetDir, 'debug');
+    if (fs.existsSync(defaultReleaseDir)) portableCandidateDirs.push(defaultReleaseDir);
+    if (fs.existsSync(defaultDebugDir)) portableCandidateDirs.push(defaultDebugDir);
+
+    // Also inspect any custom cross-compilation target triple subdirectories
+    if (fs.existsSync(baseTargetDir)) {
+        const targetSubdirs = fs.readdirSync(baseTargetDir, { withFileTypes: true });
+        for (const sub of targetSubdirs) {
+            // Filter out files, standard directories, and Android NDK toolchain targets
+            if (
+                sub.isDirectory() &&
+                sub.name !== 'release' &&
+                sub.name !== 'debug' &&
+                !sub.name.includes('android')
+            ) {
+                const subRelease = path.join(baseTargetDir, sub.name, 'release');
+                const subDebug = path.join(baseTargetDir, sub.name, 'debug');
+                if (fs.existsSync(subRelease)) portableCandidateDirs.push(subRelease);
+                if (fs.existsSync(subDebug)) portableCandidateDirs.push(subDebug);
+            }
+        }
+    }
+
+    // Binary file names produced by Cargo across platforms
+    const portableBinaryNames = ['litefin.exe', 'litefin', 'Litefin.exe', 'Litefin'];
+
+    for (const searchDir of portableCandidateDirs) {
+        for (const binName of portableBinaryNames) {
+            const binPath = path.join(searchDir, binName);
+
+            // Verify the executable file exists and is a regular file
+            if (fs.existsSync(binPath) && fs.statSync(binPath).isFile()) {
+                const isDebug = searchDir.endsWith('debug') || searchDir.includes(`${path.sep}debug`);
+                const ext = path.extname(binName).toLowerCase();
+                const debugSuffix = isDebug ? '-debug' : '';
+
+                // Canonical destination filename matching user's versioned standard
+                const targetName = `Litefin-${version}${debugSuffix}${ext}`;
+                const destPath = path.join(rootDir, targetName);
+                const stats = fs.statSync(binPath);
+
+                safelyMoveFile(binPath, destPath);
+                console.info(`✓ Portable Binary: ${binName} -> ${targetName} (${formatFileSize(stats.size)}) -> ./`);
+                movedCount++;
+            }
+        }
+
+        // Also check for any loose APK or AAB binaries placed directly in target dirs
+        const loosePackages = scanDirectoryForExtensions(searchDir, ['.apk', '.aab']);
+        for (const pkgPath of loosePackages) {
+            const pkgName = path.basename(pkgPath);
+            const targetName = formatAndroidArtifactName(pkgName, version);
+            const destPath = path.join(rootDir, targetName);
+            const stats = fs.statSync(pkgPath);
+
+            safelyMoveFile(pkgPath, destPath);
+            console.info(`✓ Android Binary: ${pkgName} -> ${targetName} (${formatFileSize(stats.size)}) -> ./`);
+            movedCount++;
+        }
+    }
+
+    // ------------------------------------------------------------------------
+    // 3. Android APK Packages
     // ------------------------------------------------------------------------
     // Search gen/android/app/build/outputs/apk for release & debug APK binaries
     const androidApkDir = path.join(rootDir, 'src-tauri', 'gen', 'android', 'app', 'build', 'outputs', 'apk');
@@ -253,7 +330,7 @@ export async function moveTauriOutputs() {
     }
 
     // ------------------------------------------------------------------------
-    // 3. Android AAB Bundles
+    // 4. Android AAB Bundles
     // ------------------------------------------------------------------------
     // Search gen/android/app/build/outputs/bundle for Google Play AAB bundles
     const androidBundleDir = path.join(rootDir, 'src-tauri', 'gen', 'android', 'app', 'build', 'outputs', 'bundle');
