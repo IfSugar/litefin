@@ -355,14 +355,26 @@ html[data-layout-media-rows="modern-posters"] .media-card.seerr-genre-card .card
 
 /* Focused fill/border is already handled by the global adaptive .modal-option-btn:focus/.focused
    rule in components.css (--jf-btn-primary-focus-bg / --jf-btn-primary-focus-border). What was
-   missing: child text elements carrying their own fixed color (e.g. .seerr-user-email,
-   .seerr-chevron-icon, .seerr-option-value) did not adapt to that fill and became illegible
-   against a light/white focus background. Override them with the same dynamic contrast variable,
-   mirroring the existing `.modal-option-btn.focused .track-badge` fix in components.css. */
+   missing: child elements carrying their own fixed color (e.g. .seerr-user-name, .seerr-user-email,
+   .seerr-chevron-icon, .seerr-option-value, and every child of a user-picker list row) did not
+   adapt to that fill and became illegible against a light/white focus background. Override them
+   with the same dynamic contrast variable, mirroring the existing
+   `.modal-option-btn.focused .track-badge` fix in components.css. */
+.seerr-user-select-btn.focused .seerr-user-name,
 .seerr-user-select-btn.focused .seerr-user-email,
 .seerr-user-select-btn.focused .seerr-chevron-icon,
-.seerr-option-select.focused .seerr-option-value {
+.seerr-option-select.focused .seerr-option-value,
+.seerr-user-choice-btn.focused .seerr-user-name,
+.seerr-user-choice-btn.focused .seerr-user-sub,
+.seerr-user-choice-btn.focused .seerr-user-check {
     color: var(--jf-btn-primary-focus-color) !important;
+}
+
+/* The default (non-personalized) avatar is an SVG with a fixed white fill that vanishes against a
+   light focus fill in both contexts. Adapt it the same way — custom avatars are <img> and unaffected. */
+.seerr-user-select-btn.focused .seerr-avatar-icon,
+.seerr-user-choice-btn.focused .seerr-avatar-icon {
+    fill: var(--jf-btn-primary-focus-color) !important;
 }
 
 .seerr-user-preview {
