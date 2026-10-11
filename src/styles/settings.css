@@ -228,6 +228,32 @@ html[data-layout-tier="ultra-legacy"] .settings-menu-btn .menu-icon {
     line-height: 1.4;
 }
 
+/* Audio language fallback slots — ordered list under a single group heading */
+.audio-fallback-slot .setting-label {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+.fallback-priority-index {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    flex-shrink: 0;
+    border-radius: var(--jf-border-radius);
+    background-color: rgba(var(--jf-accent-rgb), 0.25);
+    color: var(--jf-text-on-accent, #ffffff);
+    font-size: 1.4rem;
+    font-weight: 700;
+}
+
+.fallback-slot-name {
+    display: inline-block;
+    margin-bottom: 0;
+}
+
 .setting-control {
     display: flex;
     flex-wrap: wrap;

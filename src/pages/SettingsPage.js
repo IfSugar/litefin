@@ -28,6 +28,7 @@ import { pluginManager } from '../plugins/PluginManager.js';
 import { platformInfo } from '../utils/PlatformInfo.js';
 import { homeLayoutManager } from '../utils/HomeLayoutManager.js';
 import { sidebarLayoutManager } from '../utils/SidebarLayoutManager.js';
+import { AUDIO_FALLBACK_SLOTS, isAudioFallbackSelect } from '../utils/AudioFallbackConfig.js';
 import { eventBus } from '../core/EventBus.js';
 import { versionChecker } from '../utils/VersionChecker.js';
 import { settingsIcons, setIconStyle, getSupportedStyles } from '../utils/Icons.js';
@@ -3513,6 +3514,31 @@ class SettingsPage extends Page {
             )}
                     </div>
                 </div>
+
+                <div class="setting-item audio-fallback-group">
+                    <div class="setting-label">
+                        <span class="setting-name" data-i18n="LabelAudioLanguageFallbackGroup">${i18n.t('LabelAudioLanguageFallbackGroup') || 'Fallback audio languages'}</span>
+                        <span class="setting-description" data-i18n="AudioLanguageFallbackDescription">${i18n.t('AudioLanguageFallbackDescription')}</span>
+                    </div>
+                </div>
+
+                ${AUDIO_FALLBACK_SLOTS.map((priority) => {
+                    const selectId = `audio-fallback-lang-${priority}-select`;
+                    return `
+                <div class="setting-item audio-fallback-slot">
+                    <div class="setting-label">
+                        <span class="fallback-priority-index" title="${priority}">${priority}</span>
+                        <span class="setting-name fallback-slot-name" data-i18n="LabelAudioLanguageFallback">${i18n.t('LabelAudioLanguageFallback') || 'Fallback audio language'}</span>
+                    </div>
+                    <div class="setting-control">
+                        ${this._renderDropdown(
+                            selectId,
+                            [{ value: 'Default', label: i18n.t('Default') }, ...this.prefLanguages],
+                            storage.getItem(`pref:audioLangFallback${priority}`) || 'Default'
+                        )}
+                    </div>
+                </div>`;
+                }).join('')}
 
                 <div class="setting-item">
                     <div class="setting-label">
@@ -9063,6 +9089,7 @@ class SettingsPage extends Page {
         // Check if this dropdown is a language selection menu
         const isLanguageSelect = selectId === 'app-language-select' ||
             selectId === 'audio-lang-select' ||
+            isAudioFallbackSelect(selectId) ||
             selectId === 'subtitle-lang-select' ||
             (title && (title.toLowerCase().includes('language') || title.toLowerCase().includes('idioma') || title.toLowerCase().includes('langue') || title.toLowerCase().includes('sprache')));
 
@@ -10030,6 +10057,9 @@ class SettingsPage extends Page {
             'max-bitrate-select': { key: 'maxBitrateInternet', type: 'player' },
             'trailer-playback-select': { key: 'trailerPlaybackMode', type: 'player' },
             'audio-lang-select': { key: 'pref:audioLang', type: 'local' },
+            'audio-fallback-lang-1-select': { key: 'pref:audioLangFallback1', type: 'local' },
+            'audio-fallback-lang-2-select': { key: 'pref:audioLangFallback2', type: 'local' },
+            'audio-fallback-lang-3-select': { key: 'pref:audioLangFallback3', type: 'local' },
             'subtitle-lang-select': { key: 'pref:subtitleLang', type: 'local' },
             'skip-forward-select': { key: 'skipForwardLength', type: 'player' },
             'skip-back-select': { key: 'skipBackLength', type: 'player' },
