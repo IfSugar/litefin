@@ -61,14 +61,13 @@ jobs:
             artifacts: |
               *.deb
               *.AppImage
-              Litefin-*
+              *.rpm
 
           - name: macOS
             os: macos-latest
             script: npm run package:macos
             artifacts: |
               *.dmg
-              Litefin-*
 
     steps:
       # ------------------------------------------------------------------------
@@ -192,31 +191,35 @@ jobs:
           java-version: '17'
 
       # ------------------------------------------------------------------------
-      # Step 4: Configure Android SDK and platform command line tools
+      # Step 4: Configure Android SDK and NDK environment variables
       # ------------------------------------------------------------------------
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
+      # GitHub ubuntu-latest runners come with the Android SDK pre-installed at
+      # /usr/local/lib/android/sdk with build-tools, platforms, and NDKs.
+      # We automatically configure environment paths and locate the NDK.
       # ------------------------------------------------------------------------
-      # Step 5: Locate and configure Android NDK environment variables
-      # ------------------------------------------------------------------------
-      - name: Setup Android NDK
+      - name: Setup Android SDK and NDK
         run: |
-          # Detect installed NDK within the Android SDK directory tree
-          if [ -d "$ANDROID_SDK_ROOT/ndk" ]; then
-            ANDROID_NDK_ROOT=$(find "$ANDROID_SDK_ROOT/ndk" -maxdepth 1 -mindepth 1 | sort -V | tail -n 1)
+          echo "ANDROID_HOME=$ANDROID_HOME" >> $GITHUB_ENV
+          echo "ANDROID_SDK_ROOT=$ANDROID_HOME" >> $GITHUB_ENV
+          
+          # Detect the highest installed NDK version in the pre-installed SDK
+          if [ -d "$ANDROID_HOME/ndk" ]; then
+            ANDROID_NDK_ROOT=$(find "$ANDROID_HOME/ndk" -maxdepth 1 -mindepth 1 | sort -V | tail -n 1)
           fi
           
-          # If no pre-installed NDK exists on the runner, download modern LTS version
-          if [ -z "$ANDROID_NDK_ROOT" ]; then
+          # If no NDK exists, install modern LTS NDK via cmdline-tools sdkmanager
+          if [ -z "$ANDROID_NDK_ROOT" ] || [ ! -d "$ANDROID_NDK_ROOT" ]; then
             echo "Installing NDK via sdkmanager..."
-            sdkmanager --install "ndk;26.3.11579264"
-            ANDROID_NDK_ROOT="$ANDROID_SDK_ROOT/ndk/26.3.11579264"
+            yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --install "ndk;26.3.11579264"
+            ANDROID_NDK_ROOT="$ANDROID_HOME/ndk/26.3.11579264"
           fi
           
-          echo "Discovered Android NDK at: $ANDROID_NDK_ROOT"
+          echo "Using Android NDK: $ANDROID_NDK_ROOT"
           echo "NDK_HOME=$ANDROID_NDK_ROOT" >> $GITHUB_ENV
           echo "ANDROID_NDK_HOME=$ANDROID_NDK_ROOT" >> $GITHUB_ENV
+          
+          # Accept Android SDK licenses
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
 
       # ------------------------------------------------------------------------
       # Step 6: Setup Rust toolchain with all Android target cross-compilers

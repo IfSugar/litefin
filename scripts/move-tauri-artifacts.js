@@ -269,8 +269,9 @@ export async function moveTauriOutputs() {
         }
     }
 
-    // Binary file names produced by Cargo across platforms
-    const portableBinaryNames = ['litefin.exe', 'litefin', 'Litefin.exe', 'Litefin'];
+    // Standalone portable executables are specifically packaged for Windows (.exe).
+    // Linux and macOS users install or run proper bundles (.AppImage, .deb, .rpm, .dmg).
+    const portableBinaryNames = ['litefin.exe', 'Litefin.exe'];
 
     for (const searchDir of portableCandidateDirs) {
         for (const binName of portableBinaryNames) {
