@@ -554,6 +554,25 @@ class LazyLoader {
     _batchPreloadImages(startImg) {
         if (!startImg) return;
 
+        // If scrolling or vertical navigation animation is active on screen,
+        // defer batch preloading until motion settles cleanly to avoid competing
+        // with 60fps compositor animation frames on TV hardware.
+        if (this._isScrolling()) {
+            this._pendingPreloadTarget = startImg;
+            if (!this._scrollPreloadHandler) {
+                this._scrollPreloadHandler = () => {
+                    this._scrollPreloadHandler = null;
+                    const target = this._pendingPreloadTarget;
+                    this._pendingPreloadTarget = null;
+                    if (target && !this._isScrolling()) {
+                        this._batchPreloadImages(target);
+                    }
+                };
+                eventBus.once('scroll:finished', this._scrollPreloadHandler);
+            }
+            return;
+        }
+
         const currentCard = startImg.closest('.media-card');
         if (!currentCard) return;
 

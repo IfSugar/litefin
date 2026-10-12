@@ -357,14 +357,14 @@ class ScrollController {
         // ----------------------------------------------------------------
         // Standard row-to-row transitions (~250px) utilize the base 200ms duration.
         // For large vertical transitions (e.g. hero carousel ↔ first content row
-        // at 500-750px), scale duration proportionally (up to 340ms). This
-        // keeps velocity well within the TV graphics compositor budget (~1600px/s),
-        // allowing the camera to glide with organic weight without dropping frames.
+        // at 450-700px), scale duration gently (up to 260ms max). This keeps motion
+        // brisk and responsive for TV D-pad navigation while giving the compositor
+        // adequate budget to glide with natural weight without dropping frames.
         // ----------------------------------------------------------------
         if (isVertical && durationToUse > 0) {
             const distance = Math.abs(targetScroll - currentScroll);
             if (distance > 400) {
-                durationToUse = Math.min(340, Math.round(durationToUse * (1 + (distance - 400) / 500)));
+                durationToUse = Math.min(260, Math.round(durationToUse * (1 + (distance - 400) / 800)));
             }
         }
 
@@ -480,12 +480,9 @@ class ScrollController {
                 this[stateKey].target = targetScroll;
                 this[stateKey].startTime = null; // Will reset on next RAF
                 this[stateKey].duration = Math.max(minDurationFloor, scaledDuration);
-                this[stateKey].isLargeScroll = isVertical && Math.abs(targetScroll - currentScroll) > 400;
                 return;
             }
         }
-
-        const isLargeScroll = isVertical && Math.abs(targetScroll - currentScroll) > 400;
 
         // Create new animation state
         this[stateKey] = {
@@ -494,17 +491,11 @@ class ScrollController {
             startScroll: currentScroll,
             target: targetScroll,
             startTime: null, // Initialized in first RAF frame
-            duration: durationToUse,
-            isLargeScroll
+            duration: durationToUse
         };
 
         // easeOutQuad: fast start, smooth deceleration (t * (2 - t))
         const easeOutQuad = (t) => t * (2 - t);
-
-        // Smoothstep S-curve for large vertical transitions (e.g. hero carousel ↔ first content row):
-        // Starts with a gentle acceleration ramp (zero initial jerk) so frame 1 doesn't spike
-        // on TV compositors, cruises smoothly, and decelerates into landing without frame drops.
-        const easeSmoothStep = (t) => t * t * (3 - 2 * t);
 
         // SMOOTH ARRIVAL BLEND: For the last 15% of animation time, rescale
         // easeOutQuad over the remaining distance. This maintains velocity
@@ -529,12 +520,11 @@ class ScrollController {
             const elapsed = time - state.startTime;
             const progress = Math.min(elapsed / state.duration, 1);
 
-            // For large vertical transitions (e.g. hero carousel ↔ first row), use the gentle
-            // smoothstep curve to keep initial velocity safe for TV compositing. For standard
-            // row-to-row navigation, use blended easeOutQuad for maximum responsiveness.
-            const eased = state.isLargeScroll
-                ? easeSmoothStep(progress)
-                : progress < EASE_BLEND
+            // Unified deceleration curve: initiates instantly on frame 1 for snappy
+            // D-pad tactile response, cruises with continuous momentum, and smoothly
+            // settles to velocity = 0 at the arrival point.
+            const eased =
+                progress < EASE_BLEND
                     ? easeOutQuad(progress)
                     : blendAt + blendRemaining * easeOutQuad((progress - EASE_BLEND) / blendDuration);
 

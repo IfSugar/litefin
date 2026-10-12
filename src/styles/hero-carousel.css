@@ -403,20 +403,10 @@
     overflow: hidden;
     touch-action: pan-y;
     /*
-     * Isolates layout, style, and painting so internal animations within the carousel
+     * Isolates layout and style so internal changes within the carousel
      * do not cascade layout invalidations outward to neighboring sections.
      */
-    contain: layout style paint;
-
-    /*
-     * Promote the entire carousel container to an isolated hardware GPU layer.
-     * Prevents layer squashing and overlap recalculation stalls when overlapping
-     * with the content rows container directly below it.
-     */
-    transform: translateZ(0);
-    -webkit-transform: translateZ(0);
-    backface-visibility: hidden;
-    -webkit-backface-visibility: hidden;
+    contain: layout style;
 }
 
 /*
@@ -439,16 +429,6 @@
     transition: opacity 0.3s ease;
     pointer-events: none;
     z-index: 100;
-
-    /*
-     * Hardware-accelerate the focus overlay gradient to eliminate software
-     * CPU repaints of the full 1080p canvas during focus transitions.
-     */
-    transform: translateZ(0);
-    -webkit-transform: translateZ(0);
-    will-change: opacity;
-    backface-visibility: hidden;
-    -webkit-backface-visibility: hidden;
 }
 
 .hero-carousel-container:focus,
@@ -880,7 +860,6 @@
     position: relative;
     /* Ensure the row cards float cleanly above the lower backdrop layer for spatial focus */
     z-index: 10;
-    contain: paint layout;
 }
 
 /* Upward Section Overlap for compact mode */
@@ -892,7 +871,6 @@
     margin-top: var(--hero-carousel-overlap-compact, -550px);
     position: relative;
     z-index: 10;
-    contain: paint layout;
 }
 
 /* Elevated Text Content padding to push meta/description above the home-rows overlap */
@@ -1241,11 +1219,9 @@ body:not(.no-sidebar):not(.sidebar-mode-hidden) .hero-carousel-container.semi-im
     }
     html:not([data-display-scale]) #home-hero-placeholder.style-immersive + .home-rows {
         margin-top: -340px;
-        contain: paint layout;
     }
     html:not([data-display-scale]) #home-hero-placeholder.style-immersive.style-compact + .home-rows {
         margin-top: -420px;
-        contain: paint layout;
     }
 
     html:not([data-display-scale]) .hero-carousel-container.immersive .hero-item {
@@ -1284,11 +1260,9 @@ body:not(.no-sidebar):not(.sidebar-mode-hidden) .hero-carousel-container.semi-im
     }
     html:not([data-display-scale]) #home-hero-placeholder.style-immersive + .home-rows {
         margin-top: -240px;
-        contain: paint layout;
     }
     html:not([data-display-scale]) #home-hero-placeholder.style-immersive.style-compact + .home-rows {
         margin-top: -300px;
-        contain: paint layout;
     }
 
     html:not([data-display-scale]) .hero-carousel-container.immersive .hero-item {
