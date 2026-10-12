@@ -123,21 +123,17 @@ export class PrewarmManager {
 
         // 2. Pre-fetch PlaybackInfo from Jellyfin server using ApiClient
         try {
-            // Determine video player backend configuration based on platform
-            const playerBackendSetting = PlayerSettings.get('playerBackend') || 'auto';
+            // Determine video player backend configuration based on user setting or platform recommendation
+            const playerBackendSetting = PlayerSettings.get('playerBackend') || 'html5';
             let backendType = 'html5';
-            if (playerBackendSetting === 'exoplayer' || (playerBackendSetting === 'auto' && platformInfo.isAndroid)) {
+            if (playerBackendSetting === 'exoplayer') {
                 backendType = 'exoplayer';
-            } else if (
-                // Prewarm Movi backend if explicitly requested or auto-detected on Web/Desktop runtimes with WebCodecs
-                (playerBackendSetting === 'movi' && platformInfo.hasWebCodecsSupport) ||
-                (playerBackendSetting === 'auto' && (platformInfo.isDesktop || platformInfo.isWeb) && platformInfo.hasWebCodecsSupport)
-            ) {
-                // Assign backend target to movi for hardware-accelerated direct streaming
+            } else if (playerBackendSetting === 'movi' && platformInfo.hasWebCodecsSupport) {
+                // Prewarm Movi backend when configured and WebCodecs hardware decode is supported
                 backendType = 'movi';
-            } else if (playerBackendSetting === 'avplay' || (playerBackendSetting === 'auto' && platformInfo.isTizen)) {
+            } else if (playerBackendSetting === 'avplay') {
                 backendType = 'avplay';
-            } else if (playerBackendSetting === 'webos' || (playerBackendSetting === 'auto' && platformInfo.isWebOS)) {
+            } else if (playerBackendSetting === 'webos') {
                 backendType = 'webos';
             }
 

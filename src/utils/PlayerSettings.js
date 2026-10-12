@@ -21,6 +21,35 @@ import { platformInfo } from './PlatformInfo.js';
 const log = logger.create('PlayerSettings');
 
 /**
+ * =========================================================================
+ * Platform-Aware Recommended Video Player Backend
+ * =========================================================================
+ * Evaluates the active device platform and available browser/hardware features
+ * to determine the optimal, native player backend:
+ *  - Android (mobile / TV)  → 'exoplayer' (Media3 ExoPlayer)
+ *  - Samsung Smart TV       → 'avplay'    (Tizen AVPlay native player)
+ *  - LG Smart TV            → 'webos'     (webOS native media element)
+ *  - Modern Web & Desktop   → 'movi'      (WebCodecs + WASM demuxer DirectPlay)
+ *  - Fallback / Legacy Web  → 'html5'     (Standard HTML5 video player)
+ * =========================================================================
+ * @returns {'exoplayer'|'avplay'|'webos'|'movi'|'html5'}
+ */
+export function getRecommendedPlayerBackend() {
+    // Fall back safely if platformInfo is unavailable
+    if (typeof platformInfo === 'undefined') return 'html5';
+    // Native Android / Google TV hardware platform
+    if (platformInfo.isAndroid) return 'exoplayer';
+    // Samsung Tizen TV hardware platform
+    if (platformInfo.isTizen) return 'avplay';
+    // LG webOS TV hardware platform
+    if (platformInfo.isWebOS) return 'webos';
+    // Modern Web browsers and Desktop shells supporting WebCodecs
+    if ((platformInfo.isDesktop || platformInfo.isWeb) && platformInfo.hasWebCodecsSupport) return 'movi';
+    // Fallback standard HTML5 video player
+    return 'html5';
+}
+
+/**
  * Default values for all player settings
  */
 const DEFAULTS = {
@@ -358,9 +387,16 @@ const DEFAULTS = {
     // Enable Instant Playback (pre-fetches PlaybackInfo & item details in background)
     enablePrewarm: true,
 
-    // Player backend ('auto', 'movi', 'avplay', 'webos', 'html5')
-    // On desktop environments and web browsers supporting WebCodecs, 'auto' resolves to 'movi' for native MKV/WebCodecs support.
-    playerBackend: 'auto',
+    // -------------------------------------------------------------------------
+    // PLAYER BACKEND SELECTION
+    // -------------------------------------------------------------------------
+    // Directly binds to the optimal native player backend for the detected platform:
+    //  - Android TV/Mobile → 'exoplayer'
+    //  - Samsung Tizen     → 'avplay'
+    //  - LG webOS          → 'webos'
+    //  - Web / Desktop     → 'movi' (WebCodecs) or 'html5' (standard browser)
+    // -------------------------------------------------------------------------
+    playerBackend: getRecommendedPlayerBackend(),
 
     /*
      * Interlaced Content Backend Fallback
@@ -846,6 +882,34 @@ export const PlayerSettings = {
             return 'libjass';
         }
 
+        // =====================================================================
+        // PLAYER BACKEND HARDWARE CAPABILITY RESOLUTION & AUTO RE-SELECTION
+        // =====================================================================
+        // If the user had previously selected or stored 'auto', immediately
+        // re-select and migrate their preference to the platform's recommended backend.
+        // Also saves the migrated preference to storage so 'auto' is purged.
+        // If 'movi' was saved but the device lacks WebCodecs, falls back to 'html5'.
+        // =====================================================================
+        if (key === 'playerBackend') {
+            // Determine platform recommended backend
+            const recommended = getRecommendedPlayerBackend();
+            // Automatically re-select and persist if previously set to 'auto'
+            if (stored === 'auto') {
+                log.info(`Migrating legacy 'auto' playerBackend preference to recommended backend: ${recommended}`);
+                storage.setItem(STORAGE_PREFIX + key, recommended);
+                return recommended;
+            }
+            // Fall back to recommended backend if empty
+            if (!stored) {
+                return recommended;
+            }
+            // Fall back to html5 if movi is persisted but WebCodecs is unsupported
+            if (stored === 'movi' && !platformInfo.hasWebCodecsSupport) {
+                log.warn('Stored playerBackend is movi, but WebCodecs is not supported; falling back to html5');
+                return 'html5';
+            }
+        }
+
         return stored;
     },
 
@@ -942,7 +1006,10 @@ export const PlayerSettings = {
         );
 
         return adjustedTicks;
-    }
+    },
+
+    /** Expose platform recommended backend resolver directly */
+    getRecommendedBackend: getRecommendedPlayerBackend
 };
 
 export default PlayerSettings;

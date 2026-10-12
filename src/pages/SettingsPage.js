@@ -3436,38 +3436,76 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${(() => {
-                // Initialize default options array with the Auto (Recommended) option
-                const options = [
-                    { value: 'auto', label: i18n.t('AutoRecommended') }
-                ];
+                // Determine the highest-fidelity, native video backend recommended for the active platform
+                const recommendedBackend = typeof PlayerSettings.getRecommendedBackend === 'function'
+                    ? PlayerSettings.getRecommendedBackend()
+                    : (() => {
+                        if (platformInfo.isAndroid) return 'exoplayer';
+                        if (platformInfo.isTizen) return 'avplay';
+                        if (platformInfo.isWebOS) return 'webos';
+                        if ((platformInfo.isDesktop || platformInfo.isWeb) && platformInfo.hasWebCodecsSupport) return 'movi';
+                        return 'html5';
+                    })();
 
-                // Add platform-specific native hardware player backends
+                // Extract localized '(Recommended)' string from AutoRecommended translation across all 106 languages
+                const autoRec = i18n.t('AutoRecommended') || '';
+                const recMatch = autoRec.match(/\((.+?)\)|（(.+?)）/);
+                const recWord = (recMatch && (recMatch[1] || recMatch[2])) || 'Recommended';
+                const recSuffix = ` (${recWord})`;
+
+                // Assemble available options without the generic 'auto' option
+                const options = [];
+
+                // Native hardware backends
                 if (platformInfo.isAndroid) {
-                    options.push({ value: 'exoplayer', label: i18n.t('BackendExoPlayer') || 'Media3 ExoPlayer (Android Native)' });
-                } else if (platformInfo.isTizen) {
-                    options.push({ value: 'avplay', label: i18n.t('BackendTizen') });
-                } else if (platformInfo.isWebOS) {
-                    options.push({ value: 'webos', label: i18n.t('BackendWebOS') });
-                }
-
-                // Check WebCodecs API support: only show Movi Player if hardware-accelerated
-                // WebCodecs frame decoding is supported on the current runtime.
-                // On TVs or web browsers without WebCodecs, Movi Player is hidden.
-                if (platformInfo.hasWebCodecsSupport) {
+                    const base = i18n.t('BackendExoPlayer') || 'Media3 ExoPlayer (Android Native)';
                     options.push({
-                        value: 'movi',
-                        label: i18n.t('BackendMovi') || 'Movi Player (Desktop MKV/WebCodecs)'
+                        value: 'exoplayer',
+                        label: recommendedBackend === 'exoplayer' ? `${base}${recSuffix}` : base
+                    });
+                } else if (platformInfo.isTizen) {
+                    const base = i18n.t('BackendTizen') || 'Tizen Native (Avplay)';
+                    options.push({
+                        value: 'avplay',
+                        label: recommendedBackend === 'avplay' ? `${base}${recSuffix}` : base
+                    });
+                } else if (platformInfo.isWebOS) {
+                    const base = i18n.t('BackendWebOS') || 'LG Native (webOS Player)';
+                    options.push({
+                        value: 'webos',
+                        label: recommendedBackend === 'webos' ? `${base}${recSuffix}` : base
                     });
                 }
 
-                // Native HTML5 browser video backend is universally available
-                options.push({ value: 'html5', label: i18n.t('BackendWeb') });
+                // WebCodecs hardware accelerated player (Movi)
+                if (platformInfo.hasWebCodecsSupport) {
+                    const base = i18n.t('BackendMovi') || 'Movi Player (MKV/WebCodecs)';
+                    options.push({
+                        value: 'movi',
+                        label: recommendedBackend === 'movi' ? `${base}${recSuffix}` : base
+                    });
+                }
+
+                // Universal browser video backend (HTML5)
+                const html5Base = i18n.t('BackendWeb') || 'Web (HTML5 Player)';
+                options.push({
+                    value: 'html5',
+                    label: recommendedBackend === 'html5' ? `${html5Base}${recSuffix}` : html5Base
+                });
 
                 // If currently stored backend setting is 'movi' but WebCodecs is not supported,
-                // fallback display value to 'html5' to prevent invalid dropdown selection state
+                // fall back to 'html5'. If backend setting was legacy 'auto' or unconfigured,
+                // re-select and bind directly to the recommended backend.
                 const effectiveBackend = (currentBackend === 'movi' && !platformInfo.hasWebCodecsSupport)
                     ? 'html5'
-                    : currentBackend;
+                    : (currentBackend === 'auto' || !currentBackend || !options.some(o => o.value === currentBackend))
+                        ? recommendedBackend
+                        : currentBackend;
+
+                // Re-select and persist if user had previously selected or stored 'auto'
+                if (currentBackend === 'auto') {
+                    PlayerSettings.set('playerBackend', effectiveBackend);
+                }
 
                 return this._renderDropdown('player-backend-select', options, effectiveBackend);
             })()}
