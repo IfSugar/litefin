@@ -956,11 +956,16 @@ class App {
                 //
                 // For DetailsPage launches we still REPLACE to prevent history bloat.
                 //
-                // Standard web and desktop exception:
-                // We disable this optimization on web/desktop to prevent breaking
-                // the native back button behavior and window history flow.
+                // Web and Android Mobile exception:
+                // On standard web browsers and Android mobile devices, we do NOT replace
+                // the Details page so that the system / browser back stack remains intact.
+                //
+                // Desktop and TV platforms (Tizen, webOS, Android TV):
+                // We REPLACE the Details page when entering the player to prevent
+                // navigation history stack bloat and avoid redundant detail page instances.
+                const isWebOrMobile = platformInfo.isWeb || (platformInfo.isAndroid && !platformInfo.isAndroidTv);
                 const isFromLiveTv = currentPath.startsWith('/livetv');
-                const shouldReplace = !fromSlideshow && !fromBrowse && !isFromLiveTv && !platformInfo.isWeb && !platformInfo.isDesktop;
+                const shouldReplace = !fromSlideshow && !fromBrowse && !isFromLiveTv && !isWebOrMobile;
 
                 router.navigate(`/player/${itemToPlay.Id}/${resumeParam}${queryParam}`, {
                     replace: shouldReplace

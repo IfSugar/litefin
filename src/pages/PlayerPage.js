@@ -4882,20 +4882,19 @@ class PlayerPage extends Page {
             // (not replaced) by App.js, and we want to go BACK to that originating page exactly where
             // we left off — not synthesize a Details page the user never visited. So we call router.back().
             //
-            // Standard web exception:
-            // If we are on standard web (non-Tizen and non-webOS), we always want to just go back
-            // to the existing details page rather than replacing history and recreating a new DetailsPage/Guide instance.
-            // fromSlideshow / fromBrowse: the player was PUSHED on top of the originating page,
-            // so a simple back() pop restores that page exactly where it was.
-            // fromGuide: same — App.js now pushes the player instead of replacing /livetv,
-            // which means /livetv is still in history with its saved tab/EPG state intact.
-            // On web: always back() to let the browser handle history natively.
+            // Web and Android Mobile exception:
+            // On standard web and Android mobile platforms, the Details page was preserved in history
+            // rather than replaced, so router.back() cleanly pops the player off the navigation stack.
+            //
+            // Desktop and TV platforms (Tizen, webOS, Android TV):
+            // On desktop and TV platforms, player entry replaced the Details page in history.
+            // Therefore, on exit we replace-navigate back to the targetPath with isBack: true.
+            const isWebOrMobile = platformInfo.isWeb || (platformInfo.isAndroid && !platformInfo.isAndroidTv);
             if (
                 this.params.fromSlideshow === 'true' ||
                 this.params.fromBrowse === 'true' ||
                 this.params.fromGuide === 'true' ||
-                platformInfo.isWeb ||
-                platformInfo.isDesktop
+                isWebOrMobile
             ) {
                 router.back();
             } else {
