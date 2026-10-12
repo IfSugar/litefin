@@ -110,9 +110,11 @@ export function isAudioTrackNativelyPlayable(track, mediaSource = null, backendT
         backendType === 'exoplayer' ||
         (!backendType && (PlayerSettings.get('playerBackend') === 'exoplayer' || (typeof platformInfo !== 'undefined' && platformInfo.isAndroid)));
 
+    // Verify whether Movi player backend is active or targeted by auto-detection
+    // on platforms with WebCodecs hardware decode capabilities (desktop shells and web browsers)
     const isMovi =
         backendType === 'movi' ||
-        (!backendType && (PlayerSettings.get('playerBackend') === 'movi' || (typeof platformInfo !== 'undefined' && platformInfo.isDesktop && platformInfo.hasWebCodecsSupport)));
+        (!backendType && (PlayerSettings.get('playerBackend') === 'movi' || (typeof platformInfo !== 'undefined' && (platformInfo.isDesktop || platformInfo.isWeb) && platformInfo.hasWebCodecsSupport)));
 
     // Advanced backends handle software/hardware decode for rich multi-channel codecs natively
     const isAdvancedBackend = isMovi || isExo;
@@ -1122,14 +1124,17 @@ export class JellyfinPlayer extends EventEmitter {
         }
 
         // ----------------------------------------------------------------
-        // Auto-detect: Desktop platform with WebCodecs support → MoviVideoPlayer.
+        // Auto-detect: Desktop platform or Web browser with WebCodecs support → MoviVideoPlayer.
         // Provides full MKV container demuxing, WebCodecs hardware decoding,
         // and multi-audio decoding (AC-3, E-AC-3, TrueHD, DTS) natively.
         // If on web and WebCodecs is missing, falls through to HTML5.
         // ----------------------------------------------------------------
-        if (platformInfo.isDesktop && platformInfo.hasWebCodecsSupport) {
-            log.info('Platform with WebCodecs detected (Desktop) — defaulting to MoviPlayer backend');
+        if ((platformInfo.isDesktop || platformInfo.isWeb) && platformInfo.hasWebCodecsSupport) {
+            // Log successful auto-detection of WebCodecs capability across desktop and web
+            log.info('Platform with WebCodecs detected (Desktop/Web) — defaulting to MoviPlayer backend');
+            // Bind player backend type to movi
             this._backendType = 'movi';
+            // Instantiate hardware-accelerated MoviVideoPlayer instance with shared options
             this._backend    = new MoviVideoPlayer(sharedOptions);
             return;
         }

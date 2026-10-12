@@ -129,9 +129,11 @@ export class PrewarmManager {
             if (playerBackendSetting === 'exoplayer' || (playerBackendSetting === 'auto' && platformInfo.isAndroid)) {
                 backendType = 'exoplayer';
             } else if (
+                // Prewarm Movi backend if explicitly requested or auto-detected on Web/Desktop runtimes with WebCodecs
                 (playerBackendSetting === 'movi' && platformInfo.hasWebCodecsSupport) ||
-                (playerBackendSetting === 'auto' && platformInfo.isDesktop && platformInfo.hasWebCodecsSupport)
+                (playerBackendSetting === 'auto' && (platformInfo.isDesktop || platformInfo.isWeb) && platformInfo.hasWebCodecsSupport)
             ) {
+                // Assign backend target to movi for hardware-accelerated direct streaming
                 backendType = 'movi';
             } else if (playerBackendSetting === 'avplay' || (playerBackendSetting === 'auto' && platformInfo.isTizen)) {
                 backendType = 'avplay';

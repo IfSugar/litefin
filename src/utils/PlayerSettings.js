@@ -359,7 +359,7 @@ const DEFAULTS = {
     enablePrewarm: true,
 
     // Player backend ('auto', 'movi', 'avplay', 'webos', 'html5')
-    // On desktop environments, 'auto' resolves to 'movi' for native MKV/WebCodecs support.
+    // On desktop environments and web browsers supporting WebCodecs, 'auto' resolves to 'movi' for native MKV/WebCodecs support.
     playerBackend: 'auto',
 
     /*
