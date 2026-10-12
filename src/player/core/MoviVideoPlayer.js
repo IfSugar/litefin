@@ -402,6 +402,32 @@ export class MoviVideoPlayer {
         element.style.display = 'block';
         element.style.backgroundColor = '#000000';
 
+        /*
+         * -----------------------------------------------------------------
+         * Headless Render Surface — Disable Touch/Click Interception
+         * -----------------------------------------------------------------
+         * Movi-player's shadow DOM aggressively captures touch events through
+         * its internal gesture system (setupGestures in MoviElement.ts).
+         * Even with controls disabled, the shadow root's overlay, canvas, and
+         * video layers bind touchstart/touchmove/touchend handlers that call
+         * preventDefault() and stopPropagation(), which kills the synthetic
+         * click event before it can bubble up to PlayerPage's OSD toggle.
+         *
+         * Since Litefin uses movi purely as a render backend (WebGL2 canvas +
+         * AudioContext) with all UI delegated to OSDController, we disable
+         * pointer-events entirely. This makes the element transparent to
+         * hit-testing — touches pass straight through to the player container
+         * underneath, where Litefin's own OSD show/hide logic lives.
+         *
+         * This does NOT affect rendering — the canvas still paints frames,
+         * audio still plays, and all programmatic API calls (play, pause,
+         * seek, track switching) work normally. Only user-initiated pointer
+         * interactions are bypassed, which is exactly what we want for a
+         * headless embedding.
+         * -----------------------------------------------------------------
+         */
+        element.style.pointerEvents = 'none';
+
         // Ensure parent container exists
         if (!this.container) {
             this.container = document.createElement('div');
