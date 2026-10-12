@@ -4,6 +4,47 @@
  * ============================================================================
  */
 
+/* ============================================================================
+ * Display Scale Viewport Normalization (Full-Bleed Desktop & Web Scaling)
+ * ============================================================================
+ * When display zoom scaling is active, ensures html, body, #app, and .page
+ * fill 100% of the screen width and height, replacing static 100vw/100vh
+ * viewport units so the layout stays 100% full-bleed with zero black borders.
+ * ============================================================================
+ */
+html[data-display-scale],
+html[data-display-scale] body {
+    width: 100% !important;
+    height: 100% !important;
+    min-height: 100% !important;
+    max-height: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: hidden !important;
+}
+
+html[data-display-scale] #app {
+    width: 100% !important;
+    height: 100% !important;
+    min-height: 100% !important;
+    max-height: 100% !important;
+    position: relative !important;
+    overflow: hidden !important;
+}
+
+html[data-display-scale] .page {
+    width: 100% !important;
+    height: 100% !important;
+    min-height: 0 !important;
+}
+
+html[data-display-scale] .page-loading,
+html[data-display-scale] .splash-content,
+html[data-display-scale] .details-backdrop {
+    width: 100% !important;
+    height: 100% !important;
+}
+
 .page {
     width: 100%;
     height: 100vh;

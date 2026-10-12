@@ -593,6 +593,62 @@ class SettingsPage extends Page {
 
                 <div class="setting-item">
                     <div class="setting-label">
+                        <span class="setting-name" data-i18n="DisplayScale">${i18n.t('DisplayScale') || 'Display Scale'}</span>
+                        <span class="setting-description" data-i18n="DisplayScaleDescription">${i18n.t('DisplayScaleDescription') || 'Adjust overall interface scaling. "Auto" dynamically fits the layout to 1080p canvas proportions.'}</span>
+                    </div>
+                    <div class="setting-control">
+                        ${this._renderDropdown(
+            'display-scale-select',
+            [
+                { value: 'auto', label: i18n.t('DisplayScaleAuto') || 'Auto (Fit 1080p)' },
+                { value: '0.67', label: '67%' },
+                { value: '0.75', label: '75%' },
+                { value: '0.8', label: '80%' },
+                { value: '0.85', label: '85%' },
+                { value: '0.9', label: '90%' },
+                { value: '0.95', label: '95%' },
+                { value: '1', label: '100% (Native / TV)' },
+                { value: '1.05', label: '105%' },
+                { value: '1.1', label: '110%' },
+                { value: '1.15', label: '115%' },
+                { value: '1.2', label: '120%' }
+            ],
+            layoutManager.getDisplayScale().toString()
+        )}
+                    </div>
+                </div>
+
+
+                <div class="setting-item">
+                    <div class="setting-label">
+                        <span class="setting-name" data-i18n="TextScale">${i18n.t('TextScale') || 'Text scale'}</span>
+                        <span class="setting-description" data-i18n="TextScaleDescription">${i18n.t('TextScaleDescription') || 'Adjust the size of all text and UI elements proportionally'}</span>
+                    </div>
+                    <div class="setting-control">
+                        ${this._renderDropdown(
+            'text-scale-select',
+            [
+                { value: '0.8', label: '80%' },
+                { value: '0.85', label: '85%' },
+                { value: '0.9', label: '90%' },
+                { value: '0.95', label: '95%' },
+                { value: '1', label: 'Normal (100%)' },
+                { value: '1.05', label: '105%' },
+                { value: '1.1', label: '110%' },
+                { value: '1.15', label: '115%' },
+                { value: '1.2', label: '120%' },
+                { value: '1.25', label: '125%' },
+                { value: '1.3', label: '130%' },
+                { value: '1.35', label: '135%' },
+                { value: '1.4', label: '140%' }
+            ],
+            layoutManager.getTextScale().toString()
+        )}
+                    </div>
+                </div>
+
+                <div class="setting-item">
+                    <div class="setting-label">
                         <span class="setting-name" data-i18n="LayoutDirection">${i18n.t('LayoutDirection')}</span>
                         <span class="setting-description" data-i18n="LayoutDirectionDescription">${i18n.t('LayoutDirectionDescription')}</span>
                     </div>
@@ -667,34 +723,6 @@ class SettingsPage extends Page {
             'jellyfin-fallback-font-select',
             [],
             storage.getItem('pref:jellyfinFallbackFont') || ''
-        )}
-                    </div>
-                </div>
-
-                <div class="setting-item">
-                    <div class="setting-label">
-                        <span class="setting-name" data-i18n="TextScale">${i18n.t('TextScale') || 'Text scale'}</span>
-                        <span class="setting-description" data-i18n="TextScaleDescription">${i18n.t('TextScaleDescription') || 'Adjust the size of all text and UI elements proportionally'}</span>
-                    </div>
-                    <div class="setting-control">
-                        ${this._renderDropdown(
-            'text-scale-select',
-            [
-                { value: '0.8', label: '80%' },
-                { value: '0.85', label: '85%' },
-                { value: '0.9', label: '90%' },
-                { value: '0.95', label: '95%' },
-                { value: '1', label: 'Normal (100%)' },
-                { value: '1.05', label: '105%' },
-                { value: '1.1', label: '110%' },
-                { value: '1.15', label: '115%' },
-                { value: '1.2', label: '120%' },
-                { value: '1.25', label: '125%' },
-                { value: '1.3', label: '130%' },
-                { value: '1.35', label: '135%' },
-                { value: '1.4', label: '140%' }
-            ],
-            layoutManager.getTextScale().toString()
         )}
                     </div>
                 </div>
@@ -3457,7 +3485,13 @@ class SettingsPage extends Page {
                 const options = [];
 
                 // Native hardware backends
-                if (platformInfo.isAndroid) {
+                const hasExoBridge = typeof window !== 'undefined' && Boolean(
+                    window.LitefinExoPlayer ||
+                    window.LitefinAndroid ||
+                    window.__TAURI_INTERNALS__?.invoke ||
+                    window.__TAURI__?.core?.invoke
+                );
+                if (platformInfo.isAndroid && (hasExoBridge || platformInfo._platform === 'android')) {
                     const base = i18n.t('BackendExoPlayer') || 'Media3 ExoPlayer (Android Native)';
                     options.push({
                         value: 'exoplayer',
@@ -3478,7 +3512,8 @@ class SettingsPage extends Page {
                 }
 
                 // WebCodecs hardware accelerated player (Movi)
-                if (platformInfo.hasWebCodecsSupport) {
+                // Excluded on television builds (Tizen and webOS) where Movi is replaced with a stub
+                if (platformInfo.hasWebCodecsSupport && !platformInfo.isTizen && !platformInfo.isWebOS) {
                     const base = i18n.t('BackendMovi') || 'Movi Player (MKV/WebCodecs)';
                     options.push({
                         value: 'movi',
@@ -3493,17 +3528,19 @@ class SettingsPage extends Page {
                     label: recommendedBackend === 'html5' ? `${html5Base}${recSuffix}` : html5Base
                 });
 
-                // If currently stored backend setting is 'movi' but WebCodecs is not supported,
-                // fall back to 'html5'. If backend setting was legacy 'auto' or unconfigured,
-                // re-select and bind directly to the recommended backend.
-                const effectiveBackend = (currentBackend === 'movi' && !platformInfo.hasWebCodecsSupport)
+                // If currently stored backend setting is 'movi' but WebCodecs is not supported or on TV builds,
+                // or 'exoplayer' without native bridge, fall back to 'html5'. If backend setting was legacy 'auto'
+                // or unconfigured or missing from available build options, re-select and bind directly to recommended.
+                const effectiveBackend = (currentBackend === 'movi' && (!platformInfo.hasWebCodecsSupport || platformInfo.isTizen || platformInfo.isWebOS))
                     ? 'html5'
-                    : (currentBackend === 'auto' || !currentBackend || !options.some(o => o.value === currentBackend))
-                        ? recommendedBackend
-                        : currentBackend;
+                    : (currentBackend === 'exoplayer' && !hasExoBridge && !platformInfo.isAndroid)
+                        ? 'html5'
+                        : (currentBackend === 'auto' || !currentBackend || !options.some(o => o.value === currentBackend))
+                            ? recommendedBackend
+                            : currentBackend;
 
-                // Re-select and persist if user had previously selected or stored 'auto'
-                if (currentBackend === 'auto') {
+                // Re-select and persist if user had previously selected or stored 'auto' or an unavailable backend
+                if (currentBackend === 'auto' || (currentBackend && currentBackend !== effectiveBackend && !options.some(o => o.value === currentBackend))) {
                     PlayerSettings.set('playerBackend', effectiveBackend);
                 }
 
@@ -10328,6 +10365,7 @@ class SettingsPage extends Page {
             'html5-segment-length-select': { type: 'player', key: 'html5SegmentLength' },
 
             'text-scale-select': { key: 'litefin:textScale', type: 'local' },
+            'display-scale-select': { key: 'pref:displayScale', type: 'local' },
             'home-rows-limit-select': { key: 'pref:homeRowsLimit', type: 'local', triggerEvent: true },
             'next-up-max-days-select': { key: 'pref:nextUpMaxDays', type: 'local' },
             'score-visibility-select': { key: 'pref:scoreVisibility', type: 'local' },
@@ -10527,6 +10565,9 @@ class SettingsPage extends Page {
                         } else if (id === 'text-scale-select') {
                             // SPECIAL CASE: Text Scale handled by LayoutManager
                             layoutManager.setTextScale(parseFloat(newValue));
+                        } else if (id === 'display-scale-select') {
+                            // Viewport display scaling factor handled by LayoutManager
+                            layoutManager.setDisplayScale(newValue);
                         } else if (id === 'media-rows-layout-select') {
                             layoutManager.setMediaRowsLayout(newValue);
                             if (newValue === 'expanded') {

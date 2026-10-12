@@ -174,7 +174,14 @@ class LayoutManager {
 
         // Internal style element for dynamic variables
         this._dynamicStyleEl = null;
+
+        /*
+         * Global interface display scaling factor.
+         * Supports 'auto' (dynamically fits viewport to 1080p proportions) or manual float strings ('0.8', '0.9', etc.)
+         */
+        this._displayScale = 'auto';
     }
+
 
     /**
      * Initialize layout manager
@@ -250,6 +257,11 @@ class LayoutManager {
         const savedLightMusicPlayer = storage.getItem('pref:lightMusicPlayer') === 'true';
         const savedBadgeStyle = storage.getItem('litefin:badgeStyle') || 'auto';
         const savedCardLabelScale = parseFloat(storage.getItem('pref:cardLabelScale') || '1.0');
+        /*
+         * Load saved interface display scale preference.
+         * Defaults to 'auto', which dynamically scales non-TV and browser viewports to 1080p canvas proportions.
+         */
+        const savedDisplayScale = storage.getItem('pref:displayScale') || 'auto';
 
         // Load user preferred button customization style
         const savedButtonStyle = storage.getItem('litefin:buttonStyle') || 'theme-default';
@@ -284,6 +296,8 @@ class LayoutManager {
         this.setRoundedCorners(savedRoundedCorners, false);
         this.setTextScale(savedTextScale, false);
         this.setCardLabelScale(savedCardLabelScale, false);
+        // Apply saved display scale factor immediately without duplicate persistence write
+        this.setDisplayScale(savedDisplayScale, false);
 
         this.setLowVramMode(savedLowVram, false);
         this.setDisableCardScaling(savedDisableScaling, false);
@@ -330,6 +344,23 @@ class LayoutManager {
         // from the standard ultra-legacy styling layers.
         if (platformInfo.isAncientChrome) {
             document.documentElement.setAttribute('data-layout-quirks', 'c26');
+        }
+
+        /*
+         * Setup dynamic resize observer for auto display scaling mode.
+         * Recalculates viewport zoom factor whenever the window is resized
+         * to preserve identical 1080p proportions across desktop and web browser windows.
+         */
+        if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+            window.addEventListener(
+                'resize',
+                () => {
+                    if (this._displayScale === 'auto') {
+                        this._applyDisplayScale();
+                    }
+                },
+                { passive: true }
+            );
         }
 
         log.info(
@@ -936,6 +967,112 @@ class LayoutManager {
 
     getCardLabelScale() {
         return this._cardLabelScale;
+    }
+
+    /**
+     * ========================================================================
+     * Display Scaling Engine
+     * ========================================================================
+     * Manages global viewport zoom scaling across web, desktop, and TV targets.
+     * Provides a hybrid mechanism:
+     * - 'auto': Dynamically fits canvas to standard 1080p (1920x1080) dimensions,
+     *   ensuring TV-grade proportions on smaller or desktop browser viewports.
+     * - manual: Explicit zoom factor (e.g. 0.75, 0.8, 0.9, 1.0, 1.1).
+     * ========================================================================
+     */
+
+    /**
+     * Retrieves the configured display scale mode ('auto', '0.75', '0.8', etc.)
+     * @returns {string} Configured display scale value
+     */
+    getDisplayScale() {
+        return this._displayScale;
+    }
+
+    /**
+     * Configures global interface display scaling and applies CSS zoom.
+     * @param {string|number} scale - Scale factor or 'auto' for responsive 1080p fit
+     * @param {boolean} [save=true] - Persist preference to persistent storage
+     */
+    setDisplayScale(scale, save = true) {
+        this._displayScale = String(scale);
+
+        if (save) {
+            storage.setItem('pref:displayScale', this._displayScale);
+        }
+
+        this._applyDisplayScale();
+        eventBus.emit('displayScale:changed', { scale: this._displayScale });
+    }
+
+    /**
+     * Computes and applies full-bleed CSS zoom scaling to the application canvas.
+     * Counter-expands root and container bounds (--display-canvas-w and --display-canvas-h)
+     * by 1/effectiveScale so the zoomed canvas spans 100% of the viewport edge-to-edge
+     * with zero letterboxing, pillarboxing, or black margins.
+     * @private
+     */
+    _applyDisplayScale() {
+        let effectiveScale = 1.0;
+        const root = document.documentElement;
+        const appEl = document.getElementById('app');
+
+        if (this._displayScale === 'auto') {
+            // Check whether the active runtime is a dedicated television environment
+            const isNativeTv = platformInfo.isTizen || platformInfo.isWebOS || (platformInfo.isAndroid && Boolean(window.LitefinAndroid?.isTv?.()));
+
+            if (isNativeTv) {
+                // TV panels run natively at 1080p framebuffer — leave 1:1 unscaled
+                effectiveScale = 1.0;
+            } else {
+                // Desktop and web browser viewports: calculate proportional scaling
+                const widthScale = (window.innerWidth || 1920) / 1920;
+                const heightScale = (window.innerHeight || 1080) / 1080;
+
+                // Scale to fit the more constrained viewport dimension
+                const autoScale = Math.min(widthScale, heightScale);
+
+                // Clamp between 0.6 and 1.0 to preserve legibility and spacing
+                effectiveScale = Math.min(1.0, Math.max(0.6, Math.round(autoScale * 100) / 100));
+            }
+        } else {
+            effectiveScale = parseFloat(this._displayScale) || 1.0;
+        }
+
+        if (Math.abs(effectiveScale - 1.0) < 0.02) {
+            // 100% native scale: strip zoom and display scaling attribute
+            root.style.removeProperty('zoom');
+            root.removeAttribute('data-display-scale');
+            root.style.removeProperty('width');
+            root.style.removeProperty('height');
+            if (document.body) {
+                document.body.style.removeProperty('width');
+                document.body.style.removeProperty('height');
+            }
+            if (appEl) {
+                appEl.style.removeProperty('width');
+                appEl.style.removeProperty('height');
+            }
+        } else {
+            // Apply zoom factor to root document element and mark active display scale
+            // Layout dimensions flow fluidly at 100% to guarantee full screen bleed without clipping
+            root.style.setProperty('zoom', String(effectiveScale));
+            root.setAttribute('data-display-scale', '1');
+            root.style.removeProperty('width');
+            root.style.removeProperty('height');
+
+            if (document.body) {
+                document.body.style.removeProperty('width');
+                document.body.style.removeProperty('height');
+            }
+
+            if (appEl) {
+                appEl.style.removeProperty('width');
+                appEl.style.removeProperty('height');
+            }
+        }
+
+        log.info(`Display scale applied: mode=${this._displayScale}, effective=${effectiveScale}`);
     }
 
     /**

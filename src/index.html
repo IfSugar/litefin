@@ -69,6 +69,41 @@
             }
         }
     </script>
+    <script>
+        /*
+         * Desktop & Web Browser Display Scale Normalization
+         * Pre-computes initial full-bleed CSS zoom based on saved preference or auto 1080p fitting
+         * to guarantee smooth rendering without layout shift or black bars during DOM bootstrap.
+         */
+        (function () {
+            try {
+                var savedScale = localStorage.getItem('pref:displayScale') || 'auto';
+                var ua = navigator.userAgent;
+                var isNativeTv = /Tizen|Web[O0]S/i.test(ua);
+                var effectiveScale = 1.0;
+
+                if (savedScale === 'auto') {
+                    if (!isNativeTv && window.innerWidth > 0 && window.innerHeight > 0) {
+                        var wScale = window.innerWidth / 1920;
+                        var hScale = window.innerHeight / 1080;
+                        var aScale = Math.min(wScale, hScale);
+                        effectiveScale = Math.min(1.0, Math.max(0.6, Math.round(aScale * 100) / 100));
+                    }
+                } else if (savedScale) {
+                    var parsed = parseFloat(savedScale);
+                    if (parsed > 0) effectiveScale = parsed;
+                }
+
+                if (Math.abs(effectiveScale - 1.0) >= 0.02) {
+                    var root = document.documentElement;
+                    root.style.setProperty('zoom', String(effectiveScale));
+                    root.setAttribute('data-display-scale', '1');
+                }
+            } catch (e) {
+                // Ignore storage or security exceptions during early boot
+            }
+        })();
+    </script>
     <meta name="referrer" content="no-referrer">
     <meta name="description" content="Litefin - Native Jellyfin Client for Samsung Tizen TVs">
     <title>Litefin</title>
