@@ -100,7 +100,6 @@
         "gulp-cli": "^3.0.0",
         "html-webpack-plugin": "^5.5.3",
         "mini-css-extract-plugin": "^2.7.6",
-        "pake-cli": "^3.17.3",
         "patch-package": "^8.0.1",
         "postinstall-postinstall": "^2.1.0",
         "prettier": "^3.8.1",

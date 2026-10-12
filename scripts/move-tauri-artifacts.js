@@ -99,8 +99,8 @@ function scanDirectoryForExtensions(dirPath, validExtensions) {
  */
 function formatAndroidArtifactName(fileName, version) {
     // Regex parsing standard Gradle artifact naming conventions:
-    // e.g. "app-arm64-release.apk", "app-universal-debug.apk", "app-release.aab"
-    const gradlePattern = /^app(?:-([a-zA-Z0-9_-]+?))?-(release|debug)\.(apk|aab)$/i;
+    // e.g. "app-arm64-release.apk", "app-universal-release-unsigned.apk", "app-release.aab"
+    const gradlePattern = /^app(?:-([a-zA-Z0-9_-]+?))?-(release|debug)(?:-unsigned)?\.(apk|aab)$/i;
     const match = fileName.match(gradlePattern);
 
     if (match) {
