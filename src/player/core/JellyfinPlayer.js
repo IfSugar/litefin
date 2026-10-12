@@ -3811,6 +3811,68 @@ export class JellyfinPlayer extends EventEmitter {
     }
 
     /**
+     * Retrieve the active backend type identifier.
+     * Maps to one of Litefin's hardware/platform player engines:
+     * 'movi', 'html5', 'tizen', 'webos', or 'exoplayer'.
+     *
+     * @returns {'movi'|'html5'|'tizen'|'webos'|'exoplayer'} Active backend identifier
+     */
+    getBackendType() {
+        // Return active backend or fall back to standard HTML5 video engine
+        return this._backendType || 'html5';
+    }
+
+    /**
+     * Direct property getter for the active backend type.
+     *
+     * @returns {'movi'|'html5'|'tizen'|'webos'|'exoplayer'} Active backend identifier
+     */
+    get backendType() {
+        // Expose underlying backend type property
+        return this._backendType || 'html5';
+    }
+
+    /**
+     * Evaluates whether a specific playback speed rate is natively supported
+     * by the active player backend without hardware down-snapping, buffer stalls,
+     * or audio pipeline exceptions.
+     *
+     * @param {number} speed - The playback speed multiplier to test
+     * @returns {boolean} True if natively supported, false if clamped or unsupported
+     */
+    isPlaybackSpeedSupported(speed) {
+        // Resolve active player backend engine
+        const backend = this.getBackendType();
+
+        // Evaluate backend-specific hardware constraints
+        switch (backend) {
+            case 'webos':
+                // LG webOS hardware decoders reliably support [0.5, 1, 2, 4];
+                // all other rates trigger silent snap-down in WebOSPlayer.js
+                return [0.5, 1, 2, 4].includes(speed);
+
+            case 'tizen':
+                // Samsung AVPlay trickplay requires integer multipliers (1, 2, 4, 8);
+                // fractional rates throw exceptions or freeze video frames
+                return Number.isInteger(speed) && [1, 2, 4, 8].includes(speed);
+
+            case 'movi':
+                // movi-player WebCodecs WASM pipeline strictly enforces a 2.0x ceiling
+                // to prevent hardware decoder buffer underruns on high-res video
+                return speed >= 0.25 && speed <= 2;
+
+            case 'exoplayer':
+                // Android ExoPlayer with Sonic audio processor supports standard positive floats
+                return speed >= 0.25 && speed <= 8;
+
+            case 'html5':
+            default:
+                // Standard desktop/mobile browser HTML5 video element (Chrome, Edge, Firefox, Safari)
+                return speed >= 0.25 && speed <= 4;
+        }
+    }
+
+    /**
      * Get current secondary subtitle stream index
      * @returns {number}
      */

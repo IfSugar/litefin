@@ -1255,6 +1255,79 @@ body.webos-cursor-active .osd-btn.focused .osd-icon {
     text-transform: uppercase;
     letter-spacing: 0.5px;
 }
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * Unsupported Playback Speeds Styling
+ * ────────────────────────────────────────────────────────────────────────────
+ * Unsupported rates are greyed out with subdued opacity in rest state to
+ * establish a clear visual hierarchy, while preserving interactive accessibility.
+ * Hover, keyboard focus, and remote D-pad selection smoothly ramp to 95% opacity
+ * using fluid cubic-bezier spring easing (cubic-bezier(0.25, 1, 0.5, 1)).
+ * The item remains 100% interactive so the user can test or override if desired.
+ * ──────────────────────────────────────────────────────────────────────────── */
+.track-option.speed-unsupported {
+    opacity: 0.52;
+    transition: opacity 0.22s cubic-bezier(0.25, 1, 0.5, 1),
+                background-color 0.22s cubic-bezier(0.25, 1, 0.5, 1),
+                transform 0.22s cubic-bezier(0.25, 1, 0.5, 1);
+}
+
+.track-option.speed-unsupported .track-label-text {
+    color: rgba(255, 255, 255, 0.65);
+}
+
+.track-option.speed-unsupported:hover,
+.track-option.speed-unsupported.focused,
+.track-option.speed-unsupported:focus,
+.track-option.speed-unsupported.magic-hover {
+    opacity: 0.95;
+}
+
+.track-option.speed-unsupported:hover .track-label-text,
+.track-option.speed-unsupported.focused .track-label-text,
+.track-option.speed-unsupported:focus .track-label-text {
+    color: #ffffff;
+}
+
+.track-option.speed-unsupported.selected {
+    opacity: 1;
+}
+
+.track-option.speed-unsupported.selected .track-label-text {
+    color: #ffffff;
+}
+
+/* Capsule Pill Badge for Unsupported Speeds */
+.track-option .track-badge-unsupported {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 2px 7px;
+    font-size: 0.68rem;
+    font-weight: 700;
+    line-height: 1.1;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    border-radius: 9999px;
+    background: rgba(255, 159, 10, 0.18) !important;
+    color: #ff9f0a !important;
+    border: 1px solid rgba(255, 159, 10, 0.35) !important;
+    margin-left: 8px;
+    vertical-align: middle;
+    flex-shrink: 0;
+    transition: all 0.2s cubic-bezier(0.25, 1, 0.5, 1);
+}
+
+.track-option.focused .track-badge-unsupported,
+.track-option:hover .track-badge-unsupported {
+    background: rgba(255, 159, 10, 0.28) !important;
+    border-color: rgba(255, 159, 10, 0.5) !important;
+}
+
+[dir="rtl"] .track-option .track-badge-unsupported {
+    margin-left: 0;
+    margin-right: 8px;
+}
 .track-option-icon {
     width: 28.8px;
     /* 24px * 1.2 */
