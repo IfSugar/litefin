@@ -173,6 +173,73 @@ function formatFileSize(bytes) {
 }
 
 /**
+ * Remove stale or obsolete build artifacts from previous versions
+ * residing in the repository root and internal Tauri build directories.
+ *
+ * @param {string} currentVersion - The current application semantic version.
+ * @returns {number} Count of removed stale artifacts.
+ */
+export function cleanObsoleteArtifacts(currentVersion = getProjectVersion()) {
+    let cleanedCount = 0;
+
+    // ------------------------------------------------------------------------
+    // 1. Clean Stale Artifacts in Repository Root (./)
+    // ------------------------------------------------------------------------
+    // Scans root directory for Litefin release binaries (.apk, .aab, .exe, .msi,
+    // .deb, .AppImage, .rpm, .dmg, .wgt, .ipk, .zip) whose version does NOT match currentVersion.
+    const rootEntries = fs.readdirSync(rootDir, { withFileTypes: true });
+    const artifactExts = ['.apk', '.aab', '.exe', '.msi', '.deb', '.appimage', '.rpm', '.dmg', '.wgt', '.ipk', '.zip'];
+
+    for (const entry of rootEntries) {
+        if (!entry.isFile()) continue;
+
+        const ext = path.extname(entry.name).toLowerCase();
+        if (!artifactExts.includes(ext)) continue;
+
+        // Extract version from file names like Litefin-1.9.40-Android-arm.apk or Litefin_1.9.40_x64.msi
+        const versionMatch = entry.name.match(/Litefin[._-](?:Web\.Plugin_)?(\d+\.\d+\.\d+)/i);
+        if (versionMatch && versionMatch[1] !== currentVersion) {
+            const stalePath = path.join(rootDir, entry.name);
+            try {
+                fs.unlinkSync(stalePath);
+                console.info(`🗑️ Removed stale root artifact: ${entry.name} (found v${versionMatch[1]}, expected v${currentVersion})`);
+                cleanedCount++;
+            } catch (err) {
+                console.warn(`[WARN] Failed to delete stale artifact ${entry.name}: ${err.message}`);
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------------
+    // 2. Purge Stale Version Bundles from src-tauri/target
+    // ------------------------------------------------------------------------
+    const bundleDirs = [
+        path.join(rootDir, 'src-tauri', 'target', 'release', 'bundle'),
+        path.join(rootDir, 'src-tauri', 'target', 'debug', 'bundle')
+    ];
+
+    for (const bDir of bundleDirs) {
+        if (!fs.existsSync(bDir)) continue;
+        const candidateFiles = scanDirectoryForExtensions(bDir, artifactExts);
+        for (const filePath of candidateFiles) {
+            const fileName = path.basename(filePath);
+            const versionMatch = fileName.match(/[_.-](\d+\.\d+\.\d+)[_.-]/);
+            if (versionMatch && versionMatch[1] !== currentVersion) {
+                try {
+                    fs.unlinkSync(filePath);
+                    console.info(`🗑️ Purged obsolete bundle cache: ${fileName}`);
+                    cleanedCount++;
+                } catch (err) {
+                    console.warn(`[WARN] Failed to purge bundle file ${fileName}: ${err.message}`);
+                }
+            }
+        }
+    }
+
+    return cleanedCount;
+}
+
+/**
  * Main routine: Scans all Tauri target output directories and moves
  * installers/packages up to the root Litefin workspace directory.
  */
@@ -181,6 +248,9 @@ export async function moveTauriOutputs() {
     console.info(`\n========================================================`);
     console.info(`📦 Relocating Tauri build outputs for Litefin v${version}`);
     console.info(`========================================================\n`);
+
+    // Clean any leftover obsolete version artifacts from root and bundle cache
+    cleanObsoleteArtifacts(version);
 
     let movedCount = 0;
 
@@ -361,8 +431,13 @@ export async function moveTauriOutputs() {
 // ----------------------------------------------------------------------------
 // Enables executing this script directly via `node scripts/move-tauri-artifacts.js`
 if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
-    moveTauriOutputs().catch((err) => {
-        console.error('Error while relocating Tauri build outputs:', err);
-        process.exit(1);
-    });
+    if (process.argv.includes('--clean-only')) {
+        const count = cleanObsoleteArtifacts();
+        console.info(`Cleaned ${count} stale build artifact(s).`);
+    } else {
+        moveTauriOutputs().catch((err) => {
+            console.error('Error while relocating Tauri build outputs:', err);
+            process.exit(1);
+        });
+    }
 }

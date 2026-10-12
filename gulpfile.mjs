@@ -14,7 +14,7 @@ import { exec, spawn } from 'child_process';
 import { promisify } from 'util';
 import archiver from 'archiver';
 import path from 'path';
-import { moveTauriOutputs } from './scripts/move-tauri-artifacts.js';
+import { moveTauriOutputs, cleanObsoleteArtifacts } from './scripts/move-tauri-artifacts.js';
 
 /*
  * exec() buffers ALL stdout + stderr in the parent process's RAM.
@@ -580,6 +580,9 @@ async function syncVersion() {
             console.info('tauri.conf.json version is already up to date');
         }
     }
+
+    // Automatically purge stale build artifacts from previous versions in root and cache
+    cleanObsoleteArtifacts(version);
 }
 
 // ============================================================================
@@ -734,6 +737,7 @@ export {
     cleanWgt,
     cleanIpk,
     cleanTauri,
+    cleanObsoleteArtifacts,
     moveTauriOutputs,
     webpackModern,
     webpackNormal,
