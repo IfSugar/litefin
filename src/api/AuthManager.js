@@ -537,11 +537,47 @@ class AuthManager {
     }
 
     /**
-     * Get the saved server URL.
+     * ========================================================================
+     * Saved Server URL Resolution
+     * ========================================================================
+     * Retrieves the active or persisted server URL from persistent storage.
+     * When running inside a browser environment (such as when hosted directly
+     * by the Litefin Web Jellyfin server plugin), if no explicit server URL has
+     * been entered yet, we automatically resolve the origin from the browser's
+     * current window location. This allows seamless zero-configuration access
+     * when users navigate to http://jellyfin:8096/litefin.
+     *
      * @returns {string|null} Server URL or null
      */
     getSavedServerUrl() {
-        return storage.getItem(STORAGE_KEYS.SERVER_URL);
+        // First check explicitly persisted server URL
+        const saved = storage.getItem(STORAGE_KEYS.SERVER_URL);
+        if (saved) {
+            return saved;
+        }
+
+        // In standard browser environments, infer the hosting server origin
+        if (
+            typeof window !== 'undefined' &&
+            window.location &&
+            window.location.origin &&
+            typeof window.location.protocol === 'string' &&
+            window.location.protocol.startsWith('http')
+        ) {
+            // Check if the application is running under a reverse proxy or sub-path prefix
+            // (e.g., http://example.com/jellyfin/litefin)
+            const pathname = window.location.pathname || '';
+            const litefinIdx = pathname.toLowerCase().indexOf('/litefin');
+
+            // Strip the /litefin routing segment while preserving any upstream reverse proxy path
+            const subpath = litefinIdx > 0 ? pathname.substring(0, litefinIdx) : '';
+            const detected = `${window.location.origin}${subpath}`.replace(/\/+$/, '');
+
+            log.info(`Auto-detected server URL from browser location: ${detected}`);
+            return detected;
+        }
+
+        return null;
     }
 
     // ========================================================================

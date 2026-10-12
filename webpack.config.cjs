@@ -74,10 +74,10 @@ function getPlugins(tier, options = {}) {
         { from: 'src/early-polyfills.js', to: 'js/early-polyfills.js' }
     ];
 
-    // Include libass-wasm worker assets for modern, legacy, and desktop build tiers.
+    // Include libass-wasm worker assets for modern, legacy, desktop, and web build tiers.
     // Legacy tier includes the WASM workers for newer devices running legacy builds,
     // with runtime WebAssembly feature gating falling back to libjass on unsupported hardware.
-    if (buildTier === 'modern' || buildTier === 'legacy' || buildTier === 'desktop') {
+    if (buildTier === 'modern' || buildTier === 'legacy' || buildTier === 'desktop' || buildTier === 'web') {
         patterns.push(
             {
                 from: 'node_modules/@jellyfin/libass-wasm/dist/js/subtitles-octopus-worker.js',
@@ -95,9 +95,9 @@ function getPlugins(tier, options = {}) {
         );
     }
 
-    // Copy movi-player WASM binary ONLY for desktop build tier.
+    // Copy movi-player WASM binary for desktop and web build tiers.
     // Strictly excluded from TV builds to prevent ballooning package size.
-    if (buildTier === 'desktop') {
+    if (buildTier === 'desktop' || buildTier === 'web') {
         patterns.push({
             from: 'node_modules/movi-player/dist/movi.wasm',
             to: 'wasm/movi.wasm',
@@ -121,9 +121,9 @@ function getPlugins(tier, options = {}) {
         })
     ];
 
-    // For TV build tiers (non-desktop), replace MoviVideoPlayer with a lightweight stub
+    // For TV build tiers (non-desktop and non-web), replace MoviVideoPlayer with a lightweight stub
     // to guarantee movi-player and its WebAssembly/demuxing code are excluded from TV bundles.
-    if (buildTier !== 'desktop') {
+    if (buildTier !== 'desktop' && buildTier !== 'web') {
         pluginList.push(
             new webpack.NormalModuleReplacementPlugin(
                 /src[\\/]player[\\/]core[\\/]MoviVideoPlayer\.js$/,
@@ -738,6 +738,90 @@ const desktopConfig = {
     plugins: getPlugins('desktop')
 };
 
+// ============================================================================
+// Web build - Standalone Jellyfin Server Plugin Web Client
+// ============================================================================
+// Modern ES2020+ bundle served directly by the Litefin Jellyfin plugin.
+// Includes the full MoviVideoPlayer engine and movi.wasm for local demuxing,
+// hardware decoding, and MKV playback in modern web browsers.
+// Assets are built with relative publicPath so they resolve seamlessly under
+// subpaths like /litefin/ or reverse-proxied /jellyfin/litefin/.
+// ============================================================================
+const webConfig = {
+    // Unique identifier for web configuration target
+    name: 'web',
+    // Output production bundle optimization
+    mode: 'production',
+    performance: {
+        maxAssetSize: 15000000,
+        maxEntrypointSize: 15000000,
+        hints: false
+    },
+    // Application entrypoint
+    entry: './src/index.js',
+
+    output: {
+        // Output into dedicated dist/web folder consumed by plugin packaging
+        path: path.resolve(__dirname, 'dist/web'),
+        filename: 'js/[name].js',
+        // Relative publicPath guarantees correct asset resolution under plugin routes
+        publicPath: './',
+        clean: true
+    },
+
+    // Development server configuration for browser testing
+    devServer: {
+        static: {
+            directory: path.resolve(__dirname, 'dist/web')
+        },
+        compress: true,
+        port: 8081,
+        hot: true
+    },
+
+    optimization: {
+        // Chunk splitting for efficient browser caching
+        splitChunks: { chunks: 'all', maxSize: 250000 },
+        minimizer: ['...', new CssMinimizerPlugin()]
+    },
+
+    module: {
+        rules: [
+            // Standard stylesheet processing
+            { test: /\.css$/, use: [MiniCssExtractPlugin.loader, 'css-loader'] },
+            // Font asset packaging
+            {
+                test: /\.(woff|woff2|eot|ttf|otf)$/i,
+                type: 'asset/resource',
+                generator: {
+                    filename: 'assets/fonts/[name][ext]'
+                }
+            },
+            // WebAssembly asset handling
+            {
+                test: /\.wasm$/,
+                type: 'asset/resource',
+                generator: {
+                    emit: false
+                }
+            }
+        ]
+    },
+
+    // Web tier: Bundles libass-wasm and movi.wasm without stubbing MoviVideoPlayer
+    plugins: getPlugins('web')
+};
+
 // Export all configs. Run a specific one with --config-name <name>.
-// e.g. npx webpack --config webpack.config.cjs --config-name desktop
-module.exports = [modernConfig, debugConfig, normalConfig, legacyConfig, ultraLegacyConfig, normalOblongConfig, desktopConfig];
+// e.g. npx webpack --config webpack.config.cjs --config-name web
+module.exports = [
+    modernConfig,
+    debugConfig,
+    normalConfig,
+    legacyConfig,
+    ultraLegacyConfig,
+    normalOblongConfig,
+    desktopConfig,
+    webConfig
+];
+

@@ -31,6 +31,11 @@ jobs:
           node-version: '20'
           cache: 'npm'
 
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
       - name: Install dependencies
         run: npm install
 
@@ -99,6 +104,13 @@ jobs:
           echo "$FOOTER" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
+      - name: Build and Package Litefin Web Server Plugin
+        id: package_plugin
+        run: |
+          npm run package:plugin
+        env:
+          CHANGELOG: ${{ steps.release_body.outputs.content }}
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -111,5 +123,7 @@ jobs:
             *.wgt
             *.ipk
             manifest.json
+            Litefin.Web.Plugin_*.zip
+            litefin-plugin-manifest.json
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
