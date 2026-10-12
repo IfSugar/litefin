@@ -3694,6 +3694,47 @@ class SettingsPage extends Page {
                     </div>
                 </div>
 
+                <!-- Mark as Watched Completion Threshold (Apple HIG style tactile selector) -->
+                <!-- Allows viewer to keep Litefin's 80% credits-friendly default or respect server MaxResumePct -->
+                <div class="setting-item">
+                    <div class="setting-label">
+                        <span class="setting-name" data-i18n="WatchedThreshold">${i18n.t('WatchedThreshold') || 'Mark as Watched Threshold'}</span>
+                        <span class="setting-description" data-i18n="WatchedThresholdDescription">${i18n.t('WatchedThresholdDescription') || 'Choose the completion percentage required to mark an item as watched. Litefin defaults to 80% to accommodate credit and ending sequences, or you can respect your Jellyfin server setting.'}</span>
+                    </div>
+                    <div class="setting-control">
+                        ${this._renderDropdown(
+                'watched-threshold-select',
+                [
+                    {
+                        value: 'server',
+                        label: i18n.t('OptionWatchedThresholdServer') || 'Server Setting (MaxResumePct)'
+                    },
+                    {
+                        value: '80',
+                        label: i18n.t('OptionWatchedThreshold80') || '80% (Litefin Default - Credits friendly)'
+                    },
+                    {
+                        value: '85',
+                        label: i18n.t('OptionWatchedThreshold85') || '85%'
+                    },
+                    {
+                        value: '90',
+                        label: i18n.t('OptionWatchedThreshold90') || '90%'
+                    },
+                    {
+                        value: '95',
+                        label: i18n.t('OptionWatchedThreshold95') || '95%'
+                    },
+                    {
+                        value: '100',
+                        label: i18n.t('OptionWatchedThreshold100') || '100% (Strict Completion)'
+                    }
+                ],
+                PlayerSettings.get('watchedThreshold') || '80'
+            )}
+                    </div>
+                </div>
+
                 <!-- Up Next Countdown Dialog Toggle -->
                 <!-- Allows users to independently enable or disable the interactive card that shows up near the end of an episode -->
                 <div class="setting-item">
@@ -6036,30 +6077,30 @@ class SettingsPage extends Page {
                         <div class="identity-item">
                             <span class="identity-label" data-i18n="Platform">${i18n.t('Platform')}</span>
                             <span class="identity-value">${(() => {
-                                // Specific operating system branch detection
-                                if (platformInfo.isAndroid) {
-                                    const ver = caps.androidVersion || platformInfo.androidVersion;
-                                    return ver ? `Android ${ver}` : 'Android';
-                                }
-                                if (platformInfo.isWebOS) {
-                                    return i18n.t('WebOSValue', [caps.webosVersion]);
-                                }
-                                if (platformInfo.isTizen) {
-                                    return i18n.t('TizenValue', [caps.tizenVersion]);
-                                }
-                                if (platformInfo.isDesktop) {
-                                    return `Desktop (${platformInfo.operatingSystem || 'Native'})`;
-                                }
-                                return i18n.t('BrowserValue', [caps.browserVersion]);
-                            })()}</span>
+                // Specific operating system branch detection
+                if (platformInfo.isAndroid) {
+                    const ver = caps.androidVersion || platformInfo.androidVersion;
+                    return ver ? `Android ${ver}` : 'Android';
+                }
+                if (platformInfo.isWebOS) {
+                    return i18n.t('WebOSValue', [caps.webosVersion]);
+                }
+                if (platformInfo.isTizen) {
+                    return i18n.t('TizenValue', [caps.tizenVersion]);
+                }
+                if (platformInfo.isDesktop) {
+                    return `Desktop (${platformInfo.operatingSystem || 'Native'})`;
+                }
+                return i18n.t('BrowserValue', [caps.browserVersion]);
+            })()}</span>
                         </div>
                         <div class="identity-item">
                             <span class="identity-label" data-i18n="Resolution">${i18n.t('Resolution')}</span>
                             <span class="identity-value">${i18n.t('ResolutionValue', [
-            caps.screenWidth || (typeof window !== 'undefined' ? (window.screen?.width || window.innerWidth || 1920) : 1920),
-            caps.screenHeight || (typeof window !== 'undefined' ? (window.screen?.height || window.innerHeight || 1080) : 1080),
-            caps.uhd8K ? i18n.t('UHD8K') : caps.uhd ? i18n.t('UHD') : i18n.t('FHD')
-        ])}</span>
+                caps.screenWidth || (typeof window !== 'undefined' ? (window.screen?.width || window.innerWidth || 1920) : 1920),
+                caps.screenHeight || (typeof window !== 'undefined' ? (window.screen?.height || window.innerHeight || 1080) : 1080),
+                caps.uhd8K ? i18n.t('UHD8K') : caps.uhd ? i18n.t('UHD') : i18n.t('FHD')
+            ])}</span>
                         </div>
                         <div class="identity-item">
                             <span class="identity-label" data-i18n="HDRSupport">${i18n.t('HDRSupport')}</span>
@@ -10227,6 +10268,7 @@ class SettingsPage extends Page {
             'next-up-dialog-style-select': { type: 'player', key: 'nextUpDialogStyle' },
             'next-up-dialog-scale-select': { type: 'player', key: 'nextUpDialogScale' },
             'next-up-dialog-trigger-select': { type: 'player', key: 'nextUpTriggerMode' },
+            'watched-threshold-select': { type: 'player', key: 'watchedThreshold' },
 
             // Per-segment-type skip action — read by the skip-intro plugin on each onPlayerStart
             'segment-source-select': { type: 'player', key: 'skipSegmentSource' },
@@ -10430,6 +10472,13 @@ class SettingsPage extends Page {
                         } else if (id === 'theme-mode-select') {
                             layoutManager.setThemeMode(newValue);
                             this._updateLighterBackgroundVisibility();
+                        } else if (id === 'watched-threshold-select') {
+                            PlayerSettings.set('watchedThreshold', newValue);
+                            if (newValue === 'server') {
+                                api.getServerConfiguration({ silent: true }).catch((err) => {
+                                    log.debug('Failed to background fetch server config for MaxResumePct:', err);
+                                });
+                            }
                         } else if (id === 'ui-font-select') {
                             // SPECIAL CASE: Font changes handled by LayoutManager
                             layoutManager.setUiFont(newValue);

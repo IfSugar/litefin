@@ -525,6 +525,28 @@ const DEFAULTS = {
     // Auto-play next episode when current finishes
     enableNextEpisodeAutoPlay: true,
 
+    /*
+     * -------------------------------------------------------------------------
+     * MARK AS WATCHED COMPLETION THRESHOLD
+     * -------------------------------------------------------------------------
+     * Governs the playback percentage at which an item is marked as watched
+     * (Played = true, PlayedToCompletion = true) when stopping or advancing.
+     *
+     * Options:
+     *   - '80'     : 80% (Litefin Default) - Accommodates anime/TV show credits
+     *                and ending sequences (EDs) without leaving items unplayed.
+     *   - 'server' : Respect Server Setting - Dynamically queries and respects
+     *                the Jellyfin server's configured MaxResumePct (default 90%).
+     *   - '85'     : 85%
+     *   - '90'     : 90%
+     *   - '95'     : 95%
+     *   - '100'    : 100% (Strict Completion only)
+     *
+     * Default: '80' (Litefin standard behavior).
+     * -------------------------------------------------------------------------
+     */
+    watchedThreshold: '80',
+
     /* -------------------------------------------------------------------------
      * DYNAMIC EPISODE QUEUE WINDOW SIZE (PERFORMANCE)
      * -------------------------------------------------------------------------

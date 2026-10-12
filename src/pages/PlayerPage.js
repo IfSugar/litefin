@@ -321,6 +321,21 @@ class PlayerPage extends Page {
             // Load item details (and wait for font if needed)
             const [itemResult] = await Promise.all(fetchTasks);
 
+            /*
+             * -----------------------------------------------------------------
+             * Server System Configuration Prefetch (Completion Threshold)
+             * -----------------------------------------------------------------
+             * When the user configures Litefin to respect the Jellyfin server's
+             * MaxResumePct setting, ensure the server configuration is fetched
+             * and cached in the background so stop reporting resolves smoothly.
+             * -----------------------------------------------------------------
+             */
+            if (PlayerSettings.get('watchedThreshold') === 'server' && !storage.getItem('server:maxResumePct')) {
+                api.getServerConfiguration({ silent: true }).catch((err) => {
+                    log.debug('Failed to background fetch server config for MaxResumePct:', err);
+                });
+            }
+
             // If initial backdrop wasn't pre-cached in state, attempt fallback resolution from item metadata
             if (!this._loadingBackdrop && this.el?.classList.contains('loading')) {
                 const itemBackdropUrl = BackdropManager.getBackdropUrl(itemResult, { maxWidth: 1920 });
@@ -2370,8 +2385,9 @@ class PlayerPage extends Page {
                     const durationTicks =
                         this._player?.getDurationTicks?.() || mediaSource?.RunTimeTicks || outgoingItem?.RunTimeTicks || 0;
 
-                    // If user was near end of outgoing item, mark ended
-                    if (durationTicks > 0 && positionTicks >= durationTicks * 0.8) {
+                    // If user was near end of outgoing item (based on configured watched threshold), mark ended
+                    const thresholdFraction = this._getWatchedThresholdFraction();
+                    if (durationTicks > 0 && positionTicks >= durationTicks * thresholdFraction) {
                         this._isPlaybackEnded = true;
                     }
 
@@ -2652,12 +2668,13 @@ class PlayerPage extends Page {
 
             /*
              * When the user manually advances to the next episode in the queue, or
-             * has watched >= 80% of the outgoing episode before manually selecting
-             * another item, mark playback as ended so the outgoing item triggers
-             * the completion override and scrobbles to ani-sync / trakt plugins.
+             * has watched past the completion threshold of the outgoing episode before
+             * manually selecting another item, mark playback as ended so the outgoing item
+             * triggers the completion override and scrobbles to ani-sync / trakt plugins.
              */
             const previousIndex = playQueue._queue?.findIndex((e) => e.Id === outgoingItem?.Id) ?? -1;
-            if (targetIndex === previousIndex + 1 || (durationTicks > 0 && positionTicks >= durationTicks * 0.8)) {
+            const thresholdFraction = this._getWatchedThresholdFraction();
+            if (targetIndex === previousIndex + 1 || (durationTicks > 0 && positionTicks >= durationTicks * thresholdFraction)) {
                 this._isPlaybackEnded = true;
             }
 
@@ -4232,6 +4249,49 @@ class PlayerPage extends Page {
     }
 
     /**
+     * =========================================================================
+     * Watched Completion Threshold Fraction Resolver
+     * =========================================================================
+     * Resolves the completion threshold fraction (e.g. 0.8 for 80%, 0.9 for 90%)
+     * based on user preference and server configuration.
+     *
+     * Options:
+     *   - '80' (default): 0.80 (Litefin Default - credits and ED sequence friendly)
+     *   - 'server': Respects Jellyfin server's configured MaxResumePct (default 90%)
+     *   - '85' / '90' / '95': Explicit custom percentage values
+     *   - '100': 1.0 (Strict completion only)
+     * =========================================================================
+     *
+     * @returns {number} Fractional value between 0.0 and 1.0
+     */
+    _getWatchedThresholdFraction() {
+        const mode = PlayerSettings.get('watchedThreshold') || '80';
+
+        // Respect the Jellyfin host's MaxResumePct server setting
+        if (mode === 'server') {
+            const serverMaxPct = storage.getItem('server:maxResumePct') || state.get('server:maxResumePct');
+            if (typeof serverMaxPct === 'number' && serverMaxPct > 0 && serverMaxPct <= 100) {
+                return serverMaxPct / 100;
+            }
+            const parsed = parseInt(serverMaxPct, 10);
+            if (!isNaN(parsed) && parsed > 0 && parsed <= 100) {
+                return parsed / 100;
+            }
+            // Fallback to Jellyfin's standard factory default (90%)
+            return 0.90;
+        }
+
+        // Parse explicit percentage choices (e.g. '80', '85', '90', '95', '100')
+        const pct = parseInt(mode, 10);
+        if (!isNaN(pct) && pct >= 50 && pct <= 100) {
+            return pct / 100;
+        }
+
+        // Standard Litefin fallback threshold
+        return 0.80;
+    }
+
+    /**
      * Report playback stopped to server
      * @param {Object} [capturedMediaSource] - Pre-captured media source
      * @param {number} [capturedPosition] - Pre-captured position ticks
@@ -4312,13 +4372,14 @@ class PlayerPage extends Page {
             // rolling buffer durations (e.g. 5s chunks) and must never trigger PlayedToCompletion
             // position overrides.
             const isLive = item?.Type === 'TvChannel' || Boolean(mediaSource?.LiveStreamId || mediaSource?.IsInfiniteStream);
-            const _isNearComplete = !isLive && durationTicks > 0 && (this._isPlaybackEnded || rawPosition >= durationTicks * 0.8);
+            const thresholdFraction = this._getWatchedThresholdFraction();
+            const _isNearComplete = !isLive && durationTicks > 0 && (this._isPlaybackEnded || rawPosition >= durationTicks * thresholdFraction);
             if (_isNearComplete) {
                 log.info(
                     `Overriding positionTicks with durationTicks (${durationTicks})` +
                     (this._isPlaybackEnded
                         ? ' due to natural end of playback / next item transition'
-                        : ' due to near-complete playback position (>= 80%)')
+                        : ` due to near-complete playback position (>= ${(thresholdFraction * 100).toFixed(0)}%)`)
                 );
                 rawPosition = durationTicks;
             }

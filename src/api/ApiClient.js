@@ -830,6 +830,34 @@ export class ApiClient {
     }
 
     /**
+     * -------------------------------------------------------------------------
+     * SERVER SYSTEM CONFIGURATION
+     * -------------------------------------------------------------------------
+     * Retrieves global server configuration parameters from the Jellyfin host.
+     * Contains playback completion properties including MaxResumePct (default 90)
+     * and MinResumePct (default 5).
+     *
+     * Automatically caches MaxResumePct into persistent storage so the player
+     * can reliably resolve completion thresholds without hitting network stalls.
+     * -------------------------------------------------------------------------
+     *
+     * @param {Object} [options={}] - Optional request options
+     * @returns {Promise<Object>}
+     */
+    async getServerConfiguration(options = {}) {
+        // Fetch server system configuration payload
+        const config = await this.get('/System/Configuration', null, options);
+
+        // Cache MaxResumePct if returned by the server
+        if (config && typeof config.MaxResumePct === 'number') {
+            storage.setItem('server:maxResumePct', config.MaxResumePct);
+            storage.flush();
+        }
+
+        return config;
+    }
+
+    /**
      * Update user configuration.
      *
      * JF12+ canonical: POST /Users/Configuration?userId=...
