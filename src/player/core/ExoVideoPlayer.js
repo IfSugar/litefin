@@ -87,10 +87,28 @@ async function invokeNative(command, args = {}) {
         return window.__TAURI__.core.invoke(`plugin:exoplayer|${command}`, args);
     }
 
-    log.warn(`No native Android bridge available to execute ExoPlayer command: ${command}`);
+    const errMsg = `No native Android bridge available to execute ExoPlayer command: ${command}`;
+    log.warn(errMsg);
+    throw new Error(errMsg);
 }
 
 export class ExoVideoPlayer {
+    /**
+     * Capability check for native Android ExoPlayer bridge.
+     * Returns true if running within an Android environment containing
+     * the direct JavascriptInterface or Tauri v2 plugin bridge.
+     * @returns {boolean}
+     */
+    static isSupported() {
+        if (typeof window === 'undefined') return false;
+        return Boolean(
+            window.LitefinExoPlayer ||
+            window.LitefinAndroid ||
+            window.__TAURI_INTERNALS__?.invoke ||
+            window.__TAURI__?.core?.invoke
+        );
+    }
+
     /**
      * @param {Object} options - Initialization options
      * @param {HTMLElement} options.container - DOM container hosting player overlays
@@ -401,6 +419,13 @@ export class ExoVideoPlayer {
      * @returns {Promise<void>}
      */
     async play(options) {
+        // Verify native bridge availability before arming startup watchdog or dispatching commands
+        if (!ExoVideoPlayer.isSupported()) {
+            const err = new Error('ExoPlayer native bridge is not available on this platform or build.');
+            log.error(err.message);
+            throw err;
+        }
+
         log.info('ExoVideoPlayer.play() called with URL:', options?.url);
         this._currentPlayOptions = options;
         this._currentSrc = options?.url;

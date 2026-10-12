@@ -1029,26 +1029,40 @@ export class JellyfinPlayer extends EventEmitter {
         };
 
         // ----------------------------------------------------------------
-        // Explicit override: 'exoplayer' → use ExoVideoPlayer
+        // Explicit override: 'exoplayer' → use ExoVideoPlayer if bridge available
         // ----------------------------------------------------------------
         if (backendSetting === 'exoplayer') {
-            log.info('Using ExoPlayer backend (forced by setting)');
-            this._backendType = 'exoplayer';
-            this._backend    = new ExoVideoPlayer(sharedOptions);
-            return;
+            const isExoSupported = typeof ExoVideoPlayer.isSupported === 'function'
+                ? ExoVideoPlayer.isSupported()
+                : (platformInfo.isAndroid && (typeof window !== 'undefined' && Boolean(window.LitefinExoPlayer || window.LitefinAndroid || window.__TAURI__)));
+
+            if (isExoSupported) {
+                log.info('Using ExoPlayer backend (forced by setting)');
+                this._backendType = 'exoplayer';
+                this._backend    = new ExoVideoPlayer(sharedOptions);
+                return;
+            } else {
+                log.warn('Forced exoplayer backend requested, but native Android bridge is not available in this build — falling back to HTML5');
+                this._backendType = 'html5';
+                this._backend    = new HtmlVideoPlayer(sharedOptions);
+                return;
+            }
         }
 
         // ----------------------------------------------------------------
-        // Explicit override: 'movi' → use MoviVideoPlayer if WebCodecs available
+        // Explicit override: 'movi' → use MoviVideoPlayer if bundled & WebCodecs available
         // ----------------------------------------------------------------
         if (backendSetting === 'movi') {
-            if (platformInfo.hasWebCodecsSupport) {
+            const isMoviAvailable = !MoviVideoPlayer.isStub &&
+                (typeof MoviVideoPlayer.isSupported === 'function' ? MoviVideoPlayer.isSupported() : platformInfo.hasWebCodecsSupport);
+
+            if (isMoviAvailable && platformInfo.hasWebCodecsSupport && !platformInfo.isTizen && !platformInfo.isWebOS) {
                 log.info('Using MoviPlayer backend (forced by setting)');
                 this._backendType = 'movi';
                 this._backend    = new MoviVideoPlayer(sharedOptions);
                 return;
             } else {
-                log.warn('Forced movi backend requested, but WebCodecs is not supported — falling back to HTML5');
+                log.warn('Forced movi backend requested, but MoviPlayer is not included or supported in this build — falling back to HTML5');
                 this._backendType = 'html5';
                 this._backend    = new HtmlVideoPlayer(sharedOptions);
                 return;
@@ -1093,12 +1107,24 @@ export class JellyfinPlayer extends EventEmitter {
         // Provides native hardware-accelerated MediaCodec decoding via
         // Android SurfaceView and Media3 ExoPlayer, bypassing Chromium
         // video stack bottlenecks and delivering steady 60 FPS playback.
+        // If native bridge is not available (e.g. mobile browser), falls back to HTML5.
         // ----------------------------------------------------------------
         if (platformInfo.isAndroid) {
-            log.info('Android platform detected — using ExoPlayer backend');
-            this._backendType = 'exoplayer';
-            this._backend    = new ExoVideoPlayer(sharedOptions);
-            return;
+            const isExoSupported = typeof ExoVideoPlayer.isSupported === 'function'
+                ? ExoVideoPlayer.isSupported()
+                : (typeof window !== 'undefined' && Boolean(window.LitefinExoPlayer || window.LitefinAndroid || window.__TAURI__));
+
+            if (isExoSupported) {
+                log.info('Android platform detected with native ExoPlayer bridge — using ExoPlayer backend');
+                this._backendType = 'exoplayer';
+                this._backend    = new ExoVideoPlayer(sharedOptions);
+                return;
+            } else {
+                log.warn('Android platform detected without native ExoPlayer bridge (e.g. mobile web browser) — falling back to HTML5');
+                this._backendType = 'html5';
+                this._backend    = new HtmlVideoPlayer(sharedOptions);
+                return;
+            }
         }
 
         // ----------------------------------------------------------------
@@ -1127,9 +1153,16 @@ export class JellyfinPlayer extends EventEmitter {
         // Auto-detect: Desktop platform or Web browser with WebCodecs support → MoviVideoPlayer.
         // Provides full MKV container demuxing, WebCodecs hardware decoding,
         // and multi-audio decoding (AC-3, E-AC-3, TrueHD, DTS) natively.
+        // Excluded on television builds where Movi is replaced with a stub.
         // If on web and WebCodecs is missing, falls through to HTML5.
         // ----------------------------------------------------------------
-        if ((platformInfo.isDesktop || platformInfo.isWeb) && platformInfo.hasWebCodecsSupport) {
+        const isMoviCandidate = (platformInfo.isDesktop || platformInfo.isWeb) &&
+            platformInfo.hasWebCodecsSupport &&
+            !MoviVideoPlayer.isStub &&
+            !platformInfo.isTizen &&
+            !platformInfo.isWebOS;
+
+        if (isMoviCandidate) {
             // Log successful auto-detection of WebCodecs capability across desktop and web
             log.info('Platform with WebCodecs detected (Desktop/Web) — defaulting to MoviPlayer backend');
             // Bind player backend type to movi
@@ -1568,6 +1601,76 @@ export class JellyfinPlayer extends EventEmitter {
             log.error(`[JellyfinPlayer] Error event received from ${this._backendType} backend:`, event.data);
 
             // ────────────────────────────────────────────────────────────────
+            // Smart Backend Fallback: Movi / ExoPlayer Runtime Error → HTML5
+            // ────────────────────────────────────────────────────────────────
+            // If the Movi or ExoPlayer backend encounters an unrecoverable runtime error
+            // (e.g. demuxer/WASM crash, hardware decoder deadlock, or missing bridge),
+            // switch to the universal HTML5 backend so the user doesn't get stuck.
+            // ────────────────────────────────────────────────────────────────
+            if (
+                (this._backendType === 'movi' || this._backendType === 'exoplayer') &&
+                !this._backendFallbackAttempted &&
+                this._currentPlayOptions &&
+                !this._isRestarting
+            ) {
+                this._backendFallbackAttempted = true;
+                const failedBackend = this._backendType;
+                const errorDesc = event.data?.error || event.data?.message || 'Playback error';
+                log.warn(
+                    `[BackendFallback] Fatal error from '${failedBackend}' backend (${errorDesc}). ` +
+                    'Switching to HTML5 video backend and restarting...'
+                );
+
+                const currentTicks = this.getCurrentPositionTicks() || this._currentPlayOptions.startPositionTicks || 0;
+                const restartOptions = {
+                    ...this._currentPlayOptions,
+                    audioStreamIndex: this._currentAudioStreamIndex,
+                    subtitleStreamIndex: this._currentSubtitleStreamIndex,
+                    secondarySubtitleStreamIndex: this._currentSecondarySubtitleStreamIndex,
+                    startPositionTicks: currentTicks,
+                    _backendFallbackAttempted: true
+                };
+
+                this._currentPlayOptions = restartOptions;
+                this._lastPlayOptions = restartOptions;
+                this._isRestarting = true;
+                this.emit(PlayerEvent.RESTARTING);
+
+                (async () => {
+                    try {
+                        await this.stop();
+                        if (typeof this._backend?.destroy === 'function') {
+                            this._backend.destroy();
+                        }
+                        await new Promise(resolve => setTimeout(resolve, 300));
+
+                        // Reconfigure to HTML5 backend
+                        this._backendType = 'html5';
+                        this._backend = new HtmlVideoPlayer({
+                            container: this.container,
+                            settings: PlayerSettings,
+                            onEvent: this._handleBackendEvent.bind(this)
+                        });
+
+                        const html5Profile = buildJellyfinProfile({
+                            manualBitrate: this._manualBitrate,
+                            playbackMode: this._playbackMode,
+                            backend: 'html5'
+                        });
+                        restartOptions._deviceProfile = html5Profile;
+
+                        await this.play(restartOptions);
+                    } catch (fallbackErr) {
+                        log.error('[BackendFallback] Failed to recover via HTML5 backend:', fallbackErr);
+                        this.emit(PlayerEvent.ERROR, event.data);
+                    } finally {
+                        this._isRestarting = false;
+                    }
+                })();
+                return;
+            }
+
+            // ────────────────────────────────────────────────────────────────
             // DirectPlay / Remux Failure Transcode Escalation
             // ────────────────────────────────────────────────────────────────
             // When DirectPlay or Remux fails at startup or mid-playback (e.g.,
@@ -1783,6 +1886,11 @@ export class JellyfinPlayer extends EventEmitter {
         this._currentPlayOptions = options;
         // Store initial options for potential reload
         this._lastPlayOptions = options;
+
+        // Reset fallback attempt flag on fresh playback sessions
+        if (!options._backendFallbackAttempted) {
+            this._backendFallbackAttempted = false;
+        }
 
         try {
             log.debug(`Requesting PlaybackInfo from ${this.serverUrl}...`);
@@ -2638,6 +2746,58 @@ export class JellyfinPlayer extends EventEmitter {
                     error?.message || error
                 );
                 return;
+            }
+
+            // ────────────────────────────────────────────────────────────────
+            // Smart Backend Fallback: Movi / ExoPlayer → HTML5 Video Player
+            // ────────────────────────────────────────────────────────────────
+            // If the active backend is 'movi' or 'exoplayer' and fails during play
+            // (e.g. backend not included in the build, stubbed out on TV targets,
+            // native bridge missing, or WebCodecs/WASM initialization threw),
+            // transparently fall back to HtmlVideoPlayer instead of getting stuck
+            // in an error loop or hanging indefinitely.
+            // ────────────────────────────────────────────────────────────────
+            if (
+                (this._backendType === 'movi' || this._backendType === 'exoplayer') &&
+                !options._backendFallbackAttempted
+            ) {
+                const failedBackend = this._backendType;
+                log.warn(
+                    `[BackendFallback] Backend '${failedBackend}' failed to start playback (${error?.message || error}). ` +
+                    'Switching to HTML5 video backend and restarting...'
+                );
+
+                // Safely stop and destroy the failed backend
+                try {
+                    await this._backend?.stop();
+                    if (typeof this._backend?.destroy === 'function') {
+                        this._backend.destroy();
+                    }
+                } catch (tearDownErr) {
+                    log.warn(`[BackendFallback] Clean stop failed for ${failedBackend}:`, tearDownErr);
+                }
+
+                // Switch to HTML5 player
+                this._backendType = 'html5';
+                this._backend = new HtmlVideoPlayer({
+                    container: this.container,
+                    settings: PlayerSettings,
+                    onEvent: this._handleBackendEvent.bind(this)
+                });
+
+                // Build a compliant HTML5 device profile
+                const html5Profile = buildJellyfinProfile({
+                    manualBitrate: this._manualBitrate,
+                    playbackMode: this._playbackMode,
+                    backend: 'html5'
+                });
+
+                // Re-attempt playback on HTML5 backend
+                return this.play({
+                    ...options,
+                    _backendFallbackAttempted: true,
+                    _deviceProfile: html5Profile
+                });
             }
 
             // ────────────────────────────────────────────────────────────────

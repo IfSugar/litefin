@@ -27,9 +27,25 @@ const log = logger.create('MoviVideoPlayerStub');
  */
 export class MoviVideoPlayer {
     /**
+     * Build exclusion flag indicating this is a dummy stub without demuxer/WASM
+     */
+    static isStub = true;
+
+    /**
+     * Runtime capability check
+     * @returns {boolean} Always false for stubbed build targets
+     */
+    static isSupported() {
+        return false;
+    }
+
+    /**
      * @param {Object} options - Initialization options
      */
     constructor(options = {}) {
+        // Mark instance as stub for runtime introspection
+        this.isStub = true;
+
         // Log diagnostic warning that MoviPlayer is not present on this build target
         log.warn('MoviVideoPlayer is not bundled in television build tiers (Samsung Tizen / LG webOS).');
 

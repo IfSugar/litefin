@@ -108,12 +108,28 @@ const STARTUP_TIMEOUT_MS = 15000;
 
 export class MoviVideoPlayer {
     /**
+     * Active build inclusion flag confirming full MoviVideoPlayer is bundled
+     */
+    static isStub = false;
+
+    /**
+     * Runtime capability check
+     * @returns {boolean} True if WebCodecs VideoDecoder API is available in browser window
+     */
+    static isSupported() {
+        return typeof window !== 'undefined' && 'VideoDecoder' in window;
+    }
+
+    /**
      * @param {Object} options - Initialization options
      * @param {HTMLElement} options.container - DOM container hosting video elements
      * @param {Object} options.settings - PlayerSettings configuration manager
      * @param {Function} options.onEvent - Callback for normalized player events ({ type, data })
      */
     constructor(options) {
+        // Mark instance as non-stub
+        this.isStub = false;
+
         this.container = options.container;
         this.settings = options.settings;
         this.onEvent = options.onEvent || (() => { });

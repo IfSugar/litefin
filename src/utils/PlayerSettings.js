@@ -37,14 +37,27 @@ const log = logger.create('PlayerSettings');
 export function getRecommendedPlayerBackend() {
     // Fall back safely if platformInfo is unavailable
     if (typeof platformInfo === 'undefined') return 'html5';
-    // Native Android / Google TV hardware platform
-    if (platformInfo.isAndroid) return 'exoplayer';
     // Samsung Tizen TV hardware platform
     if (platformInfo.isTizen) return 'avplay';
     // LG webOS TV hardware platform
     if (platformInfo.isWebOS) return 'webos';
-    // Modern Web browsers and Desktop shells supporting WebCodecs
-    if ((platformInfo.isDesktop || platformInfo.isWeb) && platformInfo.hasWebCodecsSupport) return 'movi';
+    // Native Android / Google TV hardware platform (verify native bridge is present)
+    if (platformInfo.isAndroid) {
+        // Only recommend ExoPlayer if native bridge exists (e.g. not a generic mobile browser)
+        const hasNativeBridge = typeof window !== 'undefined' && Boolean(
+            window.LitefinExoPlayer ||
+            window.LitefinAndroid ||
+            window.__TAURI_INTERNALS__?.invoke ||
+            window.__TAURI__?.core?.invoke
+        );
+        if (hasNativeBridge || platformInfo._platform === 'android') {
+            return 'exoplayer';
+        }
+    }
+    // Modern Web browsers and Desktop shells supporting WebCodecs (excluded on TV builds)
+    if ((platformInfo.isDesktop || platformInfo.isWeb) && platformInfo.hasWebCodecsSupport && !platformInfo.isTizen && !platformInfo.isWebOS) {
+        return 'movi';
+    }
     // Fallback standard HTML5 video player
     return 'html5';
 }
@@ -903,9 +916,20 @@ export const PlayerSettings = {
             if (!stored) {
                 return recommended;
             }
-            // Fall back to html5 if movi is persisted but WebCodecs is unsupported
-            if (stored === 'movi' && !platformInfo.hasWebCodecsSupport) {
-                log.warn('Stored playerBackend is movi, but WebCodecs is not supported; falling back to html5');
+            // Fall back to html5 if movi is persisted but WebCodecs is unsupported or on TV builds
+            if (stored === 'movi' && (!platformInfo.hasWebCodecsSupport || platformInfo.isTizen || platformInfo.isWebOS)) {
+                log.warn('Stored playerBackend is movi, but not supported or included in this build; falling back to html5');
+                return 'html5';
+            }
+            // Fall back to html5 if exoplayer is persisted but native Android bridge is missing
+            const hasExoBridge = typeof window !== 'undefined' && Boolean(
+                window.LitefinExoPlayer ||
+                window.LitefinAndroid ||
+                window.__TAURI_INTERNALS__?.invoke ||
+                window.__TAURI__?.core?.invoke
+            );
+            if (stored === 'exoplayer' && !hasExoBridge && !platformInfo.isAndroid) {
+                log.warn('Stored playerBackend is exoplayer, but native Android bridge is missing; falling back to html5');
                 return 'html5';
             }
         }
