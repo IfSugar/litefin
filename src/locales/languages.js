@@ -31,6 +31,11 @@ export const availableLanguages = [
         "completeness": 95
     },
     {
+        "value": "hu",
+        "label": "Magyar",
+        "completeness": 98.91
+    },
+    {
         "value": "nl",
         "label": "Nederlands",
         "completeness": 93.55
@@ -289,11 +294,6 @@ export const availableLanguages = [
         "value": "jbo",
         "label": "Lojban",
         "completeness": 4.94
-    },
-    {
-        "value": "hu",
-        "label": "Magyar",
-        "completeness": 16.1
     },
     {
         "value": "mg",
