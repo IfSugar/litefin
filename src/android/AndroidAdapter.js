@@ -16,6 +16,7 @@ import { eventBus } from '../core/EventBus.js';
 import { storage } from '../utils/StorageService.js';
 import { logger } from '../utils/Logger.js';
 import { touchHorizontalScroller } from './TouchHorizontalScroller.js';
+import { layoutManager } from '../ui/LayoutManager.js';
 
 const log = logger.create('AndroidAdapter');
 
@@ -497,149 +498,27 @@ class AndroidAdapter {
      * =========================================================================
      * Fits a fixed design width (750px) using CSS zoom so the TV-authored layout
      * fills phone screens cleanly in portrait orientation.
+    /**
+     * Checks if portrait scale is currently active.
+     * Delegates evaluation to LayoutManager's unified display scaling engine.
      * @private
      * @returns {boolean} True if viewport was portrait and handled
      */
-    _applyPortraitScale() {
-        /*
-         * Detect vertical screen orientation where viewport height exceeds width.
-         * When vertical, stamp data-litefin-portrait onto the document root element
-         * and dispatch an orientation change event across the application bus.
-         */
-        const isPortrait = window.innerHeight > window.innerWidth;
-        const root = document.documentElement;
-
-        if (!isPortrait) {
-            // Remove portrait marker attribute when returning to landscape
-            if (root && root.hasAttribute('data-litefin-portrait')) {
-                root.removeAttribute('data-litefin-portrait');
-                eventBus.emit('viewport:orientationChange', { isPortrait: false });
-            }
-            return false;
-        }
-
-        // Apply portrait attribute for reactive CSS layout switches
-        if (root && !root.hasAttribute('data-litefin-portrait')) {
-            root.setAttribute('data-litefin-portrait', '1');
-            eventBus.emit('viewport:orientationChange', { isPortrait: true });
-        }
-
-        try {
-            /*
-             * Target portrait design width of 750px calibrated for mobile displays.
-             * CSS zoom scaling computes proportional scale factor down to MIN_SCALE (0.15).
-             */
-            const PORTRAIT_DESIGN_WIDTH = 750;
-            const MIN_SCALE = 0.15;
-
-            const scale = Math.min(1, Math.max(MIN_SCALE, window.innerWidth / PORTRAIT_DESIGN_WIDTH));
-            const appEl = document.getElementById('app');
-
-            if (scale >= 1) {
-                // Desktop or large tablet portrait window without zoom
-                root.style.removeProperty('zoom');
-                root.removeAttribute('data-litefin-scaled');
-                root.style.removeProperty('--litefin-app-w');
-                root.style.removeProperty('--litefin-app-h');
-                if (appEl) {
-                    appEl.style.removeProperty('width');
-                    appEl.style.removeProperty('height');
-                }
-            } else {
-                /*
-                 * Scale down TV canvas to fit mobile phone portrait bounds.
-                 * Sets responsive virtual width and height variables on the document element.
-                 */
-                const designW = `${Math.round(window.innerWidth / scale)}px`;
-                const designH = `${Math.round(window.innerHeight / scale)}px`;
-
-                root.style.setProperty('zoom', String(scale));
-                root.setAttribute('data-litefin-scaled', '1');
-                root.style.setProperty('--litefin-app-w', designW);
-                root.style.setProperty('--litefin-app-h', designH);
-
-                if (appEl) {
-                    appEl.style.width = designW;
-                    appEl.style.height = designH;
-                }
-            }
-
-            log.debug(`Portrait scale applied: ${scale.toFixed(3)} (${window.innerWidth}x${window.innerHeight})`);
-        } catch (e) {
-            log.warn('Failed applying portrait display scale:', e);
-        }
-        return true;
+     _applyPortraitScale() {
+        layoutManager._applyDisplayScale();
+        return document.documentElement.hasAttribute('data-litefin-portrait');
     }
 
     /**
      * =========================================================================
      * Display Scaling Engine (Phones & Tablets)
      * =========================================================================
-     * Scales the 1600px TV layout to fit physical screen dimensions via CSS zoom.
-     * Re-evaluates continuously on resize and orientation change events.
+     * Delegates mobile display scaling to LayoutManager's unified scaling engine,
+     * which incorporates user display scale preferences across portrait & landscape.
      * @private
      */
     _applyDisplayScale() {
-        const DESIGN_WIDTH = 1600;
-        const MIN_SCALE = 0.15;
-
-        const apply = () => {
-            // Check portrait first: if handled, bypass landscape computation
-            if (this._applyPortraitScale()) {
-                return;
-            }
-
-            // Clean up portrait marker if viewport transitioned to landscape
-            const root = document.documentElement;
-            if (root && root.hasAttribute('data-litefin-portrait')) {
-                root.removeAttribute('data-litefin-portrait');
-                eventBus.emit('viewport:orientationChange', { isPortrait: false });
-            }
-
-            try {
-                const scale = Math.min(1, Math.max(MIN_SCALE, window.innerWidth / DESIGN_WIDTH));
-                const appEl = document.getElementById('app');
-
-                if (scale >= 1) {
-                    // Full TV/Desktop dimension screen
-                    root.style.removeProperty('zoom');
-                    root.removeAttribute('data-litefin-scaled');
-                    root.style.removeProperty('--litefin-app-w');
-                    root.style.removeProperty('--litefin-app-h');
-                    if (appEl) {
-                        appEl.style.removeProperty('width');
-                        appEl.style.removeProperty('height');
-                    }
-                } else {
-                    root.style.setProperty('zoom', String(scale));
-                    root.setAttribute('data-litefin-scaled', '1');
-
-                    const designW = `${Math.round(window.innerWidth / scale)}px`;
-                    const designH = `${Math.round(window.innerHeight / scale)}px`;
-
-                    root.style.setProperty('--litefin-app-w', designW);
-                    root.style.setProperty('--litefin-app-h', designH);
-
-                    if (appEl) {
-                        appEl.style.width = designW;
-                        appEl.style.height = designH;
-                    }
-                }
-
-                log.debug(`Landscape scale applied: ${scale.toFixed(3)} (${window.innerWidth}x${window.innerHeight})`);
-            } catch (e) {
-                log.warn('Failed applying landscape display scale:', e);
-            }
-        };
-
-        apply();
-        if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
-            window.addEventListener('resize', apply, { passive: true });
-            window.addEventListener('orientationchange', apply, { passive: true });
-            if (window.screen?.orientation?.addEventListener) {
-                window.screen.orientation.addEventListener('change', apply);
-            }
-        }
+        layoutManager._applyDisplayScale();
     }
 
     /**

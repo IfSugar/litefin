@@ -178,8 +178,9 @@ class LayoutManager {
         /*
          * Global interface display scaling factor.
          * Supports 'auto' (dynamically fits viewport to 1080p proportions) or manual float strings ('0.8', '0.9', etc.)
+         * Loaded eagerly from storage to be available immediately during early platform initialization.
          */
-        this._displayScale = 'auto';
+        this._displayScale = storage.getItem('pref:displayScale') || 'auto';
     }
 
 
@@ -347,20 +348,19 @@ class LayoutManager {
         }
 
         /*
-         * Setup dynamic resize observer for auto display scaling mode.
-         * Recalculates viewport zoom factor whenever the window is resized
-         * to preserve identical 1080p proportions across desktop and web browser windows.
+         * Setup dynamic resize & orientation change observers for display scaling.
+         * Recalculates viewport zoom factor whenever the window is resized or rotated
+         * to preserve layout proportions and responsive mobile UI across desktop, web, and mobile.
          */
         if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
-            window.addEventListener(
-                'resize',
-                () => {
-                    if (this._displayScale === 'auto') {
-                        this._applyDisplayScale();
-                    }
-                },
-                { passive: true }
-            );
+            const handleViewportChange = () => {
+                this._applyDisplayScale();
+            };
+            window.addEventListener('resize', handleViewportChange, { passive: true });
+            window.addEventListener('orientationchange', handleViewportChange, { passive: true });
+            if (window.screen?.orientation?.addEventListener) {
+                window.screen.orientation.addEventListener('change', handleViewportChange);
+            }
         }
 
         log.info(
@@ -1006,73 +1006,202 @@ class LayoutManager {
     }
 
     /**
+     * ========================================================================
+     * Display Scaling Engine (Unified Across Desktop, Mobile & TV)
+     * ========================================================================
      * Computes and applies full-bleed CSS zoom scaling to the application canvas.
-     * Counter-expands root and container bounds (--display-canvas-w and --display-canvas-h)
-     * by 1/effectiveScale so the zoomed canvas spans 100% of the viewport edge-to-edge
-     * with zero letterboxing, pillarboxing, or black margins.
+     * Supports:
+     * 1. Mobile Portrait: 750px base design width scaled proportionally down to MIN_SCALE (0.15)
+     *    and multiplied by the user's Display Scale option. Stamping data-litefin-portrait
+     *    and data-litefin-scaled for mobile navigation and layout adaptations.
+     * 2. Mobile Landscape: 1600px base design width scaled proportionally and multiplied
+     *    by the user's Display Scale option.
+     * 3. Desktop / Web Wide: Fits 1080p canvas with auto scale or user manual scale factor.
+     * 4. Dedicated TV: 1:1 unscaled framebuffer by default or user manual scale factor.
+     *
+     * Counter-expands root and container bounds (--litefin-app-w and --litefin-app-h)
+     * so that fixed and backdrop elements span 100% of the viewport with zero letterboxing.
      * @private
      */
     _applyDisplayScale() {
-        let effectiveScale = 1.0;
+        if (typeof document === 'undefined' || typeof window === 'undefined') return;
+
         const root = document.documentElement;
         const appEl = document.getElementById('app');
+        if (!root) return;
 
-        if (this._displayScale === 'auto') {
-            // Check whether the active runtime is a dedicated television environment
-            const isNativeTv = platformInfo.isTizen || platformInfo.isWebOS || (platformInfo.isAndroid && Boolean(window.LitefinAndroid?.isTv?.()));
+        // Dedicated television environments run at fixed 1080p framebuffer
+        const isNativeTv =
+            platformInfo.isTizen ||
+            platformInfo.isWebOS ||
+            (platformInfo.isAndroid && Boolean(window.LitefinAndroid?.isTv?.()));
 
-            if (isNativeTv) {
-                // TV panels run natively at 1080p framebuffer — leave 1:1 unscaled
-                effectiveScale = 1.0;
+        // Resolve user display scale multiplier from settings ('auto' => 1.0, '0.8' => 0.8, etc.)
+        const userMultiplier = this._displayScale === 'auto' ? 1.0 : (parseFloat(this._displayScale) || 1.0);
+
+        if (isNativeTv) {
+            // Television panels run natively at 1:1 scale unless user sets manual factor
+            const tvScale = userMultiplier;
+            if (Math.abs(tvScale - 1.0) < 0.02) {
+                root.style.removeProperty('zoom');
+                root.removeAttribute('data-display-scale');
             } else {
-                // Desktop and web browser viewports: calculate proportional scaling
-                const widthScale = (window.innerWidth || 1920) / 1920;
-                const heightScale = (window.innerHeight || 1080) / 1080;
-
-                // Scale to fit the more constrained viewport dimension
-                const autoScale = Math.min(widthScale, heightScale);
-
-                // Clamp between 0.6 and 1.0 to preserve legibility and spacing
-                effectiveScale = Math.min(1.0, Math.max(0.6, Math.round(autoScale * 100) / 100));
+                root.style.setProperty('zoom', String(tvScale));
+                root.setAttribute('data-display-scale', '1');
             }
-        } else {
-            effectiveScale = parseFloat(this._displayScale) || 1.0;
+            root.removeAttribute('data-litefin-portrait');
+            root.removeAttribute('data-litefin-scaled');
+            root.style.removeProperty('--litefin-app-w');
+            root.style.removeProperty('--litefin-app-h');
+            if (appEl) {
+                appEl.style.removeProperty('width');
+                appEl.style.removeProperty('height');
+            }
+            return;
         }
 
-        if (Math.abs(effectiveScale - 1.0) < 0.02) {
-            // 100% native scale: strip zoom and display scaling attribute
+        // Detect touch capability to stamp touch indicators across platforms
+        const hasTouch =
+            platformInfo.isAndroid ||
+            'ontouchstart' in window ||
+            (typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0);
+        if (hasTouch) {
+            root.setAttribute('data-litefin-touch', '1');
+        }
+
+        const winW = window.innerWidth || 1920;
+        const winH = window.innerHeight || 1080;
+        const isPortrait = winH > winW;
+        const isAndroidMobile = platformInfo.isAndroid && !platformInfo.isAndroidTv;
+        const isNarrowViewport = winW <= 1000;
+        const isMobileMode = isAndroidMobile || isPortrait || isNarrowViewport;
+
+        const MIN_SCALE = 0.15;
+        const MAX_SCALE = 2.0;
+
+        if (isPortrait) {
+            // ================================================================
+            // 1. Mobile Portrait UI Scaling Mode
+            // ================================================================
+            // Stamp portrait marker attributes for mobile nav and vertical CSS layouts
+            const hadPortrait = root.hasAttribute('data-litefin-portrait');
+            root.setAttribute('data-litefin-portrait', '1');
+            root.setAttribute('data-litefin-scaled', '1');
+            if (!hadPortrait) {
+                eventBus.emit('viewport:orientationChange', { isPortrait: true });
+            }
+
+            const PORTRAIT_DESIGN_WIDTH = 750;
+            // Proportional base scale to fit 750px portrait layout into current window width
+            const baseScale = Math.min(1.0, Math.max(MIN_SCALE, winW / PORTRAIT_DESIGN_WIDTH));
+            // Apply user display scale multiplier from settings
+            const finalScale = Math.min(
+                MAX_SCALE,
+                Math.max(MIN_SCALE, Math.round(baseScale * userMultiplier * 1000) / 1000)
+            );
+
+            // Compute counter-expanded virtual bounds for full-bleed mobile display
+            const designW = `${Math.round(winW / finalScale)}px`;
+            const designH = `${Math.round(winH / finalScale)}px`;
+
+            root.style.setProperty('zoom', String(finalScale));
+            root.setAttribute('data-display-scale', '1');
+            root.style.setProperty('--litefin-app-w', designW);
+            root.style.setProperty('--litefin-app-h', designH);
+
+            if (appEl) {
+                appEl.style.width = designW;
+                appEl.style.height = designH;
+            }
+
+            log.debug(
+                `Portrait scale applied: final=${finalScale.toFixed(3)} (base=${baseScale.toFixed(3)} x user=${userMultiplier}) [${winW}x${winH}]`
+            );
+            return;
+        }
+
+        // Viewport is landscape: remove portrait marker if previously set
+        if (root.hasAttribute('data-litefin-portrait')) {
+            root.removeAttribute('data-litefin-portrait');
+            eventBus.emit('viewport:orientationChange', { isPortrait: false });
+        }
+
+        if (isMobileMode) {
+            // ================================================================
+            // 2. Mobile / Tablet Landscape UI Scaling Mode
+            // ================================================================
+            const LANDSCAPE_DESIGN_WIDTH = 1600;
+            // Base scale to fit landscape mobile canvas into physical width
+            const baseScale = Math.min(1.0, Math.max(MIN_SCALE, winW / LANDSCAPE_DESIGN_WIDTH));
+            // Multiply by user display scale preference
+            const finalScale = Math.min(
+                MAX_SCALE,
+                Math.max(MIN_SCALE, Math.round(baseScale * userMultiplier * 1000) / 1000)
+            );
+
+            if (finalScale >= 1.0 && this._displayScale === 'auto' && !isAndroidMobile) {
+                // Wide landscape screen at 100% scale
+                root.style.removeProperty('zoom');
+                root.removeAttribute('data-litefin-scaled');
+                root.removeAttribute('data-display-scale');
+                root.style.removeProperty('--litefin-app-w');
+                root.style.removeProperty('--litefin-app-h');
+                if (appEl) {
+                    appEl.style.removeProperty('width');
+                    appEl.style.removeProperty('height');
+                }
+            } else {
+                const designW = `${Math.round(winW / finalScale)}px`;
+                const designH = `${Math.round(winH / finalScale)}px`;
+
+                root.style.setProperty('zoom', String(finalScale));
+                root.setAttribute('data-litefin-scaled', '1');
+                root.setAttribute('data-display-scale', '1');
+                root.style.setProperty('--litefin-app-w', designW);
+                root.style.setProperty('--litefin-app-h', designH);
+
+                if (appEl) {
+                    appEl.style.width = designW;
+                    appEl.style.height = designH;
+                }
+            }
+
+            log.debug(
+                `Landscape mobile scale applied: final=${finalScale.toFixed(3)} (base=${baseScale.toFixed(3)} x user=${userMultiplier}) [${winW}x${winH}]`
+            );
+            return;
+        }
+
+        // ====================================================================
+        // 3. Desktop / Web Wide Layout Scaling Mode
+        // ====================================================================
+        root.removeAttribute('data-litefin-scaled');
+        root.style.removeProperty('--litefin-app-w');
+        root.style.removeProperty('--litefin-app-h');
+        if (appEl) {
+            appEl.style.removeProperty('width');
+            appEl.style.removeProperty('height');
+        }
+
+        let desktopEffectiveScale = 1.0;
+        if (this._displayScale === 'auto') {
+            const widthScale = winW / 1920;
+            const heightScale = winH / 1080;
+            const autoScale = Math.min(widthScale, heightScale);
+            desktopEffectiveScale = Math.min(1.0, Math.max(0.6, Math.round(autoScale * 100) / 100));
+        } else {
+            desktopEffectiveScale = userMultiplier;
+        }
+
+        if (Math.abs(desktopEffectiveScale - 1.0) < 0.02) {
             root.style.removeProperty('zoom');
             root.removeAttribute('data-display-scale');
-            root.style.removeProperty('width');
-            root.style.removeProperty('height');
-            if (document.body) {
-                document.body.style.removeProperty('width');
-                document.body.style.removeProperty('height');
-            }
-            if (appEl) {
-                appEl.style.removeProperty('width');
-                appEl.style.removeProperty('height');
-            }
         } else {
-            // Apply zoom factor to root document element and mark active display scale
-            // Layout dimensions flow fluidly at 100% to guarantee full screen bleed without clipping
-            root.style.setProperty('zoom', String(effectiveScale));
+            root.style.setProperty('zoom', String(desktopEffectiveScale));
             root.setAttribute('data-display-scale', '1');
-            root.style.removeProperty('width');
-            root.style.removeProperty('height');
-
-            if (document.body) {
-                document.body.style.removeProperty('width');
-                document.body.style.removeProperty('height');
-            }
-
-            if (appEl) {
-                appEl.style.removeProperty('width');
-                appEl.style.removeProperty('height');
-            }
         }
 
-        log.info(`Display scale applied: mode=${this._displayScale}, effective=${effectiveScale}`);
+        log.info(`Desktop display scale applied: mode=${this._displayScale}, effective=${desktopEffectiveScale}`);
     }
 
     /**

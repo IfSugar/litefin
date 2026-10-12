@@ -555,6 +555,12 @@ export class MobileNav extends Component {
 
         eventBus.on('themeMode:changed', this._boundHandlers.onNavColorChanged);
         eventBus.on('themeColor:changed', this._boundHandlers.onNavColorChanged);
+
+        // Display scale change listener to synchronize mobile navigation visibility
+        this._boundHandlers.onDisplayScale = () => {
+            this._updateVisibility();
+        };
+        eventBus.on('displayScale:changed', this._boundHandlers.onDisplayScale);
     }
 
     /**
@@ -563,6 +569,7 @@ export class MobileNav extends Component {
     onDestroyed() {
         if (this._boundHandlers.onNavigate) eventBus.off('router:navigate', this._boundHandlers.onNavigate);
         if (this._boundHandlers.onOrientationChange) eventBus.off('viewport:orientationChange', this._boundHandlers.onOrientationChange);
+        if (this._boundHandlers.onDisplayScale) eventBus.off('displayScale:changed', this._boundHandlers.onDisplayScale);
         if (this._boundHandlers.onKeyBack) eventBus.off('key:back', this._boundHandlers.onKeyBack);
         if (this._boundHandlers.onAuthChange) {
             eventBus.off('auth:login', this._boundHandlers.onAuthChange);
