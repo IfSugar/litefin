@@ -269,10 +269,14 @@ export class TizenAVPlayer {
      * Set aspect ratio mode on Samsung Tizen AVPlay.
      * Maps user-selected mode to hardware-supported display method constants.
      *
-     * @param {string} mode - 'auto' | 'stretch'
+     * In addition to letterbox ('auto') and fullscreen stretch ('stretch'), AVPlay natively
+     * supports automatic aspect ratio adjustments based on stream container DAR/PAR metadata
+     * via 'PLAYER_DISPLAY_MODE_AUTO_ASPECT_RATIO'.
+     *
+     * @param {string} mode - 'auto' | 'stretch' | 'video_aspect_ratio'
      */
     setAspectRatio(mode) {
-        // Track the current mode locally
+        // Track the current aspect ratio mode locally for OSD sync
         this._aspectRatio = mode || 'auto';
         if (!this._avplay) return;
 
@@ -282,9 +286,17 @@ export class TizenAVPlayer {
 
             switch (mode) {
                 case 'stretch':
-                    // Force video raster to fill the entire hardware rectangle
+                    // Force video raster to fill the entire hardware rectangle ignoring ratio
                     displayMethod = 'PLAYER_DISPLAY_MODE_FULL_SCREEN';
                     break;
+
+                case 'video_aspect_ratio':
+                case 'video':
+                case 'auto_aspect_ratio':
+                    // AVPlay hardware display mode reading DAR / PAR metadata directly from container
+                    displayMethod = 'PLAYER_DISPLAY_MODE_AUTO_ASPECT_RATIO';
+                    break;
+
                 case 'zoom':
                 case 'auto':
                 default:
@@ -293,16 +305,18 @@ export class TizenAVPlayer {
                     break;
             }
 
+            // Apply display method directly on AVPlay media pipeline
             log.info('Setting aspect ratio:', mode, '->', displayMethod);
             this._avplay.setDisplayMethod(displayMethod);
         } catch (e) {
+            // Log hardware exceptions if AVPlay is in an invalid state
             log.error('Failed to set aspect ratio:', e);
         }
     }
 
     /**
      * Get current aspect ratio mode
-     * @returns {string} 'auto' | 'stretch'
+     * @returns {string} 'auto' | 'stretch' | 'video_aspect_ratio'
      */
     getAspectRatio() {
         return this._aspectRatio || 'auto';

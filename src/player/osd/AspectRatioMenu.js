@@ -15,35 +15,49 @@ export default class AspectRatioMenu extends BaseMenu {
         // Menu Option Definitions
         // ====================================================================
         // On Samsung Tizen TVs, AVPlay's hardware video plane does not support
-        // a native crop/zoom mode. We dynamically omit 'zoom' on Tizen so only
-        // supported options (Auto and Stretch) are displayed in the OSD menu.
+        // a native crop/zoom mode. We dynamically omit 'zoom' on AVPlay and offer
+        // 'Video Aspect Ratio' (PLAYER_DISPLAY_MODE_AUTO_ASPECT_RATIO) alongside
+        // standard Auto and Stretch modes so users can utilize native stream DAR/PAR metadata.
         this.options = this._getSupportedOptions();
     }
 
     /**
-     * Determine supported aspect ratio options based on active device platform.
-     * Samsung Tizen's AVPlay video plane does not support a native zoom/crop mode,
-     * so Zoom is excluded on Tizen to present only supported options (Auto and Stretch).
+     * Determine supported aspect ratio options based on active device platform and player backend.
+     *
+     * AVPlay Hardware Consideration:
+     * - AVPlay's hardware video plane does not support a native crop/zoom mode, so Zoom is excluded.
+     * - In addition to Letterbox ('auto') and Stretch ('stretch'), AVPlay supports native automatic
+     *   aspect ratio handling via 'PLAYER_DISPLAY_MODE_AUTO_ASPECT_RATIO' ('video_aspect_ratio'),
+     *   which automatically adjusts the display based on embedded stream DAR/PAR metadata.
+     * - Non-AVPlay platforms (HTML5, ExoPlayer, WebOS) retain standard Auto, Zoom, and Stretch modes.
      *
      * @private
      * @returns {Array<{id: string, label: string, key: string}>}
      */
     _getSupportedOptions() {
-        // Detect Tizen via centralized platformInfo or active Samsung TV globals
-        const isTizen = platformInfo.isTizen || (typeof window !== 'undefined' && Boolean(window.tizen || window.webapis?.avplay));
+        // Detect whether current player backend is Tizen AVPlay via backend type or runtime globals
+        const isAvPlay = this.osd?.player?.backendType === 'tizen' ||
+            platformInfo.isTizen ||
+            (typeof window !== 'undefined' && Boolean(window.webapis?.avplay || window.tizen));
 
-        const baseOptions = [
+        // When using Samsung AVPlay backend, provide Auto, Video Aspect Ratio, and Stretch
+        if (isAvPlay) {
+            return [
+                // Standard letterbox mode preserving geometry with borders
+                { id: 'auto', label: i18n.t('Auto'), key: 'Auto' },
+                // AVPlay hardware display mode honoring stream DAR / PAR tags
+                { id: 'video_aspect_ratio', label: i18n.t('VideoAspectRatio') || 'Video Aspect Ratio', key: 'VideoAspectRatio' },
+                // Fullscreen stretch mode filling the physical display panel
+                { id: 'stretch', label: i18n.t('Stretch'), key: 'Stretch' }
+            ];
+        }
+
+        // Standard web, ExoPlayer, and WebOS platforms supporting crop zoom
+        return [
             { id: 'auto', label: i18n.t('Auto'), key: 'Auto' },
             { id: 'zoom', label: i18n.t('Zoom'), key: 'Zoom' },
             { id: 'stretch', label: i18n.t('Stretch'), key: 'Stretch' }
         ];
-
-        // On Samsung Tizen TVs, hide Zoom entirely
-        if (isTizen) {
-            return baseOptions.filter(opt => opt.id !== 'zoom');
-        }
-
-        return baseOptions;
     }
 
     open() {

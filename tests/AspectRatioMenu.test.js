@@ -25,7 +25,7 @@ globalThis.document = {
     }
 };
 
-test('AspectRatioMenu: Omits Zoom option on Tizen and retains Auto and Stretch', async () => {
+test('AspectRatioMenu: Omits Zoom option on Tizen and offers Auto, Video Aspect Ratio, and Stretch', async () => {
     // 1. Test Tizen platform detection
     globalThis.window.tizen = {};
     const { platformInfo } = await import('../src/utils/PlatformInfo.js');
@@ -35,6 +35,7 @@ test('AspectRatioMenu: Omits Zoom option on Tizen and retains Auto and Stretch',
 
     const mockOsd = {
         player: {
+            backendType: 'tizen',
             getAspectRatio: () => 'auto',
             setAspectRatio: () => {}
         },
@@ -49,8 +50,8 @@ test('AspectRatioMenu: Omits Zoom option on Tizen and retains Auto and Stretch',
 
     assert.deepStrictEqual(
         optionsOnTizen,
-        ['auto', 'stretch'],
-        'On Tizen, AspectRatioMenu must only offer Auto and Stretch (Zoom must be hidden)'
+        ['auto', 'video_aspect_ratio', 'stretch'],
+        'On Tizen AVPlay, AspectRatioMenu must offer Auto, Video Aspect Ratio, and Stretch (Zoom must be hidden)'
     );
 });
 
