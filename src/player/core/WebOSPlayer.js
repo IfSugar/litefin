@@ -2093,57 +2093,137 @@ export class WebOSPlayer {
     // ========================================================================
 
     /**
-     * Set the video's CSS object-fit to simulate aspect ratio modes.
+     * Set the video's aspect ratio mode.
+     *
+     * WebOS Hardware Display Architecture:
+     * - Video decoding is handled by a dedicated hardware overlay plane beneath the web runtime.
+     * - The TV hardware video scaler maps its output window directly to the layout bounding box
+     *   (left, top, width, height) of the <video> DOM element.
+     * - The webOS hardware pipeline does not evaluate CSS object-fit properties on <video>.
+     * - Therefore, aspect ratio modes (auto, zoom, stretch) are achieved by explicitly computing
+     *   and applying layout geometry coordinates to the element style.
+     *
      * @param {'auto'|'zoom'|'stretch'} mode
      */
     setAspectRatio(mode) {
+        // Normalize aspect mode, falling back to 'auto'
         this._aspectMode = mode || 'auto';
         if (!this._videoElement) return;
 
-        const fitMap = {
-            zoom:    'cover',
-            stretch: 'fill',
-            auto:    'contain'
-        };
+        log.info('WebOSPlayer: Setting aspect ratio mode:', this._aspectMode);
 
-        const objectFit = fitMap[mode] || 'contain';
-        log.info('WebOSPlayer: Aspect ratio', mode, '→', objectFit);
-        this._videoElement.style.objectFit = objectFit;
+        // Keep object-fit set to fill so the element box and video rasterizer stay in sync
+        this._videoElement.style.objectFit = 'fill';
+
+        // Recalculate and apply explicit layout coordinates for the hardware punch-through window
         this._fitVideoBox();
     }
 
     /**
-     * Size the <video> box itself to the stream's aspect ratio in 'auto' mode.
+     * Get active aspect ratio mode.
+     * @returns {'auto'|'zoom'|'stretch'}
+     */
+    getAspectRatio() {
+        return this._aspectMode || 'auto';
+    }
+
+    /**
+     * Calculate and apply layout geometry for the <video> element.
      *
-     * webOS draws the video on a hardware plane whose window is taken from the
-     * element's layout box. object-fit does not change that box, so a
-     * 100% x 100% element stretches every non-16:9 stream to the full panel
-     * (a 3840x1604 source drawn into 3840x2160 on webOS 10.3.1). Letterboxing
-     * the box itself is what keeps the geometry.
+     * On webOS TV, the hardware video plane is aligned and scaled directly to the element's layout rect.
+     * We support three distinct modes:
+     *   1. 'auto' (Letterbox / Contain): Scale down using Math.min so the entire video fits inside the screen,
+     *      centering it with pillarbox or letterbox black borders.
+     *   2. 'zoom' (Crop / Cover): Scale up using Math.max so the video completely fills the screen without bars,
+     *      cropping symmetrically on the overflowing axis via negative offsets.
+     *   3. 'stretch' (Fill): Force the video box to match 100% of the screen width and height (0,0 to cw,ch),
+     *      stretching non-16:9 streams across the entire display panel.
+     *
      * @private
      */
     _fitVideoBox() {
         const video = this._videoElement;
         if (!video) return;
 
-        const vw = video.videoWidth;
-        const vh = video.videoHeight;
-        const cw = this.container ? this.container.clientWidth : 0;
-        const ch = this.container ? this.container.clientHeight : 0;
+        // Container dimensions with fallback to viewport dimensions
+        const cw = (this.container && this.container.clientWidth) || window.innerWidth || 1920;
+        const ch = (this.container && this.container.clientHeight) || window.innerHeight || 1080;
         const style = video.style;
 
-        if (this._aspectMode !== 'auto' || !vw || !vh || !cw || !ch) {
-            style.position = style.top = style.left = style.right = style.bottom = '';
-            style.margin = style.width = style.height = '';
+        // Container has no valid layout dimensions yet
+        if (!cw || !ch) return;
+
+        // Ensure positioning context is absolute within container
+        style.position = 'absolute';
+        style.margin = '0';
+
+        // ====================================================================
+        // Mode 1: Fullscreen Stretch
+        // ====================================================================
+        // Forces the hardware video plane to stretch edge-to-edge across the screen
+        if (this._aspectMode === 'stretch') {
+            style.left = '0px';
+            style.top = '0px';
+            style.right = '0px';
+            style.bottom = '0px';
+            style.width = `${cw}px`;
+            style.height = `${ch}px`;
             return;
         }
 
+        // Intrinsic video stream dimensions
+        const vw = video.videoWidth;
+        const vh = video.videoHeight;
+
+        // If metadata has not loaded yet, default to full viewport until loadedmetadata fires
+        if (!vw || !vh) {
+            style.left = '0px';
+            style.top = '0px';
+            style.right = '0px';
+            style.bottom = '0px';
+            style.width = `${cw}px`;
+            style.height = `${ch}px`;
+            return;
+        }
+
+        // ====================================================================
+        // Mode 2: Zoom (Cover / Crop)
+        // ====================================================================
+        // Scale by maximum factor to cover the full viewport, cropping overflowing edges
+        if (this._aspectMode === 'zoom') {
+            const scale = Math.max(cw / vw, ch / vh);
+            const w = Math.round(vw * scale);
+            const h = Math.round(vh * scale);
+            // Center the cropped frame symmetrically using negative offsets
+            const left = Math.round((cw - w) / 2);
+            const top = Math.round((ch - h) / 2);
+
+            style.left = `${left}px`;
+            style.top = `${top}px`;
+            style.right = '';
+            style.bottom = '';
+            style.width = `${w}px`;
+            style.height = `${h}px`;
+            return;
+        }
+
+        // ====================================================================
+        // Mode 3: Auto (Contain / Letterbox)
+        // ====================================================================
+        // Scale by minimum factor to preserve intrinsic aspect ratio within the viewport
         const scale = Math.min(cw / vw, ch / vh);
-        style.position = 'absolute';
-        style.top = style.left = style.right = style.bottom = '0';
-        style.margin = 'auto';
-        style.width = Math.round(vw * scale) + 'px';
-        style.height = Math.round(vh * scale) + 'px';
+        const w = Math.round(vw * scale);
+        const h = Math.round(vh * scale);
+        // Center the letterboxed/pillarboxed video inside the screen
+        const left = Math.round((cw - w) / 2);
+        const top = Math.round((ch - h) / 2);
+
+        style.left = `${left}px`;
+        style.top = `${top}px`;
+        style.right = '';
+        style.bottom = '';
+        style.width = `${w}px`;
+        style.height = `${h}px`;
     }
 
     // ========================================================================
