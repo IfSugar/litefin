@@ -1681,6 +1681,19 @@ export class WebOSPlayer {
             // already bitstreaming this track over HDMI eARC natively.
             // Suppress the restart to maintain seamless DirectPlay.
             // ================================================================
+            const mediaStreams = this._currentPlayOptions?.mediaSource?.MediaStreams || [];
+            // Filter audio streams matching user player configuration
+            const audioStreams = mediaStreams.filter(s => {
+                if (s.Type !== 'Audio') return false;
+                const codec = (s.Codec || '').toLowerCase();
+                if (codec === 'truehd' && !isTrueHdSupported()) return false;
+                if ((codec.includes('dts') || codec === 'dca') && !isDtsSupported()) return false;
+                if ((codec === 'flac' || codec === 'alac') && !PlayerSettings.get('enableFlacInVideo')) return false;
+                return true;
+            });
+            // Resolve target stream from filtered audio list, falling back to all audio streams
+            const targetStream = audioStreams[listIndex] || mediaStreams.filter(s => s.Type === 'Audio')[listIndex];
+
             const isDefault = targetStream
                 ? (targetStream.IsDefault || listIndex === 0)
                 : (listIndex === 0);
