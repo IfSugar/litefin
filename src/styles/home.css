@@ -26,6 +26,16 @@
     pointer-events: none;
 }
 
+/* Static theme overrides for placeholder skeleton cards.
+   Eliminates the need to dynamically inject and remove inline style tags at runtime. */
+.media-row--skeleton .card-image,
+.media-row--skeleton .skeleton-image,
+.media-row--skeleton .skeleton-line {
+    background-color: rgba(var(--jf-primary-btn-color-rgb, 255, 255, 255), 0.6) !important;
+    background-image: none !important;
+    animation: none !important;
+}
+
 /* 
  * =========================================================================
  * Skeleton Spacing & Alignment

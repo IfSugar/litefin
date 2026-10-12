@@ -403,12 +403,20 @@
     overflow: hidden;
     touch-action: pan-y;
     /*
-     * CRITICAL: contain:layout + paint prevents the carousel's own
-     * repaints from cascading into the sidebar or row sections.
-     * This is what makes opening the sidebar feel instant even while
-     * the Ken Burns or cross-fade animation is running.
+     * Isolates layout, style, and painting so internal animations within the carousel
+     * do not cascade layout invalidations outward to neighboring sections.
      */
     contain: layout style paint;
+
+    /*
+     * Promote the entire carousel container to an isolated hardware GPU layer.
+     * Prevents layer squashing and overlap recalculation stalls when overlapping
+     * with the content rows container directly below it.
+     */
+    transform: translateZ(0);
+    -webkit-transform: translateZ(0);
+    backface-visibility: hidden;
+    -webkit-backface-visibility: hidden;
 }
 
 /*
@@ -431,6 +439,16 @@
     transition: opacity 0.3s ease;
     pointer-events: none;
     z-index: 100;
+
+    /*
+     * Hardware-accelerate the focus overlay gradient to eliminate software
+     * CPU repaints of the full 1080p canvas during focus transitions.
+     */
+    transform: translateZ(0);
+    -webkit-transform: translateZ(0);
+    will-change: opacity;
+    backface-visibility: hidden;
+    -webkit-backface-visibility: hidden;
 }
 
 .hero-carousel-container:focus,
