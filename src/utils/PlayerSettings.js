@@ -21,6 +21,48 @@ import { platformInfo } from './PlatformInfo.js';
 const log = logger.create('PlayerSettings');
 
 /**
+ * =========================================================================
+ * Platform-Aware Recommended Video Player Backend
+ * =========================================================================
+ * Evaluates the active device platform and available browser/hardware features
+ * to determine the optimal, native player backend:
+ *  - Android (mobile / TV)  → 'exoplayer' (Media3 ExoPlayer)
+ *  - Samsung Smart TV       → 'avplay'    (Tizen AVPlay native player)
+ *  - LG Smart TV            → 'webos'     (webOS native media element)
+ *  - Modern Web & Desktop   → 'movi'      (WebCodecs + WASM demuxer DirectPlay)
+ *  - Fallback / Legacy Web  → 'html5'     (Standard HTML5 video player)
+ * =========================================================================
+ * @returns {'exoplayer'|'avplay'|'webos'|'movi'|'html5'}
+ */
+export function getRecommendedPlayerBackend() {
+    // Fall back safely if platformInfo is unavailable
+    if (typeof platformInfo === 'undefined') return 'html5';
+    // Samsung Tizen TV hardware platform
+    if (platformInfo.isTizen) return 'avplay';
+    // LG webOS TV hardware platform
+    if (platformInfo.isWebOS) return 'webos';
+    // Native Android / Google TV hardware platform (verify native bridge is present)
+    if (platformInfo.isAndroid) {
+        // Only recommend ExoPlayer if native bridge exists (e.g. not a generic mobile browser)
+        const hasNativeBridge = typeof window !== 'undefined' && Boolean(
+            window.LitefinExoPlayer ||
+            window.LitefinAndroid ||
+            window.__TAURI_INTERNALS__?.invoke ||
+            window.__TAURI__?.core?.invoke
+        );
+        if (hasNativeBridge || platformInfo._platform === 'android') {
+            return 'exoplayer';
+        }
+    }
+    // Modern Web browsers and Desktop shells supporting WebCodecs (excluded on TV builds)
+    if ((platformInfo.isDesktop || platformInfo.isWeb) && platformInfo.hasWebCodecsSupport && !platformInfo.isTizen && !platformInfo.isWebOS) {
+        return 'movi';
+    }
+    // Fallback standard HTML5 video player
+    return 'html5';
+}
+
+/**
  * Default values for all player settings
  */
 const DEFAULTS = {
@@ -105,7 +147,7 @@ const DEFAULTS = {
     //   'prefer_ac3'  — Prefer AC3: uses AC3 first, with AAC fallback.
     //   'prefer_aac'  — Prefer AAC.
     //   'force_eac3'  — Force/Only E-AC3.
-    //   force_ac3'   — Force/Only AC3.
+    //   'force_ac3'   — Force/Only AC3.
     //   'force_aac'   — Force/Only AAC.
     //   'force_mp3'   — Force/Only MP3.
     //
@@ -300,6 +342,21 @@ const DEFAULTS = {
     // Custom Vertical Position (0-100% from bottom, used when subtitleVerticalPosition is 'custom')
     subtitleVerticalPositionCustom: 10,
 
+    /* -------------------------------------------------------------------------
+     * DYNAMIC TEXT SUBTITLE SHIFTING
+     * -------------------------------------------------------------------------
+     * When enabled, text subtitles smoothly elevate above the playback controls
+     * and seekbar whenever the OSD interface is brought on screen by remote or
+     * pointer activity, preventing UI overlap with bottom controls.
+     *
+     * In dual-subtitle playback (primary at bottom, secondary at top), the
+     * lower subtitle lifts upward while top and bottom text cues scale to a
+     * compact presentation to preserve clear sightlines across the video.
+     *
+     * Graphic and ASS/SSA subtitles remain at their native authored coordinates.
+     * ------------------------------------------------------------------------- */
+    subtitleOsdDodging: true,
+
     // PGS Subtitle Playback Mode ('client', 'burn', 'disable')
     // 'client' = Custom Web Worker rendering on the TV (Default)
     // 'burn' = Force server to transcode video and burn into frames
@@ -343,8 +400,16 @@ const DEFAULTS = {
     // Enable Instant Playback (pre-fetches PlaybackInfo & item details in background)
     enablePrewarm: true,
 
-    // Player backend ('auto', 'avplay', 'webos', 'html5')
-    playerBackend: 'auto',
+    // -------------------------------------------------------------------------
+    // PLAYER BACKEND SELECTION
+    // -------------------------------------------------------------------------
+    // Directly binds to the optimal native player backend for the detected platform:
+    //  - Android TV/Mobile → 'exoplayer'
+    //  - Samsung Tizen     → 'avplay'
+    //  - LG webOS          → 'webos'
+    //  - Web / Desktop     → 'movi' (WebCodecs) or 'html5' (standard browser)
+    // -------------------------------------------------------------------------
+    playerBackend: getRecommendedPlayerBackend(),
 
     /*
      * Interlaced Content Backend Fallback
@@ -378,6 +443,17 @@ const DEFAULTS = {
 
     // Force all content to direct play (override for testing native decoding)
     forceDirectPlay: false,
+
+    // -------------------------------------------------------------------------
+    // DIRECTPLAY / REMUX FAILURE AUTO-TRANSCODE ESCALATION
+    // -------------------------------------------------------------------------
+    // When enabled, if DirectPlay or Remux fails during playback startup or mid-stream
+    // (e.g., container demuxer error, I/O reset, or unsupported profile on hardware),
+    // playback automatically escalates to server-side transcoding instead of halting
+    // with a red error modal.
+    //
+    // Default: true
+    autoTranscodeOnError: true,
 
     // -------------------------------------------------------------------------
     // MKV → MP4 REMUX
@@ -437,8 +513,20 @@ const DEFAULTS = {
     // PLAYBACK SETTINGS
     // =========================================================================
 
-    // Trailer playback mode ('internal_proxy', 'internal_iframe', 'external')
-    trailerPlaybackMode: 'internal_proxy',
+    /*
+     * Trailer Playback Mode
+     * -------------------------------------------------------------------------
+     * Governs how remote and online trailers are streamed and displayed:
+     *   - 'internal_proxy'  : Internal Player (New) - streams media through native player/proxy
+     *   - 'internal_iframe' : Internal Player (Legacy Iframe) - embeds video in an overlay iframe
+     *   - 'external'        : External App - opens native platform YouTube app or browser
+     *
+     * Defaults to 'internal_proxy' (New) on native TV platforms (Tizen and webOS)
+     * for seamless TV remote control and hardware acceleration, while defaulting to
+     * 'internal_iframe' (Legacy Iframe) on Web/Desktop browsers for maximum desktop
+     * compatibility without requiring background proxy services.
+     */
+    trailerPlaybackMode: (platformInfo.isTizen || platformInfo.isWebOS) ? 'internal_proxy' : 'internal_iframe',
 
     /*
      * Await Tracks Before Playback
@@ -469,11 +557,55 @@ const DEFAULTS = {
     // Skip forward duration in milliseconds
     skipForwardLength: 10000,
 
-    // Skip back duration in milliseconds
-    skipBackLength: 5000,
+    // Skip back duration in milliseconds (defaults to 10 seconds)
+    skipBackLength: 10000,
+
+    /*
+     * Resume Rewind Offset (in milliseconds)
+     * -------------------------------------------------------------------------
+     * When resuming playback of an in-progress video, rewinds by this amount
+     * (e.g. 5 seconds or 10 seconds) to provide context and refresh the viewer's
+     * memory of the scene before picking up where they left off.
+     * Set to 0 to disable rewind and resume at the exact recorded timestamp.
+     * Default: 0 (disabled).
+     */
+    resumeRewindLength: 0,
 
     // Auto-play next episode when current finishes
     enableNextEpisodeAutoPlay: true,
+
+    /*
+     * -------------------------------------------------------------------------
+     * MARK AS WATCHED COMPLETION THRESHOLD
+     * -------------------------------------------------------------------------
+     * Governs the playback percentage at which an item is marked as watched
+     * (Played = true, PlayedToCompletion = true) when stopping or advancing.
+     *
+     * Options:
+     *   - '80'     : 80% (Litefin Default) - Accommodates anime/TV show credits
+     *                and ending sequences (EDs) without leaving items unplayed.
+     *   - 'server' : Respect Server Setting - Dynamically queries and respects
+     *                the Jellyfin server's configured MaxResumePct (default 90%).
+     *   - '85'     : 85%
+     *   - '90'     : 90%
+     *   - '95'     : 95%
+     *   - '100'    : 100% (Strict Completion only)
+     *
+     * Default: '80' (Litefin standard behavior).
+     * -------------------------------------------------------------------------
+     */
+    watchedThreshold: '80',
+
+    /* -------------------------------------------------------------------------
+     * DYNAMIC EPISODE QUEUE WINDOW SIZE (PERFORMANCE)
+     * -------------------------------------------------------------------------
+     * Governs the number of preceding and succeeding episodes dynamically
+     * retrieved into the player queue around the active episode.
+     * Prevents loading hundreds or thousands of heavy episode metadata objects
+     * into memory at once for long-running series (e.g. 1,000-episode shows).
+     * Default: 50 (up to 50 previous and 50 next episodes = ~100 episode window).
+     * ------------------------------------------------------------------------- */
+    playQueueEpisodeLimit: 50,
 
     /**
      * =========================================================================
@@ -528,6 +660,33 @@ const DEFAULTS = {
      *   false           — Playback keeps playing uninterrupted during scrub.
      */
     pausePlaybackOnScrub: true,
+
+    /*
+     * Seek Speed Acceleration (Ramp Up)
+     * -------------------------------------------------------------------------
+     * When holding or repeating seek actions on the timeline, progressively
+     * accelerate the seek speed multiplier (2x, 3x, 4x, 5x, 10x) based on elapsed
+     * duration to allow rapid navigation across long media. When disabled,
+     * seeking maintains a steady 1x skip pace regardless of duration.
+     *
+     *   true  (default) — Accelerates seek speed progressively (up to 10x).
+     *   false           — Keeps a constant 1x seek speed without acceleration.
+     */
+    enableSeekAcceleration: true,
+
+    /*
+     * Reset Seek Speed on Direction Change
+     * -------------------------------------------------------------------------
+     * When scrubbing the timeline, seek speed accelerates progressively (up to 10x)
+     * as directional inputs continue. Enabling this option resets the acceleration
+     * multiplier back to 1x whenever the user reverses seek direction (e.g. overshoots
+     * and taps the opposite arrow key), allowing fine-grained adjustments without
+     * large jumps.
+     *
+     *   true  — Resets seek speed multiplier back to 1x on direction reversal.
+     *   false (default) — Preserves current accelerated seek speed across direction changes.
+     */
+    resetSeekSpeedOnDirectionChange: false,
 
     // Enable mouse/magic cursor support in the OSD (hover and click)
     // Disabled by default on Tizen due to cursor interaction bugs
@@ -637,8 +796,18 @@ const DEFAULTS = {
     // Position of playback control buttons relative to seek bar ('above', 'below')
     osdButtonsLocation: 'above',
 
-    // Layout configuration of player OSD buttons ('left', 'centered')
+    // Layout configuration of player OSD buttons ('left', 'centered', 'hidden')
     osdLayout: 'left',
+
+    /*
+     * Instantly Reveal OSD on Color Buttons in Stealth Mode
+     * -------------------------------------------------------------------------
+     * When stealth / anti-spoiler layout is active (osdLayout: 'hidden'),
+     * pressing any colored remote button (Red, Green, Yellow, Blue) instantly
+     * reveals the playback controls and seeks focus to Play/Pause, providing
+     * an instant zero-delay alternative to the 2-second hold gesture.
+     */
+    osdColorButtonsReveal: true,
 
     // Toggle states for showing/hiding specific player buttons
     osdHideFavorite: true,
@@ -653,10 +822,10 @@ const DEFAULTS = {
      *
      * For desktop/mobile web browsers, we display the OSD back button by default
      * (false) to ensure users have a clear visual navigation path to return
-     * to the details page without relying on keyboard shortcuts or browser back.
      * =========================================================================
      */
-    osdHideBackButton: !platformInfo.isWeb,
+    // OSD back button is visible on Web and Desktop pointer interfaces, hidden on TV remotes
+    osdHideBackButton: !platformInfo.isWeb && !platformInfo.isDesktop,
 
     // Combine skip (seek, chapter, track) buttons into single buttons with multi-click actions
     osdCombineSkipButtons: false,
@@ -726,6 +895,45 @@ export const PlayerSettings = {
             return 'libjass';
         }
 
+        // =====================================================================
+        // PLAYER BACKEND HARDWARE CAPABILITY RESOLUTION & AUTO RE-SELECTION
+        // =====================================================================
+        // If the user had previously selected or stored 'auto', immediately
+        // re-select and migrate their preference to the platform's recommended backend.
+        // Also saves the migrated preference to storage so 'auto' is purged.
+        // If 'movi' was saved but the device lacks WebCodecs, falls back to 'html5'.
+        // =====================================================================
+        if (key === 'playerBackend') {
+            // Determine platform recommended backend
+            const recommended = getRecommendedPlayerBackend();
+            // Automatically re-select and persist if previously set to 'auto'
+            if (stored === 'auto') {
+                log.info(`Migrating legacy 'auto' playerBackend preference to recommended backend: ${recommended}`);
+                storage.setItem(STORAGE_PREFIX + key, recommended);
+                return recommended;
+            }
+            // Fall back to recommended backend if empty
+            if (!stored) {
+                return recommended;
+            }
+            // Fall back to html5 if movi is persisted but WebCodecs is unsupported or on TV builds
+            if (stored === 'movi' && (!platformInfo.hasWebCodecsSupport || platformInfo.isTizen || platformInfo.isWebOS)) {
+                log.warn('Stored playerBackend is movi, but not supported or included in this build; falling back to html5');
+                return 'html5';
+            }
+            // Fall back to html5 if exoplayer is persisted but native Android bridge is missing
+            const hasExoBridge = typeof window !== 'undefined' && Boolean(
+                window.LitefinExoPlayer ||
+                window.LitefinAndroid ||
+                window.__TAURI_INTERNALS__?.invoke ||
+                window.__TAURI__?.core?.invoke
+            );
+            if (stored === 'exoplayer' && !hasExoBridge && !platformInfo.isAndroid) {
+                log.warn('Stored playerBackend is exoplayer, but native Android bridge is missing; falling back to html5');
+                return 'html5';
+            }
+        }
+
         return stored;
     },
 
@@ -784,7 +992,48 @@ export const PlayerSettings = {
      */
     getDefaults() {
         return { ...DEFAULTS };
-    }
+    },
+
+    /**
+     * Calculate adjusted resume position in ticks, applying the configured rewind offset.
+     *
+     * In-progress playback sessions store the exact pause position in 100-nanosecond ticks.
+     * When resuming, users often benefit from reviewing a brief window (e.g., 5s or 10s)
+     * prior to the pause point to remember the scene context without missing anything.
+     *
+     * @param {number} positionTicks - The raw recorded playback position in 100-ns ticks
+     * @returns {number} The rewind-adjusted position in ticks (guaranteed >= 0)
+     */
+    getAdjustedResumePositionTicks(positionTicks) {
+        // Guard against missing, invalid, or non-positive playback positions
+        if (!positionTicks || typeof positionTicks !== 'number' || positionTicks <= 0) {
+            return 0;
+        }
+
+        // Retrieve configured rewind offset (stored in milliseconds, 0 = disabled)
+        const rewindLengthMs = this.get('resumeRewindLength') || 0;
+        if (!rewindLengthMs || rewindLengthMs <= 0) {
+            return positionTicks;
+        }
+
+        // Convert milliseconds to Jellyfin 100-ns ticks:
+        // 1 second = 1,000 milliseconds = 10,000,000 ticks.
+        // Therefore, 1 millisecond = 10,000 ticks.
+        const rewindTicks = rewindLengthMs * 10000;
+
+        // Subtract rewind offset while strictly clamping to 0 (cannot rewind before start of media)
+        const adjustedTicks = Math.max(0, positionTicks - rewindTicks);
+
+        log.debug(
+            `[ResumeRewind] Applied offset of ${rewindLengthMs}ms (${rewindTicks} ticks): ` +
+            `raw=${positionTicks} -> adjusted=${adjustedTicks}`
+        );
+
+        return adjustedTicks;
+    },
+
+    /** Expose platform recommended backend resolver directly */
+    getRecommendedBackend: getRecommendedPlayerBackend
 };
 
 export default PlayerSettings;

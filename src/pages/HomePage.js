@@ -77,9 +77,10 @@ const EAGER_ROW_COUNT = 3;
 
 /**
  * Number of deferred rows to fetch per lazy-load batch (scroll or D-pad trigger).
- * Matches DiscoverPage's BATCH_ROW_COUNT for consistency.
+ * Set to 1 so deferred rows load one at a time ahead of the user, keeping each
+ * render cycle under 16ms and eliminating all visible hitching.
  */
-const DEFERRED_BATCH_SIZE = 3;
+const DEFERRED_BATCH_SIZE = 1;
 
 /**
  * Card width definitions (matching home.css) — used by VirtualCardRow internally.
@@ -449,7 +450,7 @@ class HomePage extends Page {
 
             const storedName = storage.getItem(nameKey);
             // If user selected a specific collection and custom name is requested, use its stored name immediately
-            let title =
+            const title =
                 useTrendingColName && settingVal !== 'auto' && settingVal !== 'top-rated' && storedName
                     ? storedName
                     : i18n.t(defaultTitleKey);
@@ -471,16 +472,31 @@ class HomePage extends Page {
                                     .getPlaylistItems(settingVal, { Limit: homeRowLimit })
                                     .catch(() => null);
                                 items = plRes?.Items;
-                            } catch (_) { }
+                            } catch (_) {}
 
                             if (!items || items.length === 0) {
-                                const boxRes = await api.getItems({
-                                    ParentId: settingVal,
-                                    Limit: homeRowLimit,
-                                    Fields: 'PrimaryImageAspectRatio,CanFilter,UserData',
-                                    Recursive: true
-                                });
+                                let boxRes = await api
+                                    .getItems({
+                                        ParentId: settingVal,
+                                        Limit: homeRowLimit,
+                                        IncludeItemTypes: type,
+                                        Fields: 'PrimaryImageAspectRatio,CanFilter,UserData',
+                                        Recursive: true
+                                    })
+                                    .catch(() => null);
                                 items = boxRes?.Items;
+
+                                if (!items || items.length === 0) {
+                                    boxRes = await api
+                                        .getItems({
+                                            ParentId: settingVal,
+                                            Limit: homeRowLimit,
+                                            Fields: 'PrimaryImageAspectRatio,CanFilter,UserData',
+                                            Recursive: true
+                                        })
+                                        .catch(() => null);
+                                    items = boxRes?.Items;
+                                }
                             }
 
                             if (items && items.length > 0) {
@@ -496,11 +512,11 @@ class HomePage extends Page {
                                 type === 'Movie'
                                     ? [/filmes?\s*em\s*alta/i, /em\s*alta/i, /trending.*movies?/i, /trending/i]
                                     : [
-                                        /s[eé]ries?\s*em\s*alta/i,
-                                        /tv.*trending/i,
-                                        /trending.*shows?/i,
-                                        /trending.*series/i
-                                    ];
+                                          /s[eé]ries?\s*em\s*alta/i,
+                                          /tv.*trending/i,
+                                          /trending.*shows?/i,
+                                          /trending.*series/i
+                                      ];
 
                             let smartCollection = null;
                             for (const pattern of keywords) {
@@ -517,18 +533,35 @@ class HomePage extends Page {
 
                                 let items = null;
                                 if (smartCollection.Type === 'Playlist') {
-                                    const plRes = await api.getPlaylistItems(smartCollection.Id, {
-                                        Limit: homeRowLimit
-                                    });
+                                    const plRes = await api
+                                        .getPlaylistItems(smartCollection.Id, {
+                                            Limit: homeRowLimit
+                                        })
+                                        .catch(() => null);
                                     items = plRes?.Items;
                                 } else {
-                                    const boxRes = await api.getItems({
-                                        ParentId: smartCollection.Id,
-                                        Limit: homeRowLimit,
-                                        Fields: 'PrimaryImageAspectRatio,CanFilter,UserData',
-                                        Recursive: true
-                                    });
+                                    let boxRes = await api
+                                        .getItems({
+                                            ParentId: smartCollection.Id,
+                                            Limit: homeRowLimit,
+                                            IncludeItemTypes: type,
+                                            Fields: 'PrimaryImageAspectRatio,CanFilter,UserData',
+                                            Recursive: true
+                                        })
+                                        .catch(() => null);
                                     items = boxRes?.Items;
+
+                                    if (!items || items.length === 0) {
+                                        boxRes = await api
+                                            .getItems({
+                                                ParentId: smartCollection.Id,
+                                                Limit: homeRowLimit,
+                                                Fields: 'PrimaryImageAspectRatio,CanFilter,UserData',
+                                                Recursive: true
+                                            })
+                                            .catch(() => null);
+                                        items = boxRes?.Items;
+                                    }
                                 }
 
                                 if (items && items.length > 0) {
@@ -581,6 +614,68 @@ class HomePage extends Page {
             'HeaderTrendingSeries'
         );
 
+        // ── Additional Custom Collection Rows ─────────────────────────────
+        const customColRaw = storage.getItem('pref:customCollectionRows');
+        let customCollections = [];
+        if (customColRaw && storage.getItem('pref:enableCollectionRows') === 'true') {
+            try {
+                customCollections = JSON.parse(customColRaw);
+                if (!Array.isArray(customCollections)) customCollections = [];
+            } catch (_) {
+                customCollections = [];
+            }
+        }
+
+        const customCollectionDescriptors = customCollections.map((col) => {
+            return {
+                id: `collection-${col.id}`,
+                title: col.name,
+                priority: 1,
+                layout: 'portrait',
+                cardType: 'poster',
+                contextType: 'collection',
+                fetchFn: async () => {
+                    try {
+                        let items = null;
+                        try {
+                            const plRes = await api.getPlaylistItems(col.id, { Limit: homeRowLimit }).catch(() => null);
+                            items = plRes?.Items;
+                        } catch (_) {}
+
+                        if (!items || items.length === 0) {
+                            const boxRes = await api
+                                .getItems({
+                                    ParentId: col.id,
+                                    Limit: homeRowLimit,
+                                    IncludeItemTypes: 'Movie,Series',
+                                    Fields: 'PrimaryImageAspectRatio,CanFilter,UserData',
+                                    Recursive: true
+                                })
+                                .catch(() => null);
+                            items = boxRes?.Items;
+
+                            if (!items || items.length === 0) {
+                                const fallbackRes = await api
+                                    .getItems({
+                                        ParentId: col.id,
+                                        Limit: homeRowLimit,
+                                        Fields: 'PrimaryImageAspectRatio,CanFilter,UserData',
+                                        Recursive: true
+                                    })
+                                    .catch(() => null);
+                                items = fallbackRes?.Items;
+                            }
+                        }
+
+                        return items?.length > 0 ? items : null;
+                    } catch (err) {
+                        log.warn(`Failed to fetch custom collection ${col.name}:`, err);
+                        return null;
+                    }
+                }
+            };
+        });
+
         if (mergeResumeNextUp) {
             descriptors.push({
                 id: 'resume',
@@ -590,17 +685,44 @@ class HomePage extends Page {
                 cardType: 'resume',
                 contextType: 'resume',
                 fetchFn: async () => {
+                    // ──────────────────────────────────────────────────────────
+                    // STAGE 0: Preference Parsing & Cutoff Computation
+                    // ──────────────────────────────────────────────────────────
+                    // Retrieve configured maximum inactivity cutoff limit for Next Up items.
+                    // If configured, shows whose parent series have been inactive longer than
+                    // this period must not be surfaced in the merged dashboard row.
+                    const maxDays = parseInt(storage.getItem('pref:nextUpMaxDays'), 10);
+                    const daysLimit = isNaN(maxDays) ? 365 : maxDays;
+                    const mergedParams = { limit: homeRowLimit };
+
+                    // Calculate cutoff threshold timestamp if a positive limit is enforced
+                    let cutoffIso = null;
+                    if (daysLimit > 0) {
+                        const cutoff = new Date();
+                        cutoff.setDate(cutoff.getDate() - daysLimit);
+                        cutoffIso = cutoff.toISOString();
+                        // Provide both casing formats to support Jellyfin and companion plugin routing conventions
+                        mergedParams.nextUpDateCutoff = cutoffIso;
+                        mergedParams.NextUpDateCutoff = cutoffIso;
+                    }
+
                     // Try to query the custom server-side merged endpoint first to speed up load times
                     try {
                         log.info('Attempting to fetch pre-merged continue/next-up rows from Litefin plugin');
 
-                        // Request a combined list of items limited by user's homeRowLimit setting
-                        const response = await api.getMergedRows({ limit: homeRowLimit });
+                        // Request a combined list of items limited by user's homeRowLimit setting and date cutoff
+                        const response = await api.getMergedRows(mergedParams);
 
-                        // If we got valid items back, return them immediately
-                        if (response && response.Items && response.Items.length > 0) {
+                        // Verify that response contains valid items and no corrupted zero IDs
+                        // Older or misconfigured server plugins can return Id: "0", which causes broken routes.
+                        const hasCorruptIds = response?.Items?.some((i) => !i.Id || i.Id === '0');
+                        if (response && response.Items && response.Items.length > 0 && !hasCorruptIds) {
                             log.info('Successfully fetched merged items from server-side Litefin plugin');
                             return response.Items;
+                        }
+
+                        if (hasCorruptIds) {
+                            log.warn('Litefin plugin returned items with zero or missing IDs; falling back to client merge.');
                         }
                     } catch (err) {
                         // Fall back to client-side merge if the plugin is not installed or returns an error
@@ -619,16 +741,11 @@ class HomePage extends Page {
                     const [resumeRes, nextUpRes] = await Promise.all([
                         api.getResumeItems({ Limit: homeRowLimit }),
                         (async () => {
-                            // Extract maximum cutoff days limit for Next Up items from local storage.
-                            const maxDays = parseInt(storage.getItem('pref:nextUpMaxDays'), 10);
-                            const daysLimit = isNaN(maxDays) ? 365 : maxDays;
                             const params = { Limit: homeRowLimit };
 
                             // If a valid cutoff constraint is present, pass it along as an ISO date string.
-                            if (daysLimit > 0) {
-                                const cutoff = new Date();
-                                cutoff.setDate(cutoff.getDate() - daysLimit);
-                                params.NextUpDateCutoff = cutoff.toISOString();
+                            if (cutoffIso) {
+                                params.NextUpDateCutoff = cutoffIso;
                             }
                             return api.getNextUp(params);
                         })()
@@ -645,6 +762,9 @@ class HomePage extends Page {
 
                     const nextUpItems = (nextUpRes?.Items || [])
                         .filter((item) => {
+                            // Defensive guard: Drop non-playable container folders (e.g. Season/Series)
+                            if (!item || item.Type === 'Season' || item.Type === 'Series' || item.IsFolder) return false;
+
                             // Filter out next-up items that have already been partially played,
                             // as those are already accounted for in the continue watching row list.
                             const position = item.UserData?.PlaybackPositionTicks || 0;
@@ -775,6 +895,9 @@ class HomePage extends Page {
             if (trendingSeriesDesc) {
                 descriptors.push(trendingSeriesDesc);
             }
+            if (customCollectionDescriptors.length > 0) {
+                descriptors.push(...customCollectionDescriptors);
+            }
         } else {
             // Priority 1: Continue Watching (Separate)
             descriptors.push({
@@ -796,6 +919,9 @@ class HomePage extends Page {
             }
             if (trendingSeriesDesc) {
                 descriptors.push(trendingSeriesDesc);
+            }
+            if (customCollectionDescriptors.length > 0) {
+                descriptors.push(...customCollectionDescriptors);
             }
 
             // Priority 1: Next Up (Separate)
@@ -821,6 +947,9 @@ class HomePage extends Page {
                     if (!res?.Items?.length) return null;
 
                     const filtered = res.Items.filter((item) => {
+                        // Defensive guard: Drop non-playable container folders (e.g. Season/Series)
+                        if (!item || item.Type === 'Season' || item.Type === 'Series' || item.IsFolder) return false;
+
                         const position = item.UserData?.PlaybackPositionTicks || 0;
                         return position === 0;
                     });
@@ -860,14 +989,14 @@ class HomePage extends Page {
                     lib.CollectionType === 'musicvideos' || lib.CollectionType === 'homevideos'
                         ? 'landscape'
                         : lib.CollectionType === 'music' || lib.CollectionType === 'livetv'
-                            ? 'square'
-                            : 'portrait',
+                          ? 'square'
+                          : 'portrait',
                 cardType:
                     lib.CollectionType === 'musicvideos' || lib.CollectionType === 'homevideos'
                         ? 'thumb'
                         : lib.CollectionType === 'music' || lib.CollectionType === 'livetv'
-                            ? 'square'
-                            : 'poster',
+                          ? 'square'
+                          : 'poster',
                 contextType: 'latest',
                 fetchFn: async function () {
                     if (this._preFetchedItems) {
@@ -902,7 +1031,12 @@ class HomePage extends Page {
             for (const desc of descriptors) {
                 // The "My Media" row uses library folder cards that must remain as static landscape cards
                 // Square rows (music, livetv, etc.) remain square
-                if (desc.id !== 'my-media' && desc.layout !== 'square' && desc.cardType !== 'library' && desc.cardType !== 'square') {
+                if (
+                    desc.id !== 'my-media' &&
+                    desc.layout !== 'square' &&
+                    desc.cardType !== 'library' &&
+                    desc.cardType !== 'square'
+                ) {
                     desc.layout = 'portrait';
                     desc.cardType = 'poster';
                 }
@@ -1158,7 +1292,7 @@ class HomePage extends Page {
             // prefetcher to progressively mount them as the user scrolls down.
             if (this._deferredDescriptors.length > 0) {
                 this._setupHomeScrollObserver();
-                this._scheduleHomeIdlePrefetch();
+                this._scheduleHomeIdlePrefetch(400);
             } else {
                 // All rows were rendered eagerly (short page or target near bottom)
                 this._prewarmScrollCache();
@@ -1273,17 +1407,22 @@ class HomePage extends Page {
             }
 
             // Build skeleton interior — title + static placeholder cards
-            // The skeleton-shimmer class is stripped so these are just dark
-            // rectangles — no animated shimmer. BlurHash provides the loading
-            // state once live cards render.
-            const skeletonCardCount = (landscape || isExpanded) ? 5 : 8;
-            const rawHtml = CardRenderer.createSkeletonHtml(
-                skeletonCardCount,
-                landscape,
-                descriptor.cardType || 'poster',
-                shouldHideLabels
-            );
-            const staticHtml = rawHtml.replace(/\bskeleton-shimmer\b/g, '');
+            // If items for this descriptor are already prefetched in memory,
+            // we don't need to generate heavy skeleton HTML with multiple cards.
+            // A clean lightweight placeholder ensures the section exists in the DOM
+            // without layout thrashing right before real cards are mounted.
+            const hasPrefetched = Boolean(descriptor._preFetchedItems && descriptor._preFetchedItems.length > 0);
+            let staticHtml = '';
+            if (!hasPrefetched) {
+                const skeletonCardCount = landscape || isExpanded ? 5 : 8;
+                const rawHtml = CardRenderer.createSkeletonHtml(
+                    skeletonCardCount,
+                    landscape,
+                    descriptor.cardType || 'poster',
+                    shouldHideLabels
+                );
+                staticHtml = rawHtml.replace(/\bskeleton-shimmer\b/g, '');
+            }
 
             sectionEl.innerHTML = `
                 <h2 class="row-title">${descriptor.title}</h2>
@@ -1293,25 +1432,6 @@ class HomePage extends Page {
                     </div>
                 </div>
             `;
-
-            // Override skeleton backgrounds with theme-following visible color.
-            // The default rgba(..., 0.08) from .skeleton-image / .skeleton-line
-            // is too subtle, and modern mode has an animated gradient on
-            // .card-image. We suppress both with higher-opacity overrides.
-            sectionEl.insertAdjacentHTML(
-                'afterbegin',
-                `
-                <style>
-                    .media-row--skeleton[data-row-id="${descriptor.id}"] .card-image,
-                    .media-row--skeleton[data-row-id="${descriptor.id}"] .skeleton-image,
-                    .media-row--skeleton[data-row-id="${descriptor.id}"] .skeleton-line {
-                        background-color: rgba(var(--jf-primary-btn-color-rgb, 255, 255, 255), 0.6) !important;
-                        background-image: none !important;
-                        animation: none !important;
-                    }
-                </style>
-            `
-            );
 
             // Always insert before the scroll sentinel so the sentinel remains
             // trailing at the very end of the row stream
@@ -1373,12 +1493,17 @@ class HomePage extends Page {
             // Find the placeholder and replace it with a live row
             this._renderRow(descriptor, items);
 
-            // Pre-warm image cache AFTER the row DOM is built, so the visible
-            // image loads from VirtualCardRow (lazyLoader.forceLoad) get HTTP
-            // connection pool priority over speculative pre-warm requests.
-            // This also prevents pre-warm from starving remaining API calls
-            // (each row's fetchFn is still in-flight for unfinished rows).
-            this._preWarmImagesForRow(descriptor, items);
+            // Speculative image pre-warming is deferred to an idle period or timer
+            // so critical DOM construction and visible image decodes get full bandwidth.
+            if (typeof requestIdleCallback !== 'undefined') {
+                requestIdleCallback(() => {
+                    if (this._isMounted) this._preWarmImagesForRow(descriptor, items);
+                });
+            } else {
+                setTimeout(() => {
+                    if (this._isMounted) this._preWarmImagesForRow(descriptor, items);
+                }, 200);
+            }
             this._checkFocusRestoration(descriptor.id, true);
         } catch (error) {
             log.error(`Failed to load row "${descriptor.id}"`, error);
@@ -1422,7 +1547,7 @@ class HomePage extends Page {
         try {
             const batchMap = await api.getBatchLatest(libraryIds, {
                 limit: homeRowLimit,
-                fields: 'BackdropImageTags,ParentBackdropImageTags,Tags',
+                fields: 'BackdropImageTags,ParentBackdropImageTags,Tags,Status,EndDate,SeriesPrimaryImageTag',
                 ...(hidePlayed ? { isPlayed: false } : {})
             });
 
@@ -1502,6 +1627,24 @@ class HomePage extends Page {
         if (this._isDeferredLoading || !this._isMounted) return;
         if (this._nextDeferredDescIndex >= this._deferredDescriptors.length) return;
 
+        // If viewport is actively running a scroll animation and this isn't an explicit
+        // user navigation request (autoFocus), defer the batch until scrolling finishes.
+        // This keeps compositor frame rates steady at 60fps without background interruptions.
+        if (!autoFocus && window.__scrollController && window.__scrollController.isAnimating) {
+            const onScrollFinish = () => {
+                eventBus.off('scroll:finished', onScrollFinish);
+                if (
+                    this._isMounted &&
+                    !this._isDeferredLoading &&
+                    this._nextDeferredDescIndex < this._deferredDescriptors.length
+                ) {
+                    this._loadNextDeferredBatch(false);
+                }
+            };
+            eventBus.on('scroll:finished', onScrollFinish);
+            return;
+        }
+
         this._isDeferredLoading = true;
 
         // Slice out the next batch from the deferred descriptor queue
@@ -1512,7 +1655,7 @@ class HomePage extends Page {
 
         log.debug(`Loading deferred batch [${startIdx}–${endIdx - 1}] (${batch.length} rows)`);
 
-        // Insert skeleton placeholders for all batch rows up-front so
+        // Insert placeholder sections for all batch rows up-front so
         // layout doesn't jump when each row resolves independently
         this._insertSkeletonRows(batch);
 
@@ -1527,17 +1670,23 @@ class HomePage extends Page {
         // Track the first descriptor key that successfully renders for autofocus
         let firstRenderedDescId = null;
 
-        // Render rows in parallel; each one replaces its skeleton as it resolves
-        await Promise.all(
-            batch.map(async (descriptor) => {
-                try {
-                    await this._loadAndRenderRow(descriptor);
-                    if (!firstRenderedDescId) firstRenderedDescId = descriptor.id;
-                } catch (err) {
-                    log.warn(`Deferred row "${descriptor.id}" failed`, err);
-                }
-            })
-        );
+        // Progressive frame-by-frame rendering:
+        // Instead of executing all 3 batch rows synchronously in a single turn of the
+        // event loop, we render one row per animation frame. This spreads DOM element
+        // creation, virtual window sizing, and initial image loads across frames,
+        // eliminating the multi-frame main thread freeze.
+        for (const descriptor of batch) {
+            if (!this._isMounted) break;
+            try {
+                await this._loadAndRenderRow(descriptor);
+                if (!firstRenderedDescId) firstRenderedDescId = descriptor.id;
+
+                // Yield to the browser between row renders
+                await new Promise((resolve) => requestAnimationFrame(resolve));
+            } catch (err) {
+                log.warn(`Deferred row "${descriptor.id}" failed`, err);
+            }
+        }
 
         if (!this._isMounted) {
             this._isDeferredLoading = false;
@@ -1565,9 +1714,11 @@ class HomePage extends Page {
 
         this._isDeferredLoading = false;
 
-        // If there are still rows left, keep the scroll observer alive;
-        // otherwise clean up and call the standard post-render hooks
-        if (this._nextDeferredDescIndex >= this._deferredDescriptors.length) {
+        // If there are still rows left, schedule the next idle row prefetch
+        // so deferred content loads progressively ahead of time in small 1-row chunks.
+        if (this._nextDeferredDescIndex < this._deferredDescriptors.length) {
+            this._scheduleHomeIdlePrefetch(300);
+        } else {
             // All deferred rows are loaded — run final cleanup
             this._prewarmScrollCache();
             this.restoreScrollFocusWhenReady();
@@ -1590,9 +1741,8 @@ class HomePage extends Page {
             this._homeSentinelObserver.disconnect();
         }
 
-        // rootMargin '600px 0px' triggers loading slightly before the sentinel
-        // enters the viewport, giving the fetch time to complete before the user
-        // actually reaches the bottom — same tuning as DiscoverPage.
+        // rootMargin '1200px 0px' triggers loading 3 full row heights before the sentinel
+        // enters the viewport, giving ample lookahead before the user scrolls near the bottom.
         this._homeSentinelObserver = new IntersectionObserver(
             (entries) => {
                 const entry = entries[0];
@@ -1605,7 +1755,7 @@ class HomePage extends Page {
                     this._loadNextDeferredBatch(false);
                 }
             },
-            { rootMargin: '600px 0px', threshold: 0.01 }
+            { rootMargin: '1200px 0px', threshold: 0.01 }
         );
 
         this._homeSentinelObserver.observe(sentinel);
@@ -1613,20 +1763,21 @@ class HomePage extends Page {
     }
 
     /**
-     * Schedules a low-priority idle background prefetch 1.2 s after the initial
-     * rows are painted. Silently loads the next batch so content is ready before
-     * the user finishes watching the first row.
-     * Matches DiscoverPage._scheduleIdlePrefetch().
+     * Schedules a low-priority idle background prefetch.
+     * Silently loads deferred rows in small 1-row batches so content is ready
+     * before the user scrolls or navigates down to it.
+     *
+     * @param {number} [delay=400] - Delay in ms before triggering prefetch
      * @private
      */
-    _scheduleHomeIdlePrefetch() {
+    _scheduleHomeIdlePrefetch(delay = 400) {
         if (this._homeIdlePrefetchTimer) clearTimeout(this._homeIdlePrefetchTimer);
         this._homeIdlePrefetchTimer = setTimeout(() => {
             if (this._isMounted && this._nextDeferredDescIndex < this._deferredDescriptors.length) {
                 log.debug('Home idle prefetch triggered');
                 this._loadNextDeferredBatch(false);
             }
-        }, 1200);
+        }, delay);
     }
 
     /**
@@ -2051,6 +2202,8 @@ class HomePage extends Page {
                     itemType === 'AlbumArtist'
                 ) {
                     router.navigate(`/person/${card.dataset.itemId}`);
+                } else if (itemType === 'Season' && card.dataset.seriesId) {
+                    router.navigate(`/details/${card.dataset.seriesId}`);
                 } else {
                     router.navigate(`/details/${card.dataset.itemId}`);
                 }
@@ -2061,10 +2214,11 @@ class HomePage extends Page {
         container.addEventListener('mousedown', handleActivate);
         container.addEventListener('click', handleActivate);
 
-        // ── FocusIn → Sync VirtualCardRow index ──────────────────────────────
+        // ── FocusIn → Sync VirtualCardRow index & lookahead prefetch ──────────
         // When focus jumps to a card via SpatialNavigator (bypassing onMove),
         // we must sync the VirtualCardRow's internal currentIndex to match.
-        // Without this, the next onMove() call would start from the wrong index.
+        // We also check if the user is nearing the bottom of loaded rows so we
+        // can mount the next deferred row in advance before they reach it.
         container.addEventListener('focusin', (e) => {
             if (!e.target.classList.contains('media-card')) return;
 
@@ -2076,6 +2230,9 @@ class HomePage extends Page {
             if (rowEntry) {
                 rowEntry.virtualRow.syncIndexFromNode(e.target);
             }
+
+            // Proactive lookahead: mount the next row early before user presses Down
+            this._checkNearbyRowPrefetch(sectionEl);
         });
 
         // ── Remote Play key → play the focused card directly ─────────────────
@@ -2086,6 +2243,35 @@ class HomePage extends Page {
         // (key:playPause). Page._subscriptions auto-unbinds these on destroy.
         this.on('key:play', () => this._playFocusedCard());
         this.on('key:playPause', () => this._playFocusedCard());
+    }
+
+    /**
+     * Proactive lookahead prefetch: triggers loading of the next deferred row
+     * whenever the user focuses a row within 2 rows of the last rendered section.
+     * This ensures the row below is always mounted and ready before navigation occurs.
+     *
+     * @param {HTMLElement} sectionEl
+     * @private
+     */
+    _checkNearbyRowPrefetch(sectionEl) {
+        if (this._isDeferredLoading || this._nextDeferredDescIndex >= this._deferredDescriptors.length) {
+            return;
+        }
+
+        const container = this.$('#home-rows');
+        if (!container) return;
+
+        const liveSections = Array.from(
+            container.querySelectorAll('section[data-row-id]:not(.media-row--skeleton)')
+        );
+        const currentIndex = liveSections.indexOf(sectionEl);
+        if (currentIndex === -1) return;
+
+        // If the focused section is near the bottom (within 2 rows of the end),
+        // proactively mount the next deferred row in the background ahead of time.
+        if (currentIndex >= liveSections.length - 2) {
+            this._loadNextDeferredBatch(false);
+        }
     }
 
     /**
@@ -2200,7 +2386,8 @@ class HomePage extends Page {
         if (topRow) {
             const topRowId = topRow.getAttribute('data-row-id');
             const topRowConfig = focusManager.getSectionConfig(`home-row-${topRowId}`);
-            const hasHero = storage.getItem('pref:heroCarousel') !== 'false' && focusManager.getSectionConfig('home-hero');
+            const hasHero =
+                storage.getItem('pref:heroCarousel') !== 'false' && focusManager.getSectionConfig('home-hero');
 
             // Wire the topmost row to navigate Up into the hero section
             if (topRowConfig) {
@@ -2280,8 +2467,8 @@ class HomePage extends Page {
 
         placeholder.innerHTML = `
             <div id="hero-carousel-container" 
-                 class="hero-carousel-container ${carouselStyle} ${isCompact ? 'compact' : ''} skeleton" 
-                 tabindex="-1">
+                 class="hero-carousel-container ${carouselStyle} ${isCompact ? 'compact' : ''} skeleton focusable" 
+                 tabindex="0">
                 <div class="hero-carousel">
                     <div class="hero-carousel-track">
                         <div class="hero-item active">
@@ -2300,6 +2487,8 @@ class HomePage extends Page {
 
         focusManager.register('home-hero', placeholder, {
             orientation: 'horizontal',
+            selector: '#hero-carousel-container',
+            defaultFocusSelector: '#hero-carousel-container',
             leaveDown: () => this._getFirstLiveRowSectionName(),
             leaveLeft: 'sidebar'
         });
@@ -2333,7 +2522,11 @@ class HomePage extends Page {
 
             // Try single-pass fetch via Litefin Plugin endpoint
             const pluginHero = await api.getHomeHero({ limit, ignoreWatched });
-            if (pluginHero && Array.isArray(pluginHero.Items) && pluginHero.Items.length > 0) {
+
+            // Validate that the plugin response is non-empty and does not contain invalid zero IDs
+            // If the server-side plugin returns Id: "0", fall back immediately to native item queries.
+            const hasInvalidIds = pluginHero?.Items?.some((item) => !item.Id || item.Id === '0');
+            if (pluginHero && Array.isArray(pluginHero.Items) && pluginHero.Items.length > 0 && !hasInvalidIds) {
                 items = pluginHero.Items;
             } else if (ignoreWatched) {
                 // Fallback: Fetch unplayed movies (IsUnplayed works correctly for Movies)
@@ -2435,6 +2628,25 @@ class HomePage extends Page {
                 // Render the hero carousel and initialize its event listeners
                 placeholder.innerHTML = this._hero.render();
                 this._hero.init(placeholder.firstElementChild);
+
+                // Seamless focus re-establishment: if the hero was the active focus target,
+                // re-establish focus on the newly rendered live carousel container.
+                const activeSec = focusManager.getActiveSection();
+                const curFocused = focusManager.getFocused();
+                if (
+                    activeSec === 'home-hero' ||
+                    !curFocused ||
+                    !document.contains(curFocused) ||
+                    placeholder.contains(curFocused)
+                ) {
+                    if (!focusManager.isTrapped()) {
+                        this.setActiveSection('home-hero', false);
+                        focusManager.focusElement(placeholder.firstElementChild, {
+                            instantScroll: true,
+                            skipScroll: true
+                        });
+                    }
+                }
 
                 // Relink the first rendered row and the hero carousel now that the hero has initialized
                 const container = this.$('#home-rows');
@@ -2599,7 +2811,8 @@ class HomePage extends Page {
      * @param {Array} items
      */
     _preWarmImagesForRow(descriptor, items) {
-        const urls = [];
+        if (!items || items.length === 0) return;
+
         const isLandscape = descriptor.layout === 'landscape';
         let sizeType;
         if (descriptor.layout === 'landscape') {
@@ -2611,7 +2824,14 @@ class HomePage extends Page {
         }
         const { maxWidth, quality } = imageService.getParams(sizeType, descriptor.contextType);
 
-        const subset = items.slice(0, IMAGE_PREWARM_PER_ROW);
+        // VirtualCardRow already eagerly initiates loads for the first visibleCount cards.
+        // To avoid duplicate network requests and connection pool starvation on Tizen,
+        // pre-warm only the items beyond the visible window (horizontal scroll lookahead).
+        const { visibleCount } = this._computeRowSizing(isLandscape, descriptor.cardType || 'poster');
+        const subset = items.slice(visibleCount, visibleCount + IMAGE_PREWARM_PER_ROW);
+        if (subset.length === 0) return;
+
+        const urls = [];
 
         for (const item of subset) {
             const itemId = item.Id;
@@ -3106,6 +3326,25 @@ class HomePage extends Page {
                 // Inject the carousel markup and wire up its event listeners
                 placeholder.innerHTML = this._hero.render();
                 this._hero.init(placeholder.firstElementChild);
+
+                // Seamless focus re-establishment: if the hero was the active focus target,
+                // re-establish focus on the newly rendered live carousel container.
+                const activeSecFromCache = focusManager.getActiveSection();
+                const curFocusedFromCache = focusManager.getFocused();
+                if (
+                    activeSecFromCache === 'home-hero' ||
+                    !curFocusedFromCache ||
+                    !document.contains(curFocusedFromCache) ||
+                    placeholder.contains(curFocusedFromCache)
+                ) {
+                    if (!focusManager.isTrapped()) {
+                        this.setActiveSection('home-hero', false);
+                        focusManager.focusElement(placeholder.firstElementChild, {
+                            instantScroll: true,
+                            skipScroll: true
+                        });
+                    }
+                }
 
                 // Relink the first rendered row and the hero carousel after cache restoration
                 const container = this.$('#home-rows');

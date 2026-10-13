@@ -495,7 +495,7 @@ export class ApiClient {
                 if (options.warnOnError && response) {
                     response._suppressErrorLog = true;
                 }
-                const error = await this._handleError(response);
+                const error = await this._handleError(response, endpoint, options);
                 throw error;
             }
 
@@ -607,8 +607,11 @@ export class ApiClient {
     /**
      * Handle error responses
      * @private
+     * @param {Response} response - The fetch Response object
+     * @param {string} [endpoint=''] - Target API route
+     * @param {Object} [options={}] - Request options passed to request()
      */
-    async _handleError(response) {
+    async _handleError(response, endpoint = '', options = {}) {
         let message = `HTTP ${response.status}`;
 
         // Try to parse the server's error description from the response body.
@@ -639,20 +642,54 @@ export class ApiClient {
             log.error(`Server rejected request (400 Bad Request): ${message}`);
         }
 
-        // Handle specific status codes
+        // Handle specific status codes if no specific server message was provided
+        const isGenericMessage = message === `HTTP ${response.status}`;
         switch (response.status) {
-            case 401:
-                eventBus.emit('api:unauthorized');
-                message = 'Authentication required';
+            case 401: {
+                // =============================================================
+                // UNAUTHORIZED / SESSION EXPIRY RESOLUTION
+                // =============================================================
+                // Determine whether this 401 indicates that an active authenticated
+                // session has expired or been revoked, as opposed to an authentication
+                // credential attempt (e.g. login or silent probe) that failed.
+                //
+                // An authentication failure on /Users/AuthenticateByName or
+                // /Users/AuthenticateWithQuickConnect indicates incorrect/missing
+                // credentials for the account being tested, NOT that the current
+                // active session expired. Emitting 'api:unauthorized' during a login
+                // attempt would mistakenly evict the previously signed-in user.
+                // =============================================================
+                const isAuthEndpoint =
+                    endpoint.includes('/Users/AuthenticateByName') ||
+                    endpoint.includes('/Users/AuthenticateWithQuickConnect');
+
+                // Session expiration should only fire if:
+                // 1. Not explicitly suppressed by the caller (e.g. probe or login attempt)
+                // 2. Not marked as a silent operation
+                // 3. Not an authentication credential endpoint
+                // 4. An active session token was actually transmitted with the request
+                const shouldEmitUnauthorized =
+                    !options.suppressUnauthorized &&
+                    !options.silent &&
+                    !isAuthEndpoint &&
+                    Boolean(this._accessToken);
+
+                // Broadcast session invalidation only when an active token was rejected
+                if (shouldEmitUnauthorized) {
+                    eventBus.emit('api:unauthorized');
+                }
+
+                if (isGenericMessage) message = 'Authentication required';
                 break;
+            }
             case 403:
-                message = 'Access denied';
+                if (isGenericMessage) message = 'Access denied';
                 break;
             case 404:
-                message = 'Not found';
+                if (isGenericMessage) message = 'Not found';
                 break;
             case 500:
-                message = 'Server error';
+                if (isGenericMessage) message = 'Server error';
                 break;
         }
 
@@ -766,15 +803,23 @@ export class ApiClient {
      * Returns the same shape as /Users/AuthenticateByName (AccessToken, User, etc.)
      *
      * @param {string} secret - The authorized Secret from the Quick Connect flow
+     * @param {Object} [options={}] - Additional request options
      */
-    async authenticateWithQuickConnect(secret) {
-        return this.post('/Users/AuthenticateWithQuickConnect', {
-            Secret: secret,
-            App: this.clientName,
-            Device: this.deviceName,
-            DeviceId: this.deviceId,
-            Version: this.clientVersion
-        });
+    async authenticateWithQuickConnect(secret, options = {}) {
+        return this.post(
+            '/Users/AuthenticateWithQuickConnect',
+            {
+                Secret: secret,
+                App: this.clientName,
+                Device: this.deviceName,
+                DeviceId: this.deviceId,
+                Version: this.clientVersion
+            },
+            {
+                suppressUnauthorized: true,
+                ...options
+            }
+        );
     }
 
     /**
@@ -782,6 +827,34 @@ export class ApiClient {
      */
     async getCurrentUser(options = {}) {
         return this.get(`/Users/${this._userId}`, null, options);
+    }
+
+    /**
+     * -------------------------------------------------------------------------
+     * SERVER SYSTEM CONFIGURATION
+     * -------------------------------------------------------------------------
+     * Retrieves global server configuration parameters from the Jellyfin host.
+     * Contains playback completion properties including MaxResumePct (default 90)
+     * and MinResumePct (default 5).
+     *
+     * Automatically caches MaxResumePct into persistent storage so the player
+     * can reliably resolve completion thresholds without hitting network stalls.
+     * -------------------------------------------------------------------------
+     *
+     * @param {Object} [options={}] - Optional request options
+     * @returns {Promise<Object>}
+     */
+    async getServerConfiguration(options = {}) {
+        // Fetch server system configuration payload
+        const config = await this.get('/System/Configuration', null, options);
+
+        // Cache MaxResumePct if returned by the server
+        if (config && typeof config.MaxResumePct === 'number') {
+            storage.setItem('server:maxResumePct', config.MaxResumePct);
+            storage.flush();
+        }
+
+        return config;
     }
 
     /**
@@ -873,7 +946,8 @@ export class ApiClient {
         const defaults = {
             // Default item count per library row configured via user settings
             Limit: defaultLimit,
-            Fields: 'BackdropImageTags,ParentBackdropImageTags,Tags',
+            // Request tags, backdrop, and series metadata needed for home card representation
+            Fields: 'BackdropImageTags,ParentBackdropImageTags,Tags,Status,EndDate,SeriesPrimaryImageTag',
             ImageTypeLimit: 1,
             EnableImageTypes: 'Primary,Backdrop,Thumb',
             ParentId: parentId
@@ -906,7 +980,10 @@ export class ApiClient {
             ImageTypeLimit: 1,
             EnableImageTypes: 'Primary,Backdrop,Thumb',
             EnableTotalRecordCount: false,
-            MediaTypes: 'Video'
+            MediaTypes: 'Video',
+            // Restrict to playable video items to prevent container folders (e.g. Seasons/Series)
+            // from being returned on Jellyfin 12+ where folder rollup marks them as resumable.
+            IncludeItemTypes: 'Movie,Episode,Video'
         };
 
         /*
@@ -1677,15 +1754,35 @@ export class ApiClient {
                     this.getItemFilters2(params)
                 ]);
 
-                // Safely unpack responses
+                // Safely unpack responses from both filter queries
                 const legacy = legacyRes.status === 'fulfilled' && legacyRes.value ? legacyRes.value : {};
                 const v2 = v2Res.status === 'fulfilled' && v2Res.value ? v2Res.value : {};
 
-                // Return combined filter structure
+                // ------------------------------------------------------------------
+                // Extract clean genre name strings from both v2 (NameGuidPair) and legacy (string)
+                // Using clean names ensures uniform filtering across Jellyfin 10.x through 12.0+
+                // ------------------------------------------------------------------
+                const v2GenreNames = Array.isArray(v2.Genres)
+                    ? v2.Genres.map((g) => (typeof g === 'object' && g ? (g.Name || g.name || '') : g)).filter(Boolean)
+                    : [];
+                const legacyGenreNames = Array.isArray(legacy.Genres)
+                    ? legacy.Genres.map((g) => (typeof g === 'object' && g ? (g.Name || g.name || '') : g)).filter(Boolean)
+                    : [];
+
+                // Deduplicate genres while preserving encounter order
+                const combinedGenres = Array.from(new Set([...legacyGenreNames, ...v2GenreNames]));
+
+                // Deduplicate tag names from both legacy and modern sources
+                const v2Tags = Array.isArray(v2.Tags) ? v2.Tags : [];
+                const legacyTags = Array.isArray(legacy.Tags) ? legacy.Tags : [];
+                const combinedTags = Array.from(new Set([...legacyTags, ...v2Tags]));
+
+                // Return combined, normalized filter structure
                 return {
-                    // Prefer v2 Genres (contains Name & Id pairs) if present, else legacy string names
-                    Genres: (v2.Genres && v2.Genres.length > 0) ? v2.Genres : (legacy.Genres || []),
-                    Tags: (v2.Tags && v2.Tags.length > 0) ? v2.Tags : (legacy.Tags || []),
+                    // List of genre names ready for UI display and pipe-delimited item queries
+                    Genres: combinedGenres.length > 0 ? combinedGenres : (legacy.Genres || []),
+                    // Deduplicated tags available across items in the library
+                    Tags: combinedTags.length > 0 ? combinedTags : (legacy.Tags || []),
                     // Ratings and Years only exist on the legacy endpoint
                     OfficialRatings: legacy.OfficialRatings || [],
                     Years: legacy.Years || [],
@@ -1904,6 +2001,18 @@ export class ApiClient {
         if (options.quality) params.append('quality', options.quality);
         if (options.tag) params.append('tag', options.tag);
 
+        /*
+         * Include session token in image queries when authenticated.
+         * Browsers and native web views cannot inject custom authorization headers
+         * (such as 'Authorization: MediaBrowser ...') into standard HTML <img> element
+         * requests. Supplying the session token as a query parameter guarantees that
+         * servers enforcing strict media authorization can authenticate the image request.
+         */
+        if (this._accessToken) {
+            const authKey = this.isEmby() ? 'api_key' : 'ApiKey';
+            params.append(authKey, this._accessToken);
+        }
+
         // Compile query string and final endpoint URL reference
         const queryString = params.toString();
         const path = `/Items/${itemId}/Images/${imageType}`;
@@ -1925,6 +2034,15 @@ export class ApiClient {
 
         // Map quality settings
         if (options.quality) params.append('quality', options.quality);
+
+        /*
+         * Include session token for user avatar requests when available,
+         * ensuring user profile avatars load under cross-origin environments.
+         */
+        if (this._accessToken) {
+            const authKey = this.isEmby() ? 'api_key' : 'ApiKey';
+            params.append(authKey, this._accessToken);
+        }
 
         // Compile query string and final user endpoint URL reference
         const queryString = params.toString();
@@ -2504,6 +2622,29 @@ export class ApiClient {
     }
 
     /**
+     * ========================================================================
+     * Immediate WebSocket KeepAlive Dispatcher
+     * ========================================================================
+     * Dispatches an immediate KeepAlive ping frame over the open WebSocket.
+     * Crucial when handling server-issued 'ForceKeepAlive' challenges to
+     * prevent reverse proxies and the Jellyfin server from terminating
+     * the connection due to idle timeouts.
+     * ========================================================================
+     */
+    sendWebSocketKeepAlive() {
+        // Ensure the socket instance exists and is actively ready for communication
+        if (this._webSocket && this._webSocket.readyState === WebSocket.OPEN) {
+            try {
+                // Jellyfin protocol specifies standard KeepAlive message frame
+                this._webSocket.send(JSON.stringify({ MessageType: 'KeepAlive' }));
+            } catch (err) {
+                // Non-fatal warning if socket write throws
+                log.warn('Failed to send immediate WebSocket KeepAlive ping:', err);
+            }
+        }
+    }
+
+    /**
      * Check if WebSocket is connected
      * @returns {boolean} True if connected
      */
@@ -2800,16 +2941,142 @@ export function testServer(address, timeout = 1000, parentSignal = null) {
     });
 }
 
+// -----------------------------------------------------------------------------
+// Tauri v2 Native Discovery & IPC Runtime Utilities
+// -----------------------------------------------------------------------------
+
+/**
+ * Checks whether the current runtime environment is a Tauri application shell.
+ * Returns true on Windows, macOS, Linux, and Android TV running via Tauri.
+ *
+ * @returns {boolean} True if running under Tauri runtime.
+ */
+function _isTauriRuntime() {
+    return typeof window !== 'undefined' && !!(window.__TAURI__ || window.__TAURI_METADATA__ || window.__TAURI_INTERNALS__);
+}
+
+/**
+ * Dispatches an IPC command across the Tauri bridge to the native Rust backend.
+ * Compatible with Tauri v2 internal bridge and core API wrappers.
+ *
+ * @param {string} command - Registered Tauri command name.
+ * @param {Object} [args={}] - Command parameters passed to Rust.
+ * @returns {Promise<any>} Response from the Rust command handler.
+ */
+async function _invokeTauriCommand(command, args = {}) {
+    // Primary Tauri v2 internal IPC bridge
+    if (typeof window !== 'undefined' && window.__TAURI_INTERNALS__?.invoke) {
+        return window.__TAURI_INTERNALS__.invoke(command, args);
+    }
+    // Secondary fallback to core namespace if available
+    if (typeof window !== 'undefined' && window.__TAURI__?.core?.invoke) {
+        return window.__TAURI__.core.invoke(command, args);
+    }
+    throw new Error('Tauri IPC runtime bridge unavailable');
+}
+
 let activeDiscoveryController = null;
 
 /**
- * Cancel any active discovery process
+ * Cancel any active discovery process across all platform backends.
  */
 export function cancelDiscovery() {
+    // Signal cancellation to native Rust discovery worker if running on Tauri
+    if (_isTauriRuntime()) {
+        _invokeTauriCommand('cancel_server_discovery').catch(() => {});
+    }
+
     if (activeDiscoveryController) {
         log.info('Cancelling discovery scan...');
         activeDiscoveryController.abort();
         activeDiscoveryController = null;
+    }
+}
+
+/**
+ * Attempt Jellyfin server discovery via Tauri native UDP broadcast.
+ *
+ * Dispatches UDP probe packets on port 7359 directly from native Rust standard
+ * library sockets, bypassing browser webview network isolation entirely.
+ *
+ * @param {Function|null} onServerFound  Callback invoked immediately each time
+ *                                        a server response packet is parsed.
+ * @returns {Promise<Array|null>}  Found servers list, or null if Tauri IPC
+ *                                  could not be contacted (fall through to HTTP scan).
+ */
+async function _discoverViaTauriService(onServerFound, targetHints = []) {
+    if (!_isTauriRuntime()) {
+        return null;
+    }
+
+    log.info('Tauri fast path: Initiating native UDP server autodiscovery...');
+
+    const foundServers = [];
+    let serverEventListener = null;
+
+    // Attach real-time DOM listener for microsecond-latency server notification
+    if (typeof onServerFound === 'function') {
+        serverEventListener = (event) => {
+            const srv = event.detail;
+            if (srv && srv.address) {
+                const serverInfo = {
+                    address: srv.address,
+                    name: srv.name || srv.address,
+                    id: srv.id
+                };
+
+                // Deduplicate before firing onServerFound callback
+                const alreadyRecorded = foundServers.some(
+                    (s) => s.id === serverInfo.id || s.address === serverInfo.address
+                );
+
+                if (!alreadyRecorded) {
+                    log.info(`Tauri native UDP: discovered "${serverInfo.name}" at ${serverInfo.address}`);
+                    foundServers.push(serverInfo);
+                    onServerFound(serverInfo);
+                }
+            }
+        };
+
+        window.addEventListener('litefin:server-found', serverEventListener);
+    }
+
+    try {
+        // Dispatch Rust command with a 2500ms discovery window and any explicit hints
+        const results = await _invokeTauriCommand('discover_servers', {
+            timeoutMs: 2500,
+            targetHints: Array.isArray(targetHints) ? targetHints : []
+        });
+
+        if (Array.isArray(results)) {
+            for (const srv of results) {
+                const serverInfo = {
+                    address: srv.address,
+                    name: srv.name || srv.address,
+                    id: srv.id
+                };
+
+                const alreadyRecorded = foundServers.some(
+                    (s) => s.id === serverInfo.id || s.address === serverInfo.address
+                );
+
+                if (!alreadyRecorded) {
+                    foundServers.push(serverInfo);
+                    if (onServerFound) {
+                        onServerFound(serverInfo);
+                    }
+                }
+            }
+        }
+
+        return foundServers;
+    } catch (err) {
+        log.warn('Tauri native UDP discovery failed:', err);
+        return null;
+    } finally {
+        if (serverEventListener) {
+            window.removeEventListener('litefin:server-found', serverEventListener);
+        }
     }
 }
 
@@ -3011,7 +3278,21 @@ export async function sendWakeOnLan(macAddress) {
 
     log.info(`Initiating Wake-on-LAN command for MAC: ${macAddress}`);
 
-    // 1. WebOS implementation: dispatch Luna request to the background service
+    // 1. Tauri platform: native Rust UDP Magic Packet broadcast
+    if (_isTauriRuntime()) {
+        log.info('Platform Tauri: Dispatching native UDP WOL magic packet via Rust IPC');
+        try {
+            const ok = await _invokeTauriCommand('send_wake_on_lan', { macAddress });
+            if (ok) {
+                log.info('Tauri native WOL broadcast sent successfully');
+                return true;
+            }
+        } catch (tauriWolErr) {
+            log.warn('Tauri native WOL broadcast failed:', tauriWolErr);
+        }
+    }
+
+    // 2. WebOS implementation: dispatch Luna request to the background service
     if (typeof tizen === 'undefined' && typeof window.webOS !== 'undefined' && window.webOS.service) {
         log.info('Platform WebOS: Dispatching WOL request to Luna service org.litefin.app.service');
 
@@ -3116,12 +3397,17 @@ export async function sendWakeOnLan(macAddress) {
  * @returns {boolean} True if background UDP discovery service is present
  */
 export function hasBackgroundDiscoveryService() {
-    // 1. WebOS Luna Service check
+    // 1. Tauri native discovery support (Desktop & Android TV)
+    if (_isTauriRuntime()) {
+        return true;
+    }
+
+    // 2. WebOS Luna Service check
     if (typeof tizen === 'undefined' && typeof window.webOS !== 'undefined' && window.webOS.service) {
         return true;
     }
 
-    // 2. Tizen HTTP Proxy / Discovery Service check
+    // 3. Tizen HTTP Proxy / Discovery Service check
     if (typeof tizen !== 'undefined') {
         try {
             const bgEnabled = storage.getItem('player:enableBackgroundService') !== 'false';
@@ -3131,7 +3417,7 @@ export function hasBackgroundDiscoveryService() {
         }
     }
 
-    // 3. Platforms without background UDP discovery service
+    // 4. Platforms without background UDP discovery service
     return false;
 }
 
@@ -3168,6 +3454,45 @@ export async function discoverServers(onProgress = null, onServerFound = null, o
     if (wolOnScanEnabled && wolMac) {
         log.info(`Server discovery initiated. Sending Wake-on-LAN packet to ${wolMac}...`);
         sendWakeOnLan(wolMac).catch((e) => log.warn('Failed to send WOL on server discovery scan:', e));
+    }
+
+    /*
+     * =========================================================================
+     * Tauri Fast Path: Native UDP Discovery via Rust Standard Sockets
+     * =========================================================================
+     * Tauri builds (Desktop and Android TV) run native Rust code with full
+     * raw UDP socket capabilities. We broadcast the autodiscovery probe on
+     * UDP port 7359 and receive server responses within ~50ms without any
+     * Node.js dependency or slow HTTP subnet scanning.
+     * =========================================================================
+     */
+    if (_isTauriRuntime()) {
+        log.info('Tauri detected — trying native UDP discovery first...');
+
+        // Collect saved server addresses to pass as direct hints to Rust
+        let hints = [];
+        try {
+            const rawSaved = storage.getItem('jellyfin_saved_servers');
+            if (rawSaved) {
+                const parsed = JSON.parse(rawSaved);
+                if (Array.isArray(parsed)) {
+                    hints = parsed.map((s) => s.address || s.serverUrl).filter(Boolean);
+                }
+            }
+        } catch (_) {}
+
+        const tauriServers = await _discoverViaTauriService(onServerFound, hints);
+
+        if (tauriServers !== null) {
+            log.info(`Tauri discovery complete: ${tauriServers.length} server(s) found`);
+            return tauriServers;
+        }
+
+        log.warn('Tauri native discovery unavailable');
+        if (!allowHttpFallback) {
+            log.info('HTTP fallback disabled for automatic discovery — skipping HTTP subnet scan');
+            return [];
+        }
     }
 
     /*

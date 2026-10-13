@@ -327,15 +327,38 @@ class SmartHubManager {
             let mergedItems = [];
 
             // ─── Phase 1: Try server-side Litefin plugin first ─────────────────
+            // ─── Phase 1: Server-side pre-merged row fetching ──────────────────
+            // Parse configured Next Up max days filter from preferences, defaulting to 365
+            const maxDays = parseInt(storage.getItem('pref:nextUpMaxDays'), 10);
+            const daysLimit = isNaN(maxDays) ? 365 : maxDays;
+            const mergedParams = { limit: 10 };
+
+            // Compute cutoff timestamp if a positive days limit constraint is defined
+            let cutoffIso = null;
+            if (daysLimit > 0) {
+                const cutoff = new Date();
+                cutoff.setDate(cutoff.getDate() - daysLimit);
+                cutoffIso = cutoff.toISOString();
+                // Supply cutoff to server companion plugin query parameters
+                mergedParams.nextUpDateCutoff = cutoffIso;
+                mergedParams.NextUpDateCutoff = cutoffIso;
+            }
+
             // Query the custom endpoint provided by our Litefin plugin.
             // When using the plugin, we fetch up to 10 pre-merged, deduplicated,
             // and chronologically sorted items directly from the server.
             try {
                 log.info('Attempting to fetch pre-merged continue/next-up items from Litefin plugin');
-                const response = await api.getMergedRows({ limit: 10 });
+                const response = await api.getMergedRows(mergedParams);
                 if (response && response.Items && response.Items.length > 0) {
-                    log.info('Successfully fetched merged items from server-side Litefin plugin');
-                    mergedItems = response.Items.slice(0, 10);
+                    // Filter out container items defensively
+                    const validPluginItems = response.Items.filter(
+                        (item) => item && item.Type !== 'Season' && item.Type !== 'Series' && !item.IsFolder
+                    );
+                    if (validPluginItems.length > 0) {
+                        log.info('Successfully fetched merged items from server-side Litefin plugin');
+                        mergedItems = validPluginItems.slice(0, 10);
+                    }
                 }
             } catch (err) {
                 // Plugin is not installed or returned an error; fallback to client-side logic
@@ -357,9 +380,6 @@ class SmartHubManager {
                         EnableTotalRecordCount: false
                     }),
                     (async () => {
-                        // Extract Next Up max days filter from preferences, defaults to 365
-                        const maxDays = parseInt(storage.getItem('pref:nextUpMaxDays'), 10);
-                        const daysLimit = isNaN(maxDays) ? 365 : maxDays;
                         const params = {
                             Limit: 5,
                             ImageTypeLimit: 1,
@@ -368,23 +388,27 @@ class SmartHubManager {
                         };
 
                         // Apply the cutoff date constraint if configured
-                        if (daysLimit > 0) {
-                            const cutoff = new Date();
-                            cutoff.setDate(cutoff.getDate() - daysLimit);
-                            params.NextUpDateCutoff = cutoff.toISOString();
+                        if (cutoffIso) {
+                            params.NextUpDateCutoff = cutoffIso;
                         }
                         return api.getNextUp(params);
                     })()
                 ]);
 
-                // Map items and tag them so we can distinguish them during sorting
-                const resumeItems = (resumeRes?.Items || []).map((item) => ({
-                    ...item,
-                    _isResume: true
-                }));
+                // Map items and tag them so we can distinguish them during sorting.
+                // Filter out any container items (Seasons/Series) to ensure only playable media displays.
+                const resumeItems = (resumeRes?.Items || [])
+                    .filter((item) => item && item.Type !== 'Season' && item.Type !== 'Series' && !item.IsFolder)
+                    .map((item) => ({
+                        ...item,
+                        _isResume: true
+                    }));
 
                 const nextUpItems = (nextUpRes?.Items || [])
                     .filter((item) => {
+                        // Defensive guard: Drop non-playable container folders (e.g. Season/Series)
+                        if (!item || item.Type === 'Season' || item.Type === 'Series' || item.IsFolder) return false;
+
                         // Filter out next-up items that have already been partially played,
                         // as they will already be included in the continue watching list.
                         const position = item.UserData?.PlaybackPositionTicks || 0;

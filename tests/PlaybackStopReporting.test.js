@@ -54,3 +54,67 @@ test('PlaybackStopReporting: PlayerPage provides XHR fallback on async stop fail
         'PlayerPage must construct stop reporting URL for fallback'
     );
 });
+
+test('PlaybackStopReporting: Watched completion threshold settings and server MaxResumePct integration', () => {
+    // 1. Verify PlayerSettings defaults to '80'
+    const settingsSource = readFileSync(
+        new URL('../src/utils/PlayerSettings.js', import.meta.url),
+        'utf8'
+    );
+    assert.ok(
+        settingsSource.includes("watchedThreshold: '80'"),
+        "PlayerSettings must default watchedThreshold to '80'"
+    );
+
+    // 2. Verify ApiClient defines getServerConfiguration
+    const apiSource = readFileSync(
+        new URL('../src/api/ApiClient.js', import.meta.url),
+        'utf8'
+    );
+    assert.ok(
+        apiSource.includes('async getServerConfiguration('),
+        'ApiClient must define getServerConfiguration'
+    );
+    assert.ok(
+        apiSource.includes("storage.setItem('server:maxResumePct', config.MaxResumePct);"),
+        'ApiClient must cache server:maxResumePct when returned'
+    );
+
+    // 3. Verify SettingsPage renders watched-threshold-select dropdown and maps it to watchedThreshold
+    const settingsPageSource = readFileSync(
+        new URL('../src/pages/SettingsPage.js', import.meta.url),
+        'utf8'
+    );
+    assert.ok(
+        settingsPageSource.includes("'watched-threshold-select'"),
+        'SettingsPage must render watched-threshold-select dropdown'
+    );
+    assert.ok(
+        settingsPageSource.includes("'watched-threshold-select': { type: 'player', key: 'watchedThreshold' }"),
+        'SettingsPage settingsMap must bind watched-threshold-select to watchedThreshold'
+    );
+
+    // 4. Verify PlayerPage implements _getWatchedThresholdFraction and uses it for near-complete overrides
+    const playerSource = readFileSync(
+        new URL('../src/pages/PlayerPage.js', import.meta.url),
+        'utf8'
+    );
+    assert.ok(
+        playerSource.includes('_getWatchedThresholdFraction()'),
+        'PlayerPage must define _getWatchedThresholdFraction'
+    );
+    assert.ok(
+        playerSource.includes("rawPosition >= durationTicks * thresholdFraction"),
+        'PlayerPage._reportPlaybackStopped must evaluate near-complete status using resolved threshold fraction'
+    );
+
+    // 5. Verify en-us.json contains all required translation keys
+    const enUs = JSON.parse(
+        readFileSync(new URL('../src/locales/en-us.json', import.meta.url), 'utf8')
+    );
+    assert.ok(enUs.WatchedThreshold, 'en-us.json must have WatchedThreshold key');
+    assert.ok(enUs.WatchedThresholdDescription, 'en-us.json must have WatchedThresholdDescription key');
+    assert.ok(enUs.OptionWatchedThreshold80, 'en-us.json must have OptionWatchedThreshold80 key');
+    assert.ok(enUs.OptionWatchedThresholdServer, 'en-us.json must have OptionWatchedThresholdServer key');
+});
+

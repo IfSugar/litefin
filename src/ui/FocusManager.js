@@ -175,10 +175,8 @@ class FocusManager {
 
             if (isPageLoading) {
                 const sectionName = this.getSectionForElement(e.target);
-                if (sectionName && sectionName !== 'sidebar') {
-                    log.debug(`Ignoring focusin on "${sectionName}" because page is loading`);
-                    return;
-                }
+                log.debug(`Ignoring focusin on "${sectionName || 'unknown'}" because page is loading`);
+                return;
             }
 
             if (this._focusedElement !== e.target) {
@@ -524,6 +522,18 @@ class FocusManager {
     getActionSection() {
         return this._activeSection;
     } // Alias if needed? No, getActiveSection exists.
+
+    /**
+     * Get the timestamp of the most recent directional move or user navigation.
+     * Used by NavigationState and active page controllers to detect if the user
+     * has already begun navigating manually during asynchronous page loading,
+     * preventing deferred focus restoration from hijacking active cursor position.
+     * @returns {number} Timestamp in milliseconds
+     */
+    getLastMoveTime() {
+        // Returns the epoch timestamp of the latest D-pad interaction
+        return this._lastMoveTime;
+    }
 
     /**
      * Get config for a section
@@ -1173,15 +1183,23 @@ class FocusManager {
     _activate() {
         if (this._suspended) return;
         if (this._focusedElement) {
-            // Dispatch click
-            this._focusedElement.click();
+            try {
+                // Keep local reference in case click handler clears or mutates focus state
+                const targetElement = this._focusedElement;
 
-            // Native focus is required to invoke the TV OS virtual keyboard (IME) on text fields
-            if (this._focusedElement.tagName === 'INPUT' || this._focusedElement.tagName === 'TEXTAREA') {
-                this._focusedElement.focus();
+                // Dispatch click on the focused target
+                targetElement.click();
+
+                // Native focus is required to invoke the TV OS virtual keyboard (IME) on text fields
+                if (targetElement.tagName === 'INPUT' || targetElement.tagName === 'TEXTAREA') {
+                    targetElement.focus();
+                }
+
+                // Emit activation event with original target
+                eventBus.emit('focus:activated', targetElement);
+            } catch (err) {
+                log.warn('FocusManager._activate error:', err);
             }
-
-            eventBus.emit('focus:activated', this._focusedElement);
         }
     }
 

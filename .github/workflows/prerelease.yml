@@ -66,6 +66,14 @@ jobs:
           cache: 'npm'
 
       # ------------------------------------------------------------------------
+      # Step 3.1: Setup .NET SDK runtime for server plugin compilation
+      # ------------------------------------------------------------------------
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      # ------------------------------------------------------------------------
       # Step 4: Install npm dependencies
       # ------------------------------------------------------------------------
       - name: Install dependencies
@@ -153,6 +161,16 @@ jobs:
           echo "EOF" >> $GITHUB_OUTPUT
 
       # ------------------------------------------------------------------------
+      # Step 8.1: Build and Package Litefin Client Plugin (Modern)
+      # ------------------------------------------------------------------------
+      - name: Build and Package Litefin Client Plugin (Modern)
+        id: package_plugin
+        run: |
+          npm run package:plugin
+        env:
+          CHANGELOG: ${{ steps.release_body.outputs.content }}
+
+      # ------------------------------------------------------------------------
       # Step 9: Publish Pre-Release assets to GitHub
       # ------------------------------------------------------------------------
       - name: Create GitHub Pre-Release
@@ -168,5 +186,7 @@ jobs:
             *.wgt
             *.ipk
             manifest.json
+            Litefin.*.Plugin*.zip
+            litefin-plugin-manifest.json
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

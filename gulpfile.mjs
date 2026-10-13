@@ -14,6 +14,7 @@ import { exec, spawn } from 'child_process';
 import { promisify } from 'util';
 import archiver from 'archiver';
 import path from 'path';
+import { moveTauriOutputs, cleanObsoleteArtifacts } from './scripts/move-tauri-artifacts.js';
 
 /*
  * exec() buffers ALL stdout + stderr in the parent process's RAM.
@@ -80,6 +81,15 @@ function cleanWgt() {
 
 function cleanIpk() {
     return del(['*.ipk']);
+}
+
+/*
+ * Remove all desktop and mobile Tauri application packages from the repository root.
+ * Targets Windows installers (.exe, .msi), Linux packages (.deb, .AppImage),
+ * macOS disk images (.dmg), and Android packages (.apk, .aab).
+ */
+function cleanTauri() {
+    return del(['*.exe', '*.msi', '*.deb', '*.AppImage', '*.dmg', '*.apk', '*.aab']);
 }
 
 // ============================================================================
@@ -546,7 +556,7 @@ async function syncVersion() {
         console.info('package.json version is already up to date');
     }
 
-    // Sync appinfo.json
+    // Sync appinfo.json (WebOS platform configuration)
     if (fs.existsSync('./appinfo.json')) {
         const appinfo = JSON.parse(fs.readFileSync('./appinfo.json', 'utf8'));
         if (appinfo.version !== version) {
@@ -557,6 +567,22 @@ async function syncVersion() {
             console.info('appinfo.json version is already up to date');
         }
     }
+
+    // Sync src-tauri/tauri.conf.json (Desktop & Android Tauri application manifest)
+    // Ensures the native Tauri build metadata aligns with Tizen config.xml
+    if (fs.existsSync('./src-tauri/tauri.conf.json')) {
+        const tauriConfig = JSON.parse(fs.readFileSync('./src-tauri/tauri.conf.json', 'utf8'));
+        if (tauriConfig.version !== version) {
+            console.info(`Syncing tauri.conf.json version: ${tauriConfig.version} -> ${version}`);
+            tauriConfig.version = version;
+            fs.writeFileSync('./src-tauri/tauri.conf.json', JSON.stringify(tauriConfig, null, 2) + '\n');
+        } else {
+            console.info('tauri.conf.json version is already up to date');
+        }
+    }
+
+    // Automatically purge stale build artifacts from previous versions in root and cache
+    cleanObsoleteArtifacts(version);
 }
 
 // ============================================================================
@@ -710,6 +736,9 @@ export {
     cleanDist,
     cleanWgt,
     cleanIpk,
+    cleanTauri,
+    cleanObsoleteArtifacts,
+    moveTauriOutputs,
     webpackModern,
     webpackNormal,
     webpackNormalOblong,
@@ -717,6 +746,7 @@ export {
     webpackUltraLegacy,
     webpackDebug,
     webpackAll,
+    syncVersion,
     // Tizen WGT packaging
     packageModern,
     packageNormal,

@@ -101,6 +101,9 @@ export class TizenAVPlayer {
         this._volume = MediaHelper.getSavedVolume() * 100;
         this._isMuted = false;
 
+        // Aspect ratio mode ('auto' | 'stretch')
+        this._aspectRatio = options.aspectRatio || 'auto';
+
         // Position tracking
         this._positionTimer = null;
 
@@ -197,6 +200,9 @@ export class TizenAVPlayer {
         // jumping or may silently fail to decode from the target keyframe.
         // This timer verifies playhead arrival and triggers remux escalation.
         this._directSeekVerifyTimeout = null;
+        this._directSeekTargetSec = null;
+        this._directSeekPositionTicks = null;
+        this._directSeekStartTime = 0;
 
         // ── Buffering Deadlock Detection ─────────────────────────────────────
         //
@@ -229,62 +235,235 @@ export class TizenAVPlayer {
     // ========================================================================
 
     /**
-     * Create video display area
+     * Retrieve active video stream dimensions from hardware stream info or media source metadata.
+     *
+     * @private
+     * @returns {{width: number, height: number}} Intrinsic stream pixel width and height
+     */
+    _getVideoDimensions() {
+        let vw = 0;
+        let vh = 0;
+
+        // --------------------------------------------------------------------
+        // 1. Hardware Stream Inspection
+        // --------------------------------------------------------------------
+        // Query the live AVPlay hardware pipeline for active stream descriptors
+        if (this._avplay && typeof this._avplay.getCurrentStreamInfo === 'function') {
+            try {
+                const streamInfo = this._avplay.getCurrentStreamInfo();
+                if (Array.isArray(streamInfo)) {
+                    // Locate the active video stream descriptor in the hardware pipeline
+                    const videoStream = streamInfo.find(
+                        (s) => s && s.type && s.type.toUpperCase() === 'VIDEO'
+                    );
+                    if (videoStream && videoStream.extra_info) {
+                        // Tizen may return extra_info as an already-parsed object or as a JSON string
+                        const extra = typeof videoStream.extra_info === 'string'
+                            ? JSON.parse(videoStream.extra_info)
+                            : videoStream.extra_info;
+                        vw = Number(extra.Width || extra.width || 0);
+                        vh = Number(extra.Height || extra.height || 0);
+                    }
+                }
+            } catch (e) {
+                log.debug('Could not query hardware stream info via getCurrentStreamInfo:', e);
+            }
+        }
+
+        // --------------------------------------------------------------------
+        // 2. Play Options MediaSource Inspection
+        // --------------------------------------------------------------------
+        // Fall back to server media stream metadata supplied in playback options
+        if (!vw || !vh) {
+            const mediaSource = this._currentPlayOptions?.mediaSource;
+            if (mediaSource) {
+                if (mediaSource.Width && mediaSource.Height) {
+                    vw = Number(mediaSource.Width);
+                    vh = Number(mediaSource.Height);
+                } else if (Array.isArray(mediaSource.MediaStreams)) {
+                    const videoStream = mediaSource.MediaStreams.find((s) => s && s.Type === 'Video');
+                    if (videoStream && videoStream.Width && videoStream.Height) {
+                        vw = Number(videoStream.Width);
+                        vh = Number(videoStream.Height);
+                    }
+                }
+            }
+        }
+
+        // --------------------------------------------------------------------
+        // 3. Play Options Item Metadata Inspection
+        // --------------------------------------------------------------------
+        // If media source metadata is absent, check top-level item stream definitions
+        if (!vw || !vh) {
+            const item = this._currentPlayOptions?.item;
+            const streams = item?.MediaStreams || item?.MediaSources?.[0]?.MediaStreams;
+            if (Array.isArray(streams)) {
+                const videoStream = streams.find((s) => s && s.Type === 'Video');
+                if (videoStream && videoStream.Width && videoStream.Height) {
+                    vw = Number(videoStream.Width);
+                    vh = Number(videoStream.Height);
+                }
+            }
+        }
+
+        return { width: vw, height: vh };
+    }
+
+    /**
+     * Compute and apply hardware-backed video plane layout geometry based on active aspect ratio mode.
+     *
+     * Samsung Tizen AVPlay does not support CSS object-fit on its underlying hardware overlay plane.
+     * To achieve a seamless crop/zoom effect without distortion:
+     * - We calculate the uniform magnification factor using Math.max(containerWidth / videoWidth, containerHeight / videoHeight)
+     * - We center the scaled dimensions across the viewport using symmetric negative coordinate offsets
+     * - We push the calculated rectangle to AVPlay via setDisplayRect with PLAYER_DISPLAY_MODE_FULL_SCREEN
+     * - The TV hardware video subsystem naturally clips the off-screen margins at physical display edges
+     *
      * @private
      */
-    _createDisplay() {
+    _applyDisplayGeometry() {
         if (!this._avplay) return;
 
-        // Get container dimensions for display rect
-        const rect = this.container.getBoundingClientRect();
-        log.debug('_createDisplay rect:', rect);
+        // Extract container bounds in current DOM coordinate space
+        const rect = (this.container && typeof this.container.getBoundingClientRect === 'function')
+            ? this.container.getBoundingClientRect()
+            : null;
+        const cw = (rect && rect.width) || (this.container && this.container.clientWidth) || (typeof window !== 'undefined' ? window.innerWidth : 1920) || 1920;
+        const ch = (rect && rect.height) || (this.container && this.container.clientHeight) || (typeof window !== 'undefined' ? window.innerHeight : 1080) || 1080;
+        const cLeft = (rect && rect.left) || 0;
+        const cTop = (rect && rect.top) || 0;
+
+        const mode = this._aspectRatio || 'auto';
 
         try {
+            // ================================================================
+            // Mode 1: Fullscreen Stretch
+            // ================================================================
+            // Forces the hardware video plane to stretch edge-to-edge across the viewport
+            if (mode === 'stretch') {
+                this._avplay.setDisplayRect(
+                    Math.round(cLeft),
+                    Math.round(cTop),
+                    Math.round(cw),
+                    Math.round(ch)
+                );
+                this._avplay.setDisplayMethod('PLAYER_DISPLAY_MODE_FULL_SCREEN');
+                log.info('Applied display geometry (stretch):', { x: cLeft, y: cTop, width: cw, height: ch });
+                return;
+            }
+
+            // ================================================================
+            // Mode 2: Math-Calculated Zoom (Cover / Crop)
+            // ================================================================
+            // Scales the video plane by the maximum factor to fill the viewport and symmetrically crop bars
+            if (mode === 'zoom') {
+                const { width: vw, height: vh } = this._getVideoDimensions();
+
+                if (vw > 0 && vh > 0) {
+                    // Calculate uniform scale required to cover both width and height
+                    const scale = Math.max(cw / vw, ch / vh);
+                    const w = Math.round(vw * scale);
+                    const h = Math.round(vh * scale);
+
+                    // Symmetrically center the cropped area with negative coordinate offsets
+                    const left = Math.round(cLeft + (cw - w) / 2);
+                    const top = Math.round(cTop + (ch - h) / 2);
+
+                    // Push oversized coordinates to hardware video plane to clip outer overflow.
+                    // We use PLAYER_DISPLAY_MODE_LETTER_BOX so the underlying hardware rasterizer
+                    // preserves the native DAR / PAR without stretching the video picture.
+                    this._avplay.setDisplayRect(left, top, w, h);
+                    this._avplay.setDisplayMethod('PLAYER_DISPLAY_MODE_LETTER_BOX');
+                    log.info('Applied display geometry (zoom):', { left, top, width: w, height: h, vw, vh, scale });
+                    return;
+                }
+
+                // If stream metadata is still pending, temporarily default to full screen letterbox
+                this._avplay.setDisplayRect(
+                    Math.round(cLeft),
+                    Math.round(cTop),
+                    Math.round(cw),
+                    Math.round(ch)
+                );
+                this._avplay.setDisplayMethod('PLAYER_DISPLAY_MODE_LETTER_BOX');
+                return;
+            }
+
+            // ================================================================
+            // Mode 3: Hardware Video Aspect Ratio (Container Metadata DAR/PAR)
+            // ================================================================
+            if (mode === 'video_aspect_ratio' || mode === 'video' || mode === 'auto_aspect_ratio') {
+                this._avplay.setDisplayRect(
+                    Math.round(cLeft),
+                    Math.round(cTop),
+                    Math.round(cw),
+                    Math.round(ch)
+                );
+                this._avplay.setDisplayMethod('PLAYER_DISPLAY_MODE_AUTO_ASPECT_RATIO');
+                log.info('Applied display geometry (video_aspect_ratio):', { x: cLeft, y: cTop, width: cw, height: ch });
+                return;
+            }
+
+            // ================================================================
+            // Mode 4: Auto (Letterbox / Contain)
+            // ================================================================
+            // Default letterbox display mode preserving intrinsic DAR with standard black bars
             this._avplay.setDisplayRect(
-                Math.round(rect.left),
-                Math.round(rect.top),
-                Math.round(rect.width),
-                Math.round(rect.height)
+                Math.round(cLeft),
+                Math.round(cTop),
+                Math.round(cw),
+                Math.round(ch)
             );
-
-            // Use LETTER_BOX to preserve aspect ratio
             this._avplay.setDisplayMethod('PLAYER_DISPLAY_MODE_LETTER_BOX');
-
-            // NOTE: Do NOT call tizen.tvwindow.show() here. That API is for TV tuner/HDMI input,
-            // not for AVPlay. Calling it can cause the video plane to render above HTML elements.
+            log.info('Applied display geometry (auto letterbox):', { x: cLeft, y: cTop, width: cw, height: ch });
         } catch (e) {
-            log.error('Failed to set display:', e);
+            log.error('Failed to apply display geometry:', e);
         }
     }
 
     /**
-     * Set aspect ratio mode
-     * @param {string} mode - 'auto', 'zoom', 'stretch'
+     * Create video display area and commit initial raster layout.
+     * Preserves the active aspect ratio mode across player initialization.
+     * @private
+     */
+    _createDisplay() {
+        this._applyDisplayGeometry();
+    }
+
+    /**
+     * Set aspect ratio mode on Samsung Tizen AVPlay.
+     * Applies geometric layout coordinates or hardware display methods.
+     *
+     * @param {string} mode - 'auto' | 'zoom' | 'stretch' | 'video_aspect_ratio'
      */
     setAspectRatio(mode) {
-        if (!this._avplay) return;
+        const targetMode = mode || 'auto';
 
-        try {
-            let displayMethod = 'PLAYER_DISPLAY_MODE_LETTER_BOX'; // Default/Auto
-
-            switch (mode) {
-                case 'zoom':
-                    displayMethod = 'PLAYER_DISPLAY_MODE_CROPPED_FULL';
-                    break;
-                case 'stretch':
-                    displayMethod = 'PLAYER_DISPLAY_MODE_FULL_SCREEN';
-                    break;
-                case 'auto':
-                default:
-                    displayMethod = 'PLAYER_DISPLAY_MODE_LETTER_BOX';
-                    break;
-            }
-
-            log.info('Setting aspect ratio:', mode, '->', displayMethod);
-            this._avplay.setDisplayMethod(displayMethod);
-        } catch (e) {
-            log.error('Failed to set aspect ratio:', e);
+        // --------------------------------------------------------------------
+        // Reset Aspect Ratio Before Applying Zoom
+        // --------------------------------------------------------------------
+        // If previous aspect ratio was 'stretch' (or any non-default mode),
+        // AVPlay's hardware scaler retains the FULL_SCREEN stretch transform.
+        // We reset the display method and rect to 'auto' (LETTER_BOX) first,
+        // ensuring the hardware pipeline clears the stretch deformation
+        // before our calculated zoom boundaries are applied.
+        if (targetMode === 'zoom') {
+            log.info('TizenAVPlayer: Resetting aspect ratio to auto prior to applying zoom');
+            this._aspectRatio = 'auto';
+            this._applyDisplayGeometry();
         }
+
+        // Track and commit the target aspect ratio mode
+        this._aspectRatio = targetMode;
+        this._applyDisplayGeometry();
+    }
+
+    /**
+     * Get current aspect ratio mode
+     * @returns {string} 'auto' | 'zoom' | 'stretch' | 'video_aspect_ratio'
+     */
+    getAspectRatio() {
+        return this._aspectRatio || 'auto';
     }
 
     // ========================================================================
@@ -894,6 +1073,7 @@ export class TizenAVPlayer {
                             const isLive = this._currentPlayOptions?.item?.Type === 'TvChannel' || Boolean(this._currentPlayOptions?.mediaSource?.LiveStreamId);
                             // On DirectPlay seek error past 5s, escalate to server remuxing
                             if (isDirectPlay && !isLive && seekMs >= 5000) {
+                                this._clearDirectSeekVerification();
                                 log.warn(`TizenAVPlayer: Resume seek to ${seekMs}ms failed natively — escalating to Remux`);
                                 this.onEvent({
                                     type: 'resumeseekfailed',
@@ -901,6 +1081,15 @@ export class TizenAVPlayer {
                                 });
                             }
                         });
+                    }
+
+                    // ----------------------------------------------------------------
+                    // Zoom Geometry Refresh On First Rendered Frame
+                    // ----------------------------------------------------------------
+                    // If zoom mode is active, refresh display geometry now that the hardware
+                    // video plane is actively decoding and stream dimensions are definitively known.
+                    if (this._aspectRatio === 'zoom') {
+                        this._applyDisplayGeometry();
                     }
                 }
 
@@ -980,6 +1169,7 @@ export class TizenAVPlayer {
                                     const isLive = this._currentPlayOptions?.item?.Type === 'TvChannel' || Boolean(this._currentPlayOptions?.mediaSource?.LiveStreamId);
                                     // If hardware seek fails on DirectPlay, signal remux fallback
                                     if (isDirectPlay && !isLive && stuckSeekMs >= 5000) {
+                                        this._clearDirectSeekVerification();
                                         log.warn(`TizenAVPlayer: Deferred seek to ${stuckSeekMs}ms failed — escalating to Remux`);
                                         this.onEvent({
                                             type: 'resumeseekfailed',
@@ -1025,6 +1215,19 @@ export class TizenAVPlayer {
                 // Cache authoritative presentation timestamp
                 this._currentTimeSec = currentTime;
                 const currentTimeTicks = Math.floor(currentTime * 10000000);
+
+                // ─────────────────────────────────────────────────────────────
+                // DirectPlay Seek Verification Disarm:
+                // If a DirectPlay seek verification guard is active, disarm it
+                // as soon as rendered display frames confirm arrival near the target.
+                // ─────────────────────────────────────────────────────────────
+                if (this._directSeekTargetSec !== null) {
+                    const drift = Math.abs(currentTime - this._directSeekTargetSec);
+                    if (drift < 15 || currentTime >= (this._directSeekTargetSec - 15)) {
+                        log.debug(`[DirectSeekVerify] Display presentation confirmed at ${currentTime.toFixed(2)}s (target: ${this._directSeekTargetSec.toFixed(2)}s) — guard disarmed`);
+                        this._clearDirectSeekVerification();
+                    }
+                }
 
                 // Throttle to ~250ms (2,500,000 ticks) to protect TV CPU
                 if (Math.abs(currentTimeTicks - this._lastTimeUpdateTicks) > 2500000) {
@@ -1306,6 +1509,7 @@ export class TizenAVPlayer {
                                             const isLive = this._currentPlayOptions?.item?.Type === 'TvChannel' || Boolean(this._currentPlayOptions?.mediaSource?.LiveStreamId);
                                             // Trigger server remux if direct progressive seek is unsupported
                                             if (isDirectPlay && !isLive && seekMs >= 5000) {
+                                                this._clearDirectSeekVerification();
                                                 log.warn(`TizenAVPlayer: DirectPlay resume seek to ${seekMs}ms failed natively — escalating to Remux`);
                                                 this.onEvent({
                                                     type: 'resumeseekfailed',
@@ -1619,11 +1823,39 @@ export class TizenAVPlayer {
             beforeMs = 0;
         }
         const seekStartTime = Date.now();
+        // Track that a native hardware seek operation is actively in flight
+        this._seekInProgress = true;
+
+        /*
+         * ====================================================================
+         * HARDWARE SEEK FAILSAFE RECOVERY TIMER
+         * ====================================================================
+         * On certain Samsung firmware, AVPlay's native C++ player can silently
+         * drop asynchronous callbacks if a network hitch or demuxer flush occurs
+         * simultaneously. Without an authoritative failsafe timeout, _seekInProgress
+         * remains stuck true forever, permanently locking out subsequent user seeks
+         * and leaving the player unresponsive to remote control play/pause inputs.
+         * We arm a 6000ms watchdog that clears the flag if hardware stalls.
+         * ====================================================================
+         */
+        const failsafeTimer = setTimeout(() => {
+            if (this._seekInProgress) {
+                log.warn(`[SeekTelemetry] hardware seekTo timed out after 6000ms for target=${requestedMs}ms — clearing seekInProgress flag`);
+                this._seekInProgress = false;
+            }
+        }, 6000);
+
+        const clearFailsafe = () => {
+            clearTimeout(failsafeTimer);
+        };
 
         try {
             this._avplay.seekTo(
                 ms,
                 () => {
+                    // Mark seek finished in native hardware
+                    clearFailsafe();
+                    this._seekInProgress = false;
                     const durationMs = Date.now() - seekStartTime;
                     let landedMs = 0;
                     try {
@@ -1637,16 +1869,27 @@ export class TizenAVPlayer {
                     // Exposes exact landing accuracy vs keyframe boundaries and execution duration.
                     log.info(`[SeekTelemetry] target=${requestedMs}ms before=${beforeMs}ms landed=${landedMs}ms delta=${deltaMs}ms (took ${durationMs}ms)`);
 
+                    // Update authoritative presentation time immediately upon hardware seek landing
+                    const actualMs = (typeof landedMs === 'number' && !isNaN(landedMs) && landedMs >= 0)
+                        ? landedMs
+                        : requestedMs;
+                    this._currentTimeSec = actualMs / 1000;
+
                     if (onSuccess) onSuccess(landedMs);
                     this._assertActiveSubtitleTrack();
                 },
                 (e) => {
+                    // Mark seek finished on hardware error
+                    clearFailsafe();
+                    this._seekInProgress = false;
                     const durationMs = Date.now() - seekStartTime;
                     log.warn(`[SeekTelemetry] seekTo FAILED after ${durationMs}ms for target=${requestedMs}ms before=${beforeMs}ms:`, e);
                     if (onError) onError(new Error('seekTo failed'));
                 }
             );
         } catch (e) {
+            clearFailsafe();
+            this._seekInProgress = false;
             log.warn('_safeSeekTo threw synchronously:', e);
             if (onError) onError(e);
         }
@@ -1658,10 +1901,13 @@ export class TizenAVPlayer {
      * SeekHead Cues or MP4s with fragmented indices), Samsung AVPlay's hardware
      * demuxer may silently fail to seek, remaining stuck near 0s or rolling back.
      *
-     * If the current stream is DirectPlay (non-live, target >= 5s), we schedule
-     * a 2.5s verification check. If the hardware playhead has not arrived near
-     * the requested target, we emit 'resumeseekfailed' to trigger JellyfinPlayer's
-     * automatic Remux fallback path.
+     * We monitor seek progress with a non-blocking watchdog:
+     * 1. Never prematurely fails while seekTo is still in flight in the native
+     *    decoder, while deferred by subtitle cooldown, or while buffering.
+     * 2. Disarms immediately when oncurrentplaytime or getCurrentTime confirms
+     *    the playhead has landed near the seek target.
+     * 3. Escalates to Remux only if the seek settles at an incorrect position
+     *    or if hardware completely deadlocks for more than 12 seconds.
      *
      * @private
      * @param {number} positionTicks - Target position in ticks
@@ -1675,34 +1921,110 @@ export class TizenAVPlayer {
 
         // Skip verification for HLS, Live TV, or near-zero seeks (< 5s)
         if (!isDirectPlay || isLive || targetSeconds < 5) {
+            this._clearDirectSeekVerification();
             return;
         }
 
-        // Cancel previous pending verification check
+        // Reset previous pending verification check
+        this._clearDirectSeekVerification();
+
+        this._directSeekTargetSec = targetSeconds;
+        this._directSeekPositionTicks = positionTicks;
+        this._directSeekStartTime = Date.now();
+
+        // Schedule first watchdog check after settling interval
+        this._scheduleDirectSeekCheck(1500);
+    }
+
+    /**
+     * Disarm and reset all DirectPlay seek verification guard state.
+     * @private
+     */
+    _clearDirectSeekVerification() {
         if (this._directSeekVerifyTimeout !== null) {
             clearTimeout(this._directSeekVerifyTimeout);
             this._directSeekVerifyTimeout = null;
         }
+        this._directSeekTargetSec = null;
+        this._directSeekPositionTicks = null;
+        this._directSeekStartTime = 0;
+    }
 
-        // Schedule verification check after 2.5s settling time
+    /**
+     * Schedule next iteration of DirectPlay seek verification watchdog.
+     * @private
+     * @param {number} delayMs - Delay in milliseconds before next check
+     */
+    _scheduleDirectSeekCheck(delayMs = 1000) {
+        if (this._directSeekVerifyTimeout !== null) {
+            clearTimeout(this._directSeekVerifyTimeout);
+        }
+
         this._directSeekVerifyTimeout = setTimeout(() => {
             this._directSeekVerifyTimeout = null;
-            if (!this._avplay || !this._isPrepared) return;
+            this._runDirectSeekCheck();
+        }, delayMs);
+    }
 
-            // Measure actual hardware decoder position vs target
-            const curSec = this.getCurrentTime();
-            const drift = Math.abs(curSec - targetSeconds);
-            // Allow 15s keyframe drift tolerance (typical max GOP length)
-            const isNear = drift < 15 || curSec >= (targetSeconds - 15);
+    /**
+     * Execute verification check on playhead position after DirectPlay seek.
+     * @private
+     */
+    _runDirectSeekCheck() {
+        if (!this._avplay || !this._isPrepared || this._directSeekTargetSec === null) {
+            this._clearDirectSeekVerification();
+            return;
+        }
 
-            if (!isNear) {
-                log.warn(`TizenAVPlayer: DirectPlay seek to ${targetSeconds.toFixed(2)}s failed (stuck at ${curSec.toFixed(2)}s) — emitting resumeseekfailed for Remux fallback`);
-                this.onEvent({
-                    type: 'resumeseekfailed',
-                    data: { targetPositionTicks: positionTicks }
-                });
+        const targetSeconds = this._directSeekTargetSec;
+        const positionTicks = this._directSeekPositionTicks;
+        const elapsedMs = Date.now() - this._directSeekStartTime;
+        // 12s upper bound for high-bitrate 4K network seek & buffering on older Tizen CPUs
+        const MAX_SEEK_WAIT_MS = 12000;
+
+        // Measure actual hardware decoder position vs target
+        const curSec = Math.max(
+            this.getCurrentTime(),
+            (Number(this._avplay?.getCurrentTime()) || 0) / 1000
+        );
+        const drift = Math.abs(curSec - targetSeconds);
+        // Allow 15s keyframe drift tolerance (typical max GOP length)
+        const isNear = drift < 15 || curSec >= (targetSeconds - 15);
+
+        // Success condition: Playhead reached target region
+        if (isNear) {
+            log.debug(`[DirectSeekVerify] Seek verified at ${curSec.toFixed(2)}s (target: ${targetSeconds.toFixed(2)}s) — guard disarmed`);
+            this._clearDirectSeekVerification();
+            return;
+        }
+
+        // Active execution condition: Seek, cooldown, or buffer still in flight
+        const isStillWorking = this._seekInProgress ||
+                               this._deferredSeekTimerId !== null ||
+                               this._isNativeBuffering;
+
+        if (isStillWorking) {
+            // If still within maximum allowable seek window, continue polling
+            if (elapsedMs < MAX_SEEK_WAIT_MS) {
+                this._scheduleDirectSeekCheck(1000);
+                return;
             }
-        }, 2500);
+            log.warn(`[DirectSeekVerify] Hardware seek deadlock: seek/buffer still in flight after ${elapsedMs}ms for target ${targetSeconds.toFixed(2)}s`);
+        } else {
+            // Seek and buffering reported complete; allow 3.5s settling time for initial frame presentation
+            if (elapsedMs < 3500) {
+                this._scheduleDirectSeekCheck(1000);
+                return;
+            }
+        }
+
+        // Failure condition: Time elapsed and playhead is confirmed stuck
+        log.warn(`TizenAVPlayer: DirectPlay seek to ${targetSeconds.toFixed(2)}s failed (stuck at ${curSec.toFixed(2)}s, elapsed ${elapsedMs}ms) — emitting resumeseekfailed for Remux fallback`);
+        this._clearDirectSeekVerification();
+        this.onEvent({
+            type: 'resumeseekfailed',
+            data: { targetPositionTicks: positionTicks }
+        });
     }
 
     /**
@@ -1916,9 +2238,9 @@ export class TizenAVPlayer {
         // Only exit early if we were neither logically playing nor natively playing in hardware
         if (!wasPlaying && !isNativelyPlaying) return; // Already considered paused — nothing to do
 
-        // Queue 'pause' as the post-seek operation if a seek is in flight,
+        // Queue 'pause' as the post-seek operation if a seek is in flight or deferred,
         // so the intended state is preserved after the seek completes.
-        if (this._seekInProgress) {
+        if (this._seekInProgress || this._deferredSeekTimerId !== null) {
             this._pendingOpAfterSeek = 'pause';
         }
 
@@ -1965,10 +2287,21 @@ export class TizenAVPlayer {
         // Cancel any deferred pause — we want to play now.
         this._pendingPause = false;
 
-        if (this._seekInProgress) {
+        /*
+         * ====================================================================
+         * ACTIVE / DEFERRED SEEK RESUME GATE
+         * ====================================================================
+         * If a native seek is actively executing in hardware or deferred by
+         * the subtitle track change cooldown timer, calling avplay.play()
+         * immediately would play audio and video frames at the pre-seek timestamp.
+         * Queue 'play' as the post-seek operation so playback resumes only after
+         * the demuxer lands on the post-seek keyframe.
+         * ====================================================================
+         */
+        if (this._seekInProgress || this._deferredSeekTimerId !== null) {
             this._pendingOpAfterSeek = 'play';
             this._isPlaying = true;
-            log.debug('unpause(): seek in progress — queued play for post-seek');
+            log.debug('unpause(): seek in progress or deferred — queued play for post-seek');
             return;
         }
 
@@ -2026,11 +2359,8 @@ export class TizenAVPlayer {
             this._seekBufferTimeoutId = null;
         }
 
-        // Clear DirectPlay seek verification guard timer
-        if (this._directSeekVerifyTimeout !== null) {
-            clearTimeout(this._directSeekVerifyTimeout);
-            this._directSeekVerifyTimeout = null;
-        }
+        // Clear DirectPlay seek verification guard state
+        this._clearDirectSeekVerification();
 
         // Unconditionally cancel the seek safety timer on stop to avoid fires
         // referencing a dead, stopped, or closed player instance
@@ -2206,7 +2536,13 @@ export class TizenAVPlayer {
                     clearTimeout(this._deferredSeekTimerId);
                 }
 
-                // Store the target and schedule execution after the cooldown expires
+                // Store the target and schedule execution after the cooldown expires.
+                // NOTE: We deliberately do NOT set this._seekInProgress = true here!
+                // Setting _seekInProgress while deferred causes the re-entrant this.seek()
+                // call in the timer callback to trigger the 'if (this._seekInProgress)' guard
+                // at the top of seek(), queueing into _queuedSeekPositionMs and returning
+                // without ever calling _safeSeekTo. Cooldown deferral is already safely gated
+                // by (this._deferredSeekTimerId !== null) in both isSeeking and unpause().
                 this._deferredSeekTicks = positionTicks;
                 this._deferredSeekTimerId = setTimeout(() => {
                     this._deferredSeekTimerId = null;
@@ -2293,6 +2629,34 @@ export class TizenAVPlayer {
                 positionMs,
                 (landedMs) => {
                     this._seekInProgress = false;
+
+                    /*
+                     * ================================================================
+                     * CONSECUTIVE QUEUED SEEK EXECUTION PRIORITY
+                     * ================================================================
+                     * If another seek arrived while this hardware seek was in flight
+                     * (e.g. user pressed seek repeatedly in rapid succession), execute
+                     * the queued target immediately.
+                     *
+                     * CRITICAL PIPELINE STABILITY RULE:
+                     * We MUST NOT emit 'seeked' or resume playback (_checkNativePlay) here!
+                     * Emitting 'seeked' prematurely signals OSDController and JellyfinPlayer
+                     * to unpause and transition AVPlay to PLAYING state right before we call
+                     * seekTo() for the queued position. In Tizen AVPlay, issuing seekTo()
+                     * during an unpause transition causes the decoder to reject the seek,
+                     * stall in READY, or abort playback entirely.
+                     * ================================================================
+                     */
+                    const queuedMs = this._queuedSeekPositionMs;
+                    if (queuedMs !== null) {
+                        this._queuedSeekPositionMs = null;
+                        if (this._avplay && this._isPrepared) {
+                            const queuedTicks = queuedMs * 10000;
+                            log.debug(`seek(): executing queued seek to ${queuedMs}ms without intermediate seeked/resume`);
+                            this.seek(queuedTicks, { suppressWaitingEvent: true });
+                            return;
+                        }
+                    }
 
                     // ─────────────────────────────────────────────────────────────────
                     // Post-Seek Time Anchor & Demuxer Landed Confirmation:
@@ -2396,17 +2760,6 @@ export class TizenAVPlayer {
                         this._checkNativePlay();
                     }
 
-                    // ── Execute queued seek if another seek arrived in flight ────
-                    const queuedMs = this._queuedSeekPositionMs;
-                    if (queuedMs !== null) {
-                        this._queuedSeekPositionMs = null;
-                        if (this._avplay && this._isPrepared) {
-                            const queuedTicks = queuedMs * 10000;
-                            log.debug('seek(): executing queued seek after previous seek completed');
-                            this.seek(queuedTicks, { suppressWaitingEvent: true });
-                        }
-                    }
-
                     // ── Post-Seek Safety Resume Net ──────────────────────────────
                     // On certain Tizen firmware, seekTo can leave the pipeline stuck
                     // in READY without firing buffering events. This safety timer
@@ -2429,6 +2782,18 @@ export class TizenAVPlayer {
                     this._seekInProgress = false;
                     this._isNativeBuffering = false;
 
+                    // If a subsequent seek was queued, prioritize executing it over error escalation
+                    const queuedMs = this._queuedSeekPositionMs;
+                    if (queuedMs !== null) {
+                        this._queuedSeekPositionMs = null;
+                        if (this._avplay && this._isPrepared) {
+                            const queuedTicks = queuedMs * 10000;
+                            log.debug(`seek(): executing queued seek to ${queuedMs}ms after failed intermediate seek`);
+                            this.seek(queuedTicks, { suppressWaitingEvent: true });
+                            return;
+                        }
+                    }
+
                     // Restore buffering state if it completed during the failed seek
                     if (this._bufferingCompleteDuringSeek) {
                         this._bufferingComplete = true;
@@ -2442,10 +2807,7 @@ export class TizenAVPlayer {
                     const targetSeconds = positionTicks / 10000000;
                     if (isDirectPlay && !isLive && targetSeconds >= 5) {
                         log.warn(`TizenAVPlayer: DirectPlay seek to ${targetSeconds.toFixed(2)}s failed natively — emitting resumeseekfailed for Remux fallback`);
-                        if (this._directSeekVerifyTimeout !== null) {
-                            clearTimeout(this._directSeekVerifyTimeout);
-                            this._directSeekVerifyTimeout = null;
-                        }
+                        this._clearDirectSeekVerification();
                         this.onEvent({
                             type: 'resumeseekfailed',
                             data: { targetPositionTicks: positionTicks }
@@ -2475,17 +2837,6 @@ export class TizenAVPlayer {
                         log.warn('seek(): seekTo failed, trying to resume playback:', e);
                         this._isTizenPlaying = false;
                         this._checkNativePlay();
-                    }
-
-                    // Execute queued seek on error too
-                    const queuedMs = this._queuedSeekPositionMs;
-                    if (queuedMs !== null) {
-                        this._queuedSeekPositionMs = null;
-                        if (this._avplay && this._isPrepared) {
-                            const queuedTicks = queuedMs * 10000;
-                            log.debug('seek(): executing queued seek after failed seek');
-                            this.seek(queuedTicks, { suppressWaitingEvent: true });
-                        }
                     }
 
                     // Arm the safety net as a fallback.
@@ -3097,6 +3448,14 @@ export class TizenAVPlayer {
         } catch (e) {
             return !this._isPlaying;
         }
+    }
+
+    /**
+     * Check if seeking is currently active, queued, or deferred
+     * @returns {boolean} True if seek operation, queued seek, or cooldown deferral is active
+     */
+    get isSeeking() {
+        return Boolean(this._seekInProgress || this._deferredSeekTimerId !== null || this._queuedSeekPositionMs !== null);
     }
 
     // ========================================================================

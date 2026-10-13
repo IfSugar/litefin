@@ -109,7 +109,25 @@ class PlatformInfo {
             else if (/Web[O0]S|NetCast|LG[ -]Browser/i.test(navigator.userAgent)) {
                 this._platform = 'webos';
             }
-            // Default
+            // Android check — Android TV, Google TV, or Android app wrapper
+            // Explicitly distinguished from desktop/web to prevent TV remotes from getting web-only arrows
+            else if (
+                /Android/i.test(navigator.userAgent) ||
+                (typeof window !== 'undefined' &&
+                    (typeof window.LitefinAndroid !== 'undefined' || typeof window.AndroidBridge !== 'undefined'))
+            ) {
+                this._platform = 'android';
+            }
+            // Desktop check — Tauri desktop application shell or Electron wrapper
+            // Specifically covers desktop builds (Windows, macOS, Linux)
+            else if (
+                typeof window !== 'undefined' &&
+                (window.__TAURI__ || window.__TAURI_METADATA__ || window.__TAURI_INTERNALS__ ||
+                 window.process?.versions?.electron || /Electron/i.test(navigator?.userAgent || ''))
+            ) {
+                this._platform = 'desktop';
+            }
+            // Default: Web browser environment
             else {
                 this._platform = 'web';
             }
@@ -183,13 +201,143 @@ class PlatformInfo {
         return this._platform === 'webos';
     }
 
-    /** @returns {boolean} True if running in a standard web browser */
+    /** @returns {boolean} True if running in a standard web browser (excluding Android TV, Smart TVs, and desktop app shells) */
     get isWeb() {
-        return this._platform === 'web';
+        return this._platform === 'web' || (!this.isTizen && !this.isWebOS && !this.isAndroid && !this.isDesktop);
     }
 
-    /** @returns {string} The raw platform string ('tizen', 'webos', 'web') */
+    /**
+     * =========================================================================
+     * Android Environment Detection
+     * =========================================================================
+     * Evaluates whether the application is currently running inside an Android
+     * runtime environment (e.g. Android TV, Google TV, or mobile Android).
+     * =========================================================================
+     * @returns {boolean} True if running on an Android platform.
+     */
+    get isAndroid() {
+        if (this._platform === 'android') return true;
+        if (typeof window !== 'undefined' && typeof window.LitefinAndroid !== 'undefined') return true;
+        if (typeof navigator !== 'undefined' && navigator.userAgent) {
+            return /Android/i.test(navigator.userAgent);
+        }
+        return false;
+    }
+
+    /**
+     * Evaluates whether the application is running specifically on an Android TV
+     * or Google TV runtime (excluding Android phones and touch tablets).
+     * @returns {boolean} True if running on Android TV hardware
+     */
+    get isAndroidTv() {
+        if (!this.isAndroid) return false;
+        try {
+            if (typeof window !== 'undefined') {
+                if (typeof window.LitefinAndroid?.isTv === 'function') {
+                    return !!window.LitefinAndroid.isTv();
+                }
+                if (typeof window.AndroidBridge?.isTv === 'function') {
+                    return !!window.AndroidBridge.isTv();
+                }
+            }
+            if (typeof navigator !== 'undefined' && navigator.userAgent) {
+                const ua = navigator.userAgent;
+                const hasTvToken = /Android.*(TV|Television|GoogleTV|Large Screen|SmartTV|BRAVIA|AFT|Nexus Player|MIBOX|SHIELD)/i.test(ua);
+                const isNonMobileWithoutTouch = !/Mobile/i.test(ua) && (typeof window === 'undefined' || !('ontouchstart' in window) || navigator.maxTouchPoints === 0);
+                return hasTvToken || isNonMobileWithoutTouch;
+            }
+        } catch (_) {}
+        return false;
+    }
+
+    /** @returns {boolean} True if running on any television runtime (Tizen, WebOS, or Android TV) */
+    get isTv() {
+        return this.isTizen || this.isWebOS || this.isAndroidTv;
+    }
+
+    /**
+     * =========================================================================
+     * Android OS Version Getter
+     * =========================================================================
+     * Retrieves the Android OS version (e.g. 9, 11, 14) from the User Agent.
+     * =========================================================================
+     * @returns {string|null} Parsed Android version string or null if not Android.
+     */
+    get androidVersion() {
+        // Only evaluate when running in an Android browser or webview environment
+        if (!this.isAndroid) return null;
+
+        // Extract numerical Android release version following 'Android' token
+        const match = navigator.userAgent.match(/Android\s+([0-9.]+)/i);
+        return match && match[1] ? match[1].trim() : null;
+    }
+
+    /**
+     * =========================================================================
+     * Tauri Shell Runtime Detection
+     * =========================================================================
+     * Detects if Litefin is currently running inside a Tauri v2 native shell.
+     * Evaluates true across all Tauri distribution targets:
+     *  - Desktop targets (Windows, macOS, Linux)
+     *  - Android TV & Amazon Fire TV targets
+     * =========================================================================
+     * @returns {boolean} True if running under the Tauri application shell.
+     */
+    get isTauri() {
+        if (typeof window === 'undefined') return false;
+        return !!(window.__TAURI__ || window.__TAURI_METADATA__ || window.__TAURI_INTERNALS__);
+    }
+
+    /**
+     * =========================================================================
+     * Desktop Environment Detection
+     * =========================================================================
+     * Evaluates whether the application is currently running in a desktop
+     * operating system environment (packaged via Tauri, Electron, or a
+     * desktop browser on Windows, macOS, or Linux). Excludes TV runtimes
+     * (Tizen, webOS, Android TV) and mobile devices.
+     *
+     * Used to default to high-performance, container-capable player backends
+     * (such as MoviPlayer via WebCodecs and WASM) on desktop machines.
+     * =========================================================================
+     * @returns {boolean} True if running on a desktop platform.
+     */
+    get isDesktop() {
+        // Quick exit for dedicated Smart TV platforms and Android runtimes
+        if (this.isTizen || this.isWebOS || this.isAndroid) {
+            return false;
+        }
+
+        // Direct flag check if platform detected as desktop application shell
+        if (this._platform === 'desktop') {
+            return true;
+        }
+
+        // Check for dedicated desktop application shell wrapper (Tauri on desktop)
+        if (typeof window !== 'undefined') {
+            if (window.__TAURI__ || window.__TAURI_METADATA__ || window.__TAURI_INTERNALS__) {
+                return true;
+            }
+            // Check for Electron runtime wrapper
+            if (window.process?.versions?.electron || /Electron/i.test(navigator?.userAgent || '')) {
+                return true;
+            }
+        }
+
+        // Standard web browsers running on PC fall through to false (isWeb = true)
+        return false;
+    }
+
+    /** @returns {string} The raw platform string ('tizen', 'webos', 'android', 'desktop', 'web') */
     get platformString() {
+        return this._platform;
+    }
+
+    /**
+     * Platform identifier accessor.
+     * @returns {'tizen'|'webos'|'android'|'desktop'|'web'} The detected device platform identifier.
+     */
+    get platform() {
         return this._platform;
     }
 
@@ -270,6 +418,43 @@ class PlatformInfo {
 
         this._hasWasmSupport = false;
         return false;
+    }
+
+    /**
+     * =========================================================================
+     * WebCodecs API Capability Detection
+     * =========================================================================
+     * Runtime capability check for the W3C WebCodecs API (VideoDecoder & VideoFrame).
+     * MoviPlayer relies on WebCodecs for hardware-accelerated video frame decoding
+     * and WASM demuxing.
+     *
+     * WebCodecs is available in modern Chromium (Chrome 94+) and modern Safari (15.4+),
+     * but is unsupported on Smart TVs (Samsung Tizen / LG webOS) and older browsers.
+     *
+     * When WebCodecs is missing in web/desktop environments, playback gracefully
+     * falls back to the native HTML5 player (HtmlVideoPlayer).
+     *
+     * @returns {boolean} True if WebCodecs VideoDecoder and VideoFrame are available.
+     */
+    get hasWebCodecsSupport() {
+        // Return cached evaluation if already executed
+        if (this._hasWebCodecsSupport !== undefined) {
+            return this._hasWebCodecsSupport;
+        }
+
+        try {
+            // WebCodecs requires both global VideoDecoder and VideoFrame constructors
+            const hasVideoDecoder = typeof window !== 'undefined' && typeof window.VideoDecoder === 'function';
+            const hasVideoFrame = typeof window !== 'undefined' && typeof window.VideoFrame === 'function';
+
+            // Cache positive result only when both essential constructors exist
+            this._hasWebCodecsSupport = Boolean(hasVideoDecoder && hasVideoFrame);
+        } catch (_) {
+            // Trapped evaluation failure indicates lack of WebCodecs support
+            this._hasWebCodecsSupport = false;
+        }
+
+        return this._hasWebCodecsSupport;
     }
 }
 

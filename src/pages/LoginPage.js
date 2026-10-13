@@ -13,6 +13,7 @@ import {
     api,
     discoverServers,
     cancelDiscovery,
+    testServer,
     ServerUnreachableError,
     hasBackgroundDiscoveryService
 } from '../api/index.js';
@@ -29,6 +30,8 @@ import { layoutManager } from '../ui/LayoutManager.js';
 import { imageService } from '../utils/ImageService.js';
 import { pinManager } from '../utils/PinManager.js';
 import { pinDialog } from '../ui/PinDialog.js';
+import { platformInfo } from '../utils/PlatformInfo.js';
+import { androidAdapter } from '../android/AndroidAdapter.js';
 
 const log = logger.create('Login');
 
@@ -1135,90 +1138,109 @@ class LoginPage extends Page {
             this._selectedUser = user;
 
             /*
-             * Passwordless user detection — version-aware.
+             * Passwordless user detection & authentication:
              *
-             * JF 10.10 / 10.11: Server reliably sets HasPassword=false for users
-             *   with no password, so we can trust the explicit === false check.
+             * 1. Explicit HasPassword === false:
+             *    On pre-JF12 servers (and any server accurately returning HasPassword=false),
+             *    the account definitely has no password. Log in directly without prompting.
              *
-             * JF 12+: HasPassword is hard-coded to `true` in UserDto and never
-             *   reflects the real state, so the === false check is permanently dead.
-             *   Instead we speculatively attempt a silent empty-password login; if
-             *   the server accepts it we navigate home immediately.  If it returns
-             *   a 401 we catch the error silently and fall through to the password
-             *   form — the user never sees the transient loading flash.
+             * 2. Jellyfin 12+ silent empty-password probe:
+             *    Jellyfin 12+ hard-codes HasPassword to `true` on public user listings.
+             *    We speculatively execute a silent empty-password login. If accepted,
+             *    we navigate immediately. If rejected with 401, we fall through to
+             *    the password entry form without flashing an error state.
              */
-            const isPasswordless =
-                // Old-server explicit signal — still trustworthy on pre-12 builds
-                user.HasPassword === false ||
-                // JF12+: try a silent empty-password login to detect passwordless users
-                (api.isJF12Plus() && await (async () => {
-                    try {
-                        this._showState(STATE.LOADING);
-                        cancelDiscovery();
-                        await auth.login(user.Name, '');
-                        // Success — user has no password, navigate away now
-                        if (this._isAddUserMode) {
-                            router.navigate('/profiles', { replace: true });
-                        } else {
-                            router.navigate('/home', { replace: true });
-                        }
-                        return true; // signal passwordless succeeded
-                    } catch (_silentErr) {
-                        // 401 / auth failure — user does have a password, show the form
-                        log.debug(`User "${user.Name}" requires a password (silent probe rejected)`);
-                        return false;
-                    }
-                })());
+            if (user.HasPassword === false) {
+                log.info(`User "${user.Name}" has no password, logging in directly`);
 
-            if (!isPasswordless) {
-                // Password required — show the password entry form
-                log.info(`LoginPage: User "${user.Name}" requires password`);
+                // Update UI state and halt any pending network server discovery
+                this._showState(STATE.LOADING);
+                cancelDiscovery();
 
-                // Update password section with user info
-                const userEl = this.$('#selected-user');
-                const nameEl = userEl?.querySelector('.login-user-name, .user-name');
-                if (nameEl) {
-                    nameEl.textContent = user.Name;
+                // Authenticate with an empty password string
+                await auth.login(user.Name, '');
+
+                // Route appropriately depending on whether we are adding a profile or initial login
+                if (this._isAddUserMode) {
+                    router.navigate('/profiles', { replace: true });
+                } else {
+                    router.navigate('/home', { replace: true });
                 }
-
-                const img = userEl?.querySelector('.login-user-avatar, .user-avatar');
-                const placeholder = userEl?.querySelector('.user-avatar-placeholder');
-
-                if (placeholder) {
-                    placeholder.textContent = user.Name.charAt(0).toUpperCase();
-                }
-
-                if (img) {
-                    if (user.PrimaryImageTag) {
-                        const params = imageService.getParams('avatar');
-                        img.src = api.getUserImageUrl(user.Id, {
-                            maxWidth: params.maxWidth,
-                            quality: params.quality
-                        });
-                        img.classList.remove('hidden');
-                        placeholder?.classList.add('hidden');
-                    } else {
-                        img.src = '';
-                        img.classList.add('hidden');
-                        placeholder?.classList.remove('hidden');
-                    }
-                }
-
-                // Clear password input
-                this._passwordInput.value = '';
-
-                // Show password section
-                this._showState(STATE.PASSWORD);
-                this.setActiveSection('login-password');
-
-                // Focus password input
-                setTimeout(() => {
-                    if (this._passwordInput) {
-                        this._passwordInput.readOnly = true;
-                        this._passwordInput.focus();
-                    }
-                }, 100);
+                return;
             }
+
+            // Probe Jellyfin 12+ servers for passwordless accounts masked as HasPassword: true
+            if (api.isJF12Plus()) {
+                try {
+                    // Show loading indicator during candidate authentication probe
+                    this._showState(STATE.LOADING);
+                    cancelDiscovery();
+
+                    // Execute empty-password login attempt silently.
+                    // Passing silent: true ensures the probe does not log errors or
+                    // trigger session expiry for any currently authenticated profile.
+                    await auth.login(user.Name, '', { silent: true });
+
+                    // Login succeeded — account is passwordless, navigate away
+                    if (this._isAddUserMode) {
+                        router.navigate('/profiles', { replace: true });
+                    } else {
+                        router.navigate('/home', { replace: true });
+                    }
+                    return;
+                } catch (_silentErr) {
+                    // Candidate empty-password probe rejected — account requires a password
+                    log.debug(`User "${user.Name}" requires a password (silent probe rejected)`);
+                }
+            }
+
+            // Password required — show the password entry form
+            log.info(`LoginPage: User "${user.Name}" requires password`);
+
+            // Update password section with user info
+            const userEl = this.$('#selected-user');
+            const nameEl = userEl?.querySelector('.login-user-name, .user-name');
+            if (nameEl) {
+                nameEl.textContent = user.Name;
+            }
+
+            const img = userEl?.querySelector('.login-user-avatar, .user-avatar');
+            const placeholder = userEl?.querySelector('.user-avatar-placeholder');
+
+            if (placeholder) {
+                placeholder.textContent = user.Name.charAt(0).toUpperCase();
+            }
+
+            if (img) {
+                if (user.PrimaryImageTag) {
+                    const params = imageService.getParams('avatar');
+                    img.src = api.getUserImageUrl(user.Id, {
+                        maxWidth: params.maxWidth,
+                        quality: params.quality
+                    });
+                    img.classList.remove('hidden');
+                    placeholder?.classList.add('hidden');
+                } else {
+                    img.src = '';
+                    img.classList.add('hidden');
+                    placeholder?.classList.remove('hidden');
+                }
+            }
+
+            // Clear password input
+            this._passwordInput.value = '';
+
+            // Show password section
+            this._showState(STATE.PASSWORD);
+            this.setActiveSection('login-password');
+
+            // Focus password input
+            setTimeout(() => {
+                if (this._passwordInput) {
+                    this._passwordInput.readOnly = true;
+                    this._passwordInput.focus();
+                }
+            }, 100);
         } catch (error) {
             log.error('_selectUser error:', error);
             this._showState(STATE.USERS);
@@ -1364,15 +1386,13 @@ class LoginPage extends Page {
              */
             if (this._isAddUserMode) {
                 router.navigate('/profiles', { replace: true });
-            } else if (typeof tizen !== 'undefined') {
-                try {
-                    storage.flush();
-                    tizen.application.getCurrentApplication().exit();
-                } catch (e) {
-                    log.error('App exit failed:', e);
-                }
+            } else if (platformInfo.isAndroid) {
+                // Ask the native shell to finish the activity (Back on the
+                // server screen with nothing behind it means "leave the app").
+                androidAdapter.exit();
+                return true;
             } else {
-                log.info('App exit (simulated)');
+                eventBus.emit('app:exitRequested');
             }
             return true;
         } else if (this._state === STATE.USERS) {
@@ -1480,12 +1500,16 @@ class LoginPage extends Page {
             if (savedServers && savedServers.length > 0) {
                 savedServers.forEach((saved) => {
                     const fallbackName = saved.serverUrl.replace(/^https?:\/\//, '').replace(/\/$/, '');
-                    this._discoveredServers.push({
+                    const serverObj = {
                         name: saved.serverName || fallbackName,
                         address: saved.serverUrl,
                         version: null,
-                        isSaved: true
-                    });
+                        isSaved: true,
+                        isLive: false // Will be updated to true if HTTP probe succeeds
+                    };
+                    this._discoveredServers.push(serverObj);
+                    // Asynchronously probe saved server reachability
+                    this._probeServer(serverObj);
                 });
             }
             this._renderDiscoveredServers();
@@ -1506,12 +1530,16 @@ class LoginPage extends Page {
             savedServers.forEach((saved) => {
                 // Use the domain/IP as the name if we don't have a specific friendly name saved
                 const fallbackName = saved.serverUrl.replace(/^https?:\/\//, '').replace(/\/$/, '');
-                this._discoveredServers.push({
+                const serverObj = {
                     name: saved.serverName || fallbackName,
                     address: saved.serverUrl,
                     version: null,
-                    isSaved: true
-                });
+                    isSaved: true,
+                    isLive: false // Will be updated to true if HTTP probe succeeds
+                };
+                this._discoveredServers.push(serverObj);
+                // Asynchronously probe saved server reachability
+                this._probeServer(serverObj);
             });
         }
         this._renderDiscoveredServers();
@@ -1531,17 +1559,26 @@ class LoginPage extends Page {
                     );
 
                     if (!existing) {
-                        // Server found! Add and render immediately
+                        // Server found via UDP! Add and render immediately
                         log.info(`LoginPage: Found server ${server.name} (${server.address})`);
-                        this._discoveredServers.push(server);
+                        const serverObj = {
+                            ...server,
+                            isLive: false // Will be confirmed by HTTP probe
+                        };
+                        this._discoveredServers.push(serverObj);
                         this._renderDiscoveredServers();
+                        // Probe immediately to confirm live status and retrieve version
+                        this._probeServer(serverObj);
                     } else {
                         // Update existing with better discovery info
                         if (existing.isSaved) {
                             existing.name = server.name || existing.name;
-                            existing.version = server.version || existing.version;
+                            if (server.version) existing.version = server.version;
+                            if (server.id) existing.id = server.id;
                             this._renderDiscoveredServers();
                         }
+                        // Re-probe existing server to ensure live status and version are current
+                        this._probeServer(existing);
                     }
                 },
                 { isManual, allowHttpFallback: isManual }
@@ -1554,7 +1591,14 @@ class LoginPage extends Page {
                         (s) => s.address.replace(/\/$/, '') === server.address.replace(/\/$/, '')
                     );
                     if (!exists) {
-                        this._discoveredServers.push(server);
+                        const serverObj = {
+                            ...server,
+                            isLive: false
+                        };
+                        this._discoveredServers.push(serverObj);
+                        this._probeServer(serverObj);
+                    } else if (!exists.isLive && !exists._probing) {
+                        this._probeServer(exists);
                     }
                 });
             }
@@ -1618,6 +1662,79 @@ class LoginPage extends Page {
         }
     }
 
+    /**
+     * =========================================================================
+     * Server Health & Version Verification Probe
+     * =========================================================================
+     * Pings the server's public system endpoint (/System/Info/Public) using
+     * lightweight asynchronous HTTP XHR.
+     *
+     * Purpose:
+     *  1. Live Status: Confirms whether the server is actively responsive on
+     *     HTTP. Only responsive servers receive the Apple-style live green dot.
+     *  2. Version Retrieval: Discovered UDP responses don't include the Jellyfin
+     *     release version. Probing fetches info.Version and displays the version tag.
+     *  3. Name Normalization: Replaces bare IP/URL strings with the friendly
+     *     server name if one was configured on the server.
+     *
+     * @private
+     * @param {Object} server - Server descriptor entry from this._discoveredServers
+     */
+    async _probeServer(server) {
+        // Guard against invalid server descriptors or missing address
+        if (!server || !server.address) {
+            return;
+        }
+
+        // Prevent redundant simultaneous HTTP probes targeting the exact same server
+        if (server._probing) {
+            return;
+        }
+        server._probing = true;
+
+        try {
+            log.info(`LoginPage: Probing server reachability for "${server.name}" (${server.address})...`);
+
+            // Probe with a 1500ms timeout to avoid hanging on dead servers
+            const info = await testServer(server.address, 1500);
+
+            if (info) {
+                log.info(`LoginPage: Server "${server.name}" confirmed LIVE (v${info.version || 'unknown'})`);
+
+                // Mark verified live status
+                server.isLive = true;
+
+                // Update server version tag if returned by the endpoint
+                if (info.version) {
+                    server.version = info.version;
+                }
+
+                // If existing server name is empty or a bare URL/IP, adopt friendly name
+                if (info.name && (!server.name || server.name === server.address || server.name.includes('://'))) {
+                    server.name = info.name;
+                }
+
+                // Attach canonical server ID if missing
+                if (info.id && !server.id) {
+                    server.id = info.id;
+                }
+            } else {
+                // Non-responsive or unreachable server
+                log.info(`LoginPage: Server "${server.name}" is offline or unreachable`);
+                server.isLive = false;
+            }
+        } catch (err) {
+            // Log transport errors and treat server as non-responsive
+            log.warn(`LoginPage: Probe failed for "${server.name}" (${server.address}):`, err);
+            server.isLive = false;
+        } finally {
+            server._probing = false;
+
+            // Re-render the server list so the live status dot and version badge update
+            this._renderDiscoveredServers();
+        }
+    }
+
     _renderDiscoveredServers() {
         // Layout-aware checks: in modern layout, we only need _serverList. In classic layout, we need both.
         const isModern = layoutManager.isModern();
@@ -1675,7 +1792,7 @@ class LoginPage extends Page {
                         // If the server was already saved, render it with special badges and indicators
                         if (server.isSaved) {
                             return `
-                                <li class="server-item saved" data-server-index="${index}" tabindex="0">
+                                <li class="server-item saved ${server.isLive ? 'is-live' : ''}" data-server-index="${index}" tabindex="0">
                                     <div class="server-icon-box">
                                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                             <rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect>
@@ -1683,8 +1800,8 @@ class LoginPage extends Page {
                                             <line x1="6" y1="6" x2="6.01" y2="6"></line>
                                             <line x1="6" y1="18" x2="6.01" y2="18"></line>
                                         </svg>
-                                        <!-- Active status dot indicating a fully saved/trusted server session -->
-                                        <div class="status-dot"></div>
+                                        <!-- Active status dot indicating a verified live server session -->
+                                        ${server.isLive ? '<div class="status-dot"></div>' : ''}
                                     </div>
                                     <div class="server-info">
                                         <div class="name-row">
@@ -1699,7 +1816,7 @@ class LoginPage extends Page {
                         } else {
                             // Standard discovered server card without extra saved badge
                             return `
-                                <li class="server-item" data-server-index="${index}" tabindex="0">
+                                <li class="server-item ${server.isLive ? 'is-live' : ''}" data-server-index="${index}" tabindex="0">
                                     <div class="server-icon-box">
                                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                             <rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect>
@@ -1707,6 +1824,8 @@ class LoginPage extends Page {
                                             <line x1="6" y1="6" x2="6.01" y2="6"></line>
                                             <line x1="6" y1="18" x2="6.01" y2="18"></line>
                                         </svg>
+                                        <!-- Active status dot indicating a verified live server session -->
+                                        ${server.isLive ? '<div class="status-dot"></div>' : ''}
                                     </div>
                                     <div class="server-info">
                                         <div class="name-row">
@@ -1729,7 +1848,8 @@ class LoginPage extends Page {
                 .map((server) => {
                     const index = this._discoveredServers.indexOf(server);
                     return `
-                    <li class="server-item" data-server-index="${index}" tabindex="0">
+                    <li class="server-item ${server.isLive ? 'is-live' : ''}" data-server-index="${index}" tabindex="0">
+                        ${server.isLive ? '<span class="status-dot"></span>' : ''}
                         <span class="server-name">${escapeHtml(server.name)}</span>
                         <span class="server-badge" data-i18n="SavedBadge">Saved</span>
                         <span class="server-address">${escapeHtml(server.address)}</span>
@@ -1752,7 +1872,8 @@ class LoginPage extends Page {
                     .map((server) => {
                         const index = this._discoveredServers.indexOf(server);
                         return `
-                        <li class="server-item" data-server-index="${index}" tabindex="0">
+                        <li class="server-item ${server.isLive ? 'is-live' : ''}" data-server-index="${index}" tabindex="0">
+                            ${server.isLive ? '<span class="status-dot"></span>' : ''}
                             <span class="server-name">${escapeHtml(server.name)}</span>
                             <span class="server-address">${escapeHtml(server.address)}</span>
                             ${server.version ? `<span class="server-version">v${escapeHtml(server.version)}</span>` : ''}

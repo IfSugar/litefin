@@ -117,6 +117,26 @@ export default class SubtitleQuickSettings extends BaseMenu {
                 min: 0, max: 100, step: 1, unit: '%',
                 visible: !isASS && verticalPos === 'custom'
             },
+            /*
+             * -----------------------------------------------------------------
+             * Shift Text Subtitles Above Controls
+             * -----------------------------------------------------------------
+             * Allows remote users to toggle dynamic vertical shift for text
+             * subtitles directly within the quick settings menu.
+             * -----------------------------------------------------------------
+             */
+            {
+                id: 'subtitleOsdDodging',
+                type: 'select',
+                label: i18n.t('LabelSubtitleOsdDodging') || 'Shift Text Subtitles',
+                labelKey: 'LabelSubtitleOsdDodging',
+                key: 'subtitleOsdDodging',
+                visible: !isASS,
+                options: [
+                    { value: true, label: i18n.t('On') },
+                    { value: false, label: i18n.t('Off') }
+                ]
+            },
 
             // Appearance
             {
@@ -171,7 +191,8 @@ export default class SubtitleQuickSettings extends BaseMenu {
                     { value: 'proxima', label: i18n.t('FontProxima') || 'Proxima Nova' },
                     { value: 'baloo', label: i18n.t('FontBaloo') || 'Baloo Bhaijaan 2' },
                     { value: 'opendyslexic', label: i18n.t('FontOpenDyslexic') || 'OpenDyslexic' },
-                    { value: 'atkinson', label: i18n.t('FontAtkinson') || 'Atkinson Hyperlegible' }
+                    { value: 'atkinson', label: i18n.t('FontAtkinson') || 'Atkinson Hyperlegible' },
+                    { value: 'manrope', label: i18n.t('FontManrope') || 'Manrope' }
                 ]
             },
             {
@@ -452,7 +473,8 @@ export default class SubtitleQuickSettings extends BaseMenu {
                     { value: 'proxima', label: i18n.t('FontProxima') || 'Proxima Nova' },
                     { value: 'baloo', label: i18n.t('FontBaloo') || 'Baloo Bhaijaan 2' },
                     { value: 'opendyslexic', label: i18n.t('FontOpenDyslexic') || 'OpenDyslexic' },
-                    { value: 'atkinson', label: i18n.t('FontAtkinson') || 'Atkinson Hyperlegible' }
+                    { value: 'atkinson', label: i18n.t('FontAtkinson') || 'Atkinson Hyperlegible' },
+                    { value: 'manrope', label: i18n.t('FontManrope') || 'Manrope' }
                 ]
             },
             {

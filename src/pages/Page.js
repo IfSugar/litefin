@@ -71,6 +71,9 @@ class Page extends Component {
     init(params = {}) {
         this.params = params;
 
+        // Record mount/init timestamp to detect user manual navigation during async loading
+        this._initTimestamp = Date.now();
+
         // Get main container
         this.container = document.getElementById('page-container') || document.getElementById('app');
 

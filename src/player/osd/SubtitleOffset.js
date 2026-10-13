@@ -252,14 +252,23 @@ export default class SubtitleOffset extends BaseMenu {
         if (this.ignoreInputUntil && Date.now() < this.ignoreInputUntil) return true;
 
         const currentEl = this.osd._cachedOverlayRow[this.osd._currentFocusIndex];
-        const isSlider = currentEl?.id === 'osdOffsetSlider';
+        const isSlider = currentEl?.id === 'osdOffsetSlider' || currentEl?.classList.contains('osd-offset-slider');
         const isClose = currentEl?.classList.contains('osd-offset-close');
 
         switch (key) {
             case 'left':
             case 'right': {
                 if (isSlider) {
-                    // Rely on native input behavior to avoid double steps
+                    /*
+                     * Subtitle Offset D-pad adjustment:
+                     * TV remote controllers and keyboard navigation dispatch custom events
+                     * and suppress default browser input behavior. Adjust the offset
+                     * directly by ±0.1s increments and synchronize UI and player pipelines.
+                     */
+                    const isRTL = document.documentElement.dir === 'rtl';
+                    const step = 0.1;
+                    const delta = (key === 'right' ? step : -step) * (isRTL ? -1 : 1);
+                    this.adjust(delta);
                     return true;
                 }
 

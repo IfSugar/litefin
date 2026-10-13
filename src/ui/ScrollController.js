@@ -22,6 +22,7 @@
 
 import { storage } from '../utils/StorageService.js';
 import { eventBus } from '../core/EventBus.js';
+import { platformInfo } from '../utils/PlatformInfo.js';
 
 // ============================================================================
 // Constants — all tunable values in one place for easy TV hardware tweaking
@@ -356,14 +357,14 @@ class ScrollController {
         // ----------------------------------------------------------------
         // Standard row-to-row transitions (~250px) utilize the base 200ms duration.
         // For large vertical transitions (e.g. hero carousel ↔ first content row
-        // at 500-750px), scale duration proportionally (up to 280ms). This
-        // keeps velocity under ~2500px/s, allowing the camera to glide with
-        // organic, spring-like weight without violent frame jumps.
+        // at 450-700px), scale duration gently (up to 260ms max). This keeps motion
+        // brisk and responsive for TV D-pad navigation while giving the compositor
+        // adequate budget to glide with natural weight without dropping frames.
         // ----------------------------------------------------------------
         if (isVertical && durationToUse > 0) {
             const distance = Math.abs(targetScroll - currentScroll);
             if (distance > 400) {
-                durationToUse = Math.min(280, Math.round(durationToUse * (1 + (distance - 400) / 750)));
+                durationToUse = Math.min(260, Math.round(durationToUse * (1 + (distance - 400) / 800)));
             }
         }
 
@@ -403,9 +404,10 @@ class ScrollController {
                     }
                 } else if (scrollMode === 'gpu' && track) {
                     // Update transform coordinates on GPU compositor track.
-                    track.style.transform = `translate3d(0px, -0px, 0px)`;
-                    track.style.webkitTransform = `translate3d(0px, -0px, 0px)`;
-                    container.scrollTop = targetScroll;
+                    // Snap compositor track directly to target scroll offset without visual jumps.
+                    track.style.transform = `translate3d(0px, -${targetScroll}px, 0px)`;
+                    track.style.webkitTransform = `translate3d(0px, -${targetScroll}px, 0px)`;
+                    container.scrollTop = 0;
                 } else {
                     container.scrollTop = targetScroll;
                 }
@@ -489,7 +491,7 @@ class ScrollController {
             startScroll: currentScroll,
             target: targetScroll,
             startTime: null, // Initialized in first RAF frame
-            duration
+            duration: durationToUse
         };
 
         // easeOutQuad: fast start, smooth deceleration (t * (2 - t))
@@ -518,9 +520,9 @@ class ScrollController {
             const elapsed = time - state.startTime;
             const progress = Math.min(elapsed / state.duration, 1);
 
-            // SMOOTH ARRIVAL: Blend easeOutQuad into a rescaled easeOutQuad
-            // for the final portion so velocity reaches 0 at the end instead
-            // of making a sub-pixel jump from the asymmetric deceleration curve.
+            // Unified deceleration curve: initiates instantly on frame 1 for snappy
+            // D-pad tactile response, cruises with continuous momentum, and smoothly
+            // settles to velocity = 0 at the arrival point.
             const eased =
                 progress < EASE_BLEND
                     ? easeOutQuad(progress)
@@ -628,7 +630,49 @@ class ScrollController {
     getScrollContainer(element) {
         if (!element) return null;
 
+        // ---------------------------------------------------------------------
+        // 1. ISOLATE SUB-LIBRARIES MENU FROM SIDEBAR CONTAINER
+        // ---------------------------------------------------------------------
+        // In modern collapsed layouts, #sidebar-sub-libraries renders as a separate
+        // floating popover menu beside the sidebar rail. In normal expanded layout,
+        // it expands as an accordion. In both modes, navigating within this menu
+        // must NEVER scroll .sidebar-content or push the sidebar items upward.
+        // If the popover itself has reached its max-height and overflows, we scroll
+        // the popover itself directly, keeping the sidebar completely stationary.
+        // ---------------------------------------------------------------------
+        const subLibs = element.closest('#sidebar-sub-libraries');
+        if (subLibs) {
+            // Check if #sidebar-sub-libraries is actively overflowing with auto/scroll styles
+            const hasPopoverScroll = subLibs.scrollHeight > subLibs.clientHeight &&
+                window.getComputedStyle(subLibs).overflowY !== 'visible';
+            return hasPopoverScroll ? subLibs : null;
+        }
+
+        // ---------------------------------------------------------------------
+        // 2. COLLAPSED SIDEBAR RAIL WITH LIBRARY ICONS
+        // ---------------------------------------------------------------------
+        // When the user has enabled 'pref:showCollapsedLibraryIcons', all individual
+        // libraries are promoted to direct rail shortcuts. Because the collapsed rail
+        // may exceed screen height, we enable vertical smooth scrolling on the rail.
+        // In normal mode (without this pref), the sidebar rail items fit on screen
+        // and .sidebar-content must never scroll.
+        // ---------------------------------------------------------------------
+        const sidebar = element.closest('.sidebar');
+        const showCollapsedLibIcons = storage.getItem('pref:showCollapsedLibraryIcons') === 'true' ||
+            (sidebar && sidebar.classList.contains('show-lib-icons-collapsed'));
+
+        if (showCollapsedLibIcons) {
+            const sidebarContent = element.closest('.sidebar-content');
+            if (sidebarContent) {
+                return sidebarContent;
+            }
+        }
+
+        // ---------------------------------------------------------------------
+        // 3. GENERIC SCROLLABLE CONTAINERS
+        // ---------------------------------------------------------------------
         // Check for specific scrollable containers used in modals/filters/login grid
+        // ---------------------------------------------------------------------
         const container = element.closest(
             '.users-grid, .modal-options, .modal-body, .filter-main, .page-content, .settings-sidebar, .sidebar-libraries-wrapper, .media-info-scrollable, .identify-results-list'
         );
@@ -847,6 +891,52 @@ class ScrollController {
             }
         }
 
+        // ====================================================================
+        // DETAILS PAGE RICH METADATA TABLE SCROLL GROUNDING
+        // ====================================================================
+        // The rich metadata table sits directly beneath the hero split (.details-main-split).
+        // On TV displays, both the hero action buttons and the rich metadata table are
+        // designed to be viewed together in the upper section of the page.
+        //
+        // Previously, generic vertical scrolling treated the metadata table as an
+        // arbitrary tall container and attempted to bottom-align it, triggering a 150-300px
+        // smooth scroll down when entering metadata and a smooth scroll up when returning
+        // to action buttons. On low-end ARM TV hardware, this violent bouncing between
+        // adjacent elements forced heavy GPU raster invalidations on every keypress.
+        //
+        // By aligning the rich metadata table with the hero viewport (targetScroll = 0),
+        // navigation between hero actions and rich metadata remains stationary, fluid,
+        // and 100% instant with zero scroll hitching.
+        // ====================================================================
+        const isRichMeta =
+            element.id === 'rich-meta' ||
+            element.id === 'rich-meta-container' ||
+            element.classList.contains('details-rich-meta') ||
+            Boolean(element.closest('#rich-meta, .details-rich-meta, #rich-meta-container'));
+
+        if (isRichMeta && pageContent && pageContent.querySelector('.details-main-split')) {
+            const currentScroll = this.getVerticalScroll(pageContent);
+            const viewHeight = pageContent.clientHeight;
+            const scrollDelta = Math.abs(currentScroll);
+
+            // If already browsing near the top of the details page, stay grounded at 0
+            if (currentScroll < 350) {
+                if (currentScroll > 0) {
+                    this.smoothScrollTo(pageContent, 0, options.instantScroll ? 0 : SCROLL_DURATION_VERTICAL);
+                }
+            } else {
+                // If entering rich metadata from deep rows below (e.g. episodes or seasons),
+                // smoothly glide back to the top to reveal the hero and metadata table together
+                const snapEnabled = storage.getItem('pref:snapLargeScrolls') === 'true';
+                const forceInstant = snapEnabled && scrollDelta > viewHeight * LARGE_SCROLL_SNAP_FRACTION;
+                this.smoothScrollTo(pageContent, 0, options.instantScroll || forceInstant ? 0 : SCROLL_DURATION_VERTICAL);
+            }
+
+            // Grounding complete — bypass row-based and generic scroll-into-view
+            useRowScroll = false;
+            activePageContent = null;
+        }
+
         // ----------------------------------------------------------------
         // Row-based vertical scrolling — ALWAYS ALIGN TO TOP
         // On every focus change, we target the ideal top-aligned position
@@ -1027,8 +1117,29 @@ class ScrollController {
                     if (trackWidth > containerWidth) {
                         const finalScrollLeft = Math.max(0, Math.min(targetScroll, maxScroll));
 
-                        // Use completely hardware-accelerated CSS transform!
-                        if (options.instantScroll) {
+                        // =====================================================
+                        // ANDROID (Touch): Native horizontal scroller
+                        // =====================================================
+                        // On Android the media row is a real overflow-x scroller
+                        // managed by TouchHorizontalScroller. The WebView compositor
+                        // directly owns touch drag and fling inertia. Centering
+                        // writes to scrollLeft instead of CSS track transform so
+                        // D-pad spatial navigation and touch gestures share the
+                        // same coordinate system without fighting each other.
+                        if (platformInfo.isAndroid) {
+                            const signedLeft = isRtl ? -finalScrollLeft : finalScrollLeft;
+                            if (options.instantScroll) {
+                                rowItems.scrollLeft = signedLeft;
+                            } else {
+                                this.smoothScrollTo(
+                                    rowItems,
+                                    signedLeft,
+                                    SCROLL_DURATION_HORIZONTAL,
+                                    'horizontal'
+                                );
+                            }
+                        } else if (options.instantScroll) {
+                            // Use completely hardware-accelerated CSS transform!
                             // OPTIMIZATION: Parse the current transform to check if we're already
                             // at the target position. This skips the forced-layout reflow path
                             // entirely when navigating vertically (the card is already centered).
@@ -1087,6 +1198,10 @@ class ScrollController {
                                 }
                             }
                         }
+                    } else if (platformInfo.isAndroid) {
+                        // Short rows on Android: reset the native scroller instead
+                        // of the unused track transform.
+                        rowItems.scrollLeft = 0;
                     } else {
                         // For short rows, ensure the track is reset to 0 to prevent stale
                         // offsets if items were removed or the window was resized.
@@ -1158,15 +1273,20 @@ class ScrollController {
                     }
                 }
 
-                // Comfort margins for top and bottom visibility
-                const topMargin = GENERIC_SCROLL_MARGIN;
-                let bottomMargin = GENERIC_SCROLL_MARGIN;
+                // Comfort margins for top and bottom visibility.
+                // For the sidebar rail, 24px top and 32px bottom margin provides optimal viewing room
+                // and prevents items from colliding with rounded capsule curves on TV displays.
+                // For the floating sub-libraries popover, 12px padding keeps items comfortably within the popup.
+                const isSidebar = activePageContent.classList.contains('sidebar-content');
+                const isSubLibs = activePageContent.id === 'sidebar-sub-libraries';
+                const topMargin = isSidebar ? 24 : (isSubLibs ? 12 : GENERIC_SCROLL_MARGIN);
+                let bottomMargin = isSidebar ? 32 : (isSubLibs ? 12 : GENERIC_SCROLL_MARGIN);
 
                 let finalScrollTop = activeTarget;
 
                 // Apply custom scroll offset from section config
                 const customOffset = config?.scrollOffsetTop || 0;
-                let effectiveTopMargin = Math.max(topMargin, customOffset);
+                let effectiveTopMargin = (isSidebar || isSubLibs) ? topMargin : Math.max(topMargin, customOffset);
 
                 // PREVENT JITTER: If the element and its margins don't completely fit in the viewport
                 // together, the top and bottom edge guards will fight each other on every horizontal move.

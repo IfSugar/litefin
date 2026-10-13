@@ -97,6 +97,16 @@ export class HtmlVideoPlayer {
         // Prevents brief audio bursts from timestamp 0:00 when resuming playback.
         // ====================================================================
         this._resumeAudioSuppressed = false;
+
+        // ====================================================================
+        // Video Suppression State (Resume Playback):
+        // Prevents stale or pre-resume video frames (such as timestamp 0:00)
+        // from flashing on screen before the resume seek to target completes.
+        // ====================================================================
+        this._resumeVideoSuppressed = false;
+
+        // Startup verification watchdog timer for HLS playback initiation
+        this._hlsStartTimeout = null;
     }
 
     // ========================================================================
@@ -223,9 +233,20 @@ export class HtmlVideoPlayer {
         // ====================================================================
         const isLive = options.item?.Type === 'TvChannel' || options.mediaSource?.LiveStreamId;
         const resumeSeconds = isLive ? 0 : (options.playerStartPositionTicks || 0) / 10000000;
-        if (resumeSeconds > 0 && !video.muted) {
-            video.muted = true;
-            this._resumeAudioSuppressed = true;
+        // ====================================================================
+        // Audio & Video Suppression for Seamless Resume:
+        // When resuming playback from a non-zero position, HTML5 video decoders
+        // (and HLS.js pipeline initializations) decode the initial keyframe at
+        // timestamp 0:00 for a few frames before the seek to resumeSeconds takes effect.
+        // Mute audio and suppress visual presentation until the target GOP keyframe
+        // is reached, preventing the random 0:00 frame and audio burst from leaking.
+        // ====================================================================
+        if (resumeSeconds > 0) {
+            if (!video.muted) {
+                video.muted = true;
+                this._resumeAudioSuppressed = true;
+            }
+            this._suppressVideoForResume(video);
         }
 
         // Destroy any existing HLS player
@@ -368,20 +389,41 @@ export class HtmlVideoPlayer {
         return new Promise((resolve, reject) => {
             log.info('Using HLS.js for playback');
 
+            // -------------------------------------------------------------------------
+            // HLS.js Buffer Configuration & Stall Prevention
+            // -------------------------------------------------------------------------
+            // Browsers impose strict MediaSource Engine (MSE) memory quotas. Retaining 60-120s
+            // of forward buffer at high bitrates (e.g. 4K / high-bitrate 1080p) triggers quota
+            // exceeded exceptions, GC pauses, and aggressive buffer evictions.
+            // We align with the official jellyfin-web baseline (30s buffer / 60s max).
+            // -------------------------------------------------------------------------
+            const configuredMaxBuffer = PlayerSettings.get('html5MaxBufferLength');
+            const maxBufferLength = configuredMaxBuffer !== undefined && configuredMaxBuffer !== null
+                ? Number(configuredMaxBuffer)
+                : 30;
+            const configuredMaxMaxBuffer = PlayerSettings.get('html5MaxMaxBufferLength');
+            const maxMaxBufferLength = configuredMaxMaxBuffer !== undefined && configuredMaxMaxBuffer !== null
+                ? Number(configuredMaxMaxBuffer)
+                : 60;
+
             const hls = new Hls({
                 startPosition: (options.playerStartPositionTicks || 0) / 10000000,
-                maxBufferLength: PlayerSettings.get('html5MaxBufferLength') || 60,
-                maxMaxBufferLength: PlayerSettings.get('html5MaxMaxBufferLength') || 120,
+                maxBufferLength: maxBufferLength,
+                maxMaxBufferLength: maxMaxBufferLength,
                 manifestLoadingTimeOut: 20000,
                 levelLoadingTimeOut: 20000,
                 fragLoadingTimeOut: 20000,
                 maxBufferSize: 60 * 1000 * 1000,
-                enableWorker: true
+                enableWorker: true,
+                // Tolerates up to 500ms of MSE GOP boundary timestamp discrepancy
+                // between audio and video tracks without triggering bufferSeekOverHole.
+                maxBufferHole: 0.5
             });
 
             let bufferReady = false;
             let initialBufferTimer = null;
             let resolved = false;
+            let appendedSegmentsCount = 0;
 
             const resolveOnce = (value) => {
                 if (resolved) return;
@@ -400,6 +442,8 @@ export class HtmlVideoPlayer {
             };
 
             const startPlayback = () => {
+                // Restore visual presentation once Hls.js is ready to render playback
+                this._restoreVideoAfterResume(video);
                 const playPromise = video.play();
                 if (playPromise !== undefined && typeof playPromise.then === 'function') {
                     playPromise.then(() => resolveOnce()).catch((err) => {
@@ -425,14 +469,51 @@ export class HtmlVideoPlayer {
                 }
             };
 
-            // Buffer-readiness gate: defer play() until the first segment is buffered.
-            // This prevents a black stall on HLS streams where the manifest is parsed
-            // before any media data is available for playback.
+            // Calculate target resume position in seconds
+            const resumeSeconds = (options.playerStartPositionTicks || 0) / 10000000;
+
+            // -----------------------------------------------------------------
+            // Buffer-Readiness Gate with Resume Stabilization:
+            // Defer play() until initial media data is buffered.
+            // On resume (resumeSeconds > 0), the playhead may land near the end
+            // of a segment (e.g. 200ms before segment boundary). If play() starts
+            // immediately with < 1.0s of buffer, the decoder starves before the
+            // next segment loads, causing an instant bufferSeekOverHole jump.
+            // We inspect the native video.buffered TimeRanges directly to ensure
+            // at least 1.0s of forward cushion exists (or wait for segment #2).
+            // -----------------------------------------------------------------
             const onBufferAppended = () => {
                 if (bufferReady) return;
+                appendedSegmentsCount++;
+
+                // If resuming, calculate forward buffer cushion from the native video element
+                if (resumeSeconds > 0 && video) {
+                    let forwardBuffer = 0;
+                    const checkPos = (video.currentTime > 0) ? video.currentTime : resumeSeconds;
+                    const ranges = video.buffered;
+
+                    // Locate the buffered range covering our current resume target position
+                    if (ranges && ranges.length > 0) {
+                        for (let i = 0; i < ranges.length; i++) {
+                            // Allow a small 0.5s tolerance for GOP boundary rounding
+                            if (checkPos >= ranges.start(i) - 0.5 && checkPos <= ranges.end(i)) {
+                                forwardBuffer = ranges.end(i) - checkPos;
+                                break;
+                            }
+                        }
+                    }
+
+                    // If forward cushion is thin (< 1.0s) and we haven't buffered segment #2 yet, wait
+                    if (forwardBuffer < 1.0 && appendedSegmentsCount < 2) {
+                        log.info(`HLS.js: segment #${appendedSegmentsCount} appended, forward buffer ${forwardBuffer.toFixed(2)}s < 1.0s — waiting for next segment to stabilize resume`);
+                        return;
+                    }
+                }
+
+                // Buffer is now healthy and stabilized for smooth playback engagement
                 bufferReady = true;
                 clearTimeout(initialBufferTimer);
-                log.info('HLS.js: initial segment buffered, starting playback');
+                log.info(`HLS.js: initial buffer ready (${appendedSegmentsCount} segment(s)), starting playback`);
                 startPlayback();
             };
 
@@ -549,11 +630,30 @@ export class HtmlVideoPlayer {
             this._hlsPlayer = hls;
             this._hlsManifestDuration = null;
 
-            setTimeout(() => {
+            // -----------------------------------------------------------------
+            // Startup Stall & Resume Playback Failure Watchdog:
+            // When resuming an HLS stream (particularly DirectStream/Remux streams
+            // where video was copied mid-GOP), HLS.js or MSE may encounter decoder
+            // freezes, aborted fragment loads, or missing IDR keyframes.
+            // If playback does not transition to 'playing' within 8 seconds:
+            //   - For resume sessions: emit 'resumeseekfailed' so JellyfinPlayer can
+            //     escalate to Remux or full Transcoding.
+            //   - For 0:00 start: log warning for diagnostics.
+            // -----------------------------------------------------------------
+            this._clearHlsStartTimeout();
+            this._hlsStartTimeout = setTimeout(() => {
                 if (!this._started && !this._videoElement?.paused) {
-                    log.warn('No playback start detected after 10s');
+                    if (resumeSeconds > 0) {
+                        log.warn(`HtmlVideoPlayer: HLS playback failed to start after 8s on resume (target: ${resumeSeconds.toFixed(2)}s) — emitting resumeseekfailed for transcode fallback`);
+                        this.onEvent({
+                            type: 'resumeseekfailed',
+                            data: { targetPositionTicks: options.playerStartPositionTicks || 0 }
+                        });
+                    } else {
+                        log.warn('HtmlVideoPlayer: No playback start detected after 8s');
+                    }
                 }
-            }, 10000);
+            }, 8000);
         });
     }
 
@@ -663,9 +763,11 @@ export class HtmlVideoPlayer {
                 // Check if the media fragment naturally landed us at the target (within 15s GOP keyframe tolerance)
                 const currentPos = video.currentTime || 0;
                 const fragmentDrift = Math.abs(currentPos - resumeSeconds);
-                if (resumeSeconds > 0 && (fragmentDrift < 15 || currentPos >= (resumeSeconds - 15))) {
+                if (resumeSeconds > 0 && currentPos > 0.5 && (fragmentDrift < 15 || currentPos >= (resumeSeconds - 15))) {
                     log.info('HtmlVideoPlayer: Media fragment seek (#t=) successfully applied natively');
                     seekCompleted = true;
+                    // Media fragment landed natively at resume point; reveal video surface
+                    this._restoreVideoAfterResume(video);
                 }
 
                 // =========================================================================
@@ -705,6 +807,9 @@ export class HtmlVideoPlayer {
 
                         const drift = Math.abs(video.currentTime - resumeSeconds);
                         log.debug(`HtmlVideoPlayer: Seek completed (current: ${video.currentTime.toFixed(2)} s, target: ${resumeSeconds} s, drift: ${drift.toFixed(2)} s)`);
+                        // The native seek completed and the actual target resume frame is decoded;
+                        // safely restore video element visibility before kicking playback.
+                        this._restoreVideoAfterResume(video);
                         startPlayback();
                     };
 
@@ -720,11 +825,14 @@ export class HtmlVideoPlayer {
                         if (!seekCompleted) {
                             log.warn('HtmlVideoPlayer: Seek timed out after 10s — starting playback from current position');
                             seekCompleted = true;
+                            // Ensure video visibility is restored even if seek timed out
+                            this._restoreVideoAfterResume(video);
                             startPlayback();
                         }
                     }, 10000);
                 } else {
                     // No resume needed, or media fragment already put us at target
+                    this._restoreVideoAfterResume(video);
                     startPlayback();
                 }
             };
@@ -732,6 +840,7 @@ export class HtmlVideoPlayer {
             const onError = () => {
                 const err = video.error;
                 log.error('Native video error:', err);
+                this._restoreVideoAfterResume(video);
                 video.removeEventListener('canplay', onCanPlay);
                 video.removeEventListener('loadedmetadata', onLoadedMetadata);
                 reject(err);
@@ -744,9 +853,18 @@ export class HtmlVideoPlayer {
     }
 
     /**
+     * Check if player is actively seeking
+     * @returns {boolean} True if HTML5 video is seeking
+     */
+    get isSeeking() {
+        return Boolean(this._videoElement?.seeking);
+    }
+
+    /**
      * Pause playback
      */
     pause() {
+        this._pendingPlayAfterSeek = false;
         this._videoElement?.pause();
     }
 
@@ -755,6 +873,24 @@ export class HtmlVideoPlayer {
      */
     unpause() {
         if (!this._videoElement) return;
+
+        /*
+         * ====================================================================
+         * ACTIVE SEEK PLAYBACK GUARD
+         * ====================================================================
+         * If the HTML5 media element is currently seeking (video.seeking === true),
+         * calling video.play() immediately unpauses playback of the stale pre-seek
+         * buffer while the demuxer is still fetching the target keyframe.
+         * Queue the play command to execute in _onSeeked once repositioning completes.
+         * ====================================================================
+         */
+        if (this._videoElement.seeking) {
+            log.debug('HtmlVideoPlayer: seek in progress — queueing play on seeked');
+            this._pendingPlayAfterSeek = true;
+            return;
+        }
+
+        this._pendingPlayAfterSeek = false;
         
         this._videoElement.play().catch((err) => {
             if (err.name === 'NotAllowedError') {
@@ -771,6 +907,7 @@ export class HtmlVideoPlayer {
      * Stop playback
      */
     async stop() {
+        this._clearHlsStartTimeout();
         this._destroyHlsPlayer();
 
         const video = this._videoElement;
@@ -784,6 +921,12 @@ export class HtmlVideoPlayer {
             video.muted = false;
         }
         this._resumeAudioSuppressed = false;
+
+        // Restore video element presentation if stopped while resume was in flight
+        if (this._resumeVideoSuppressed && video) {
+            this._restoreVideoAfterResume(video);
+        }
+        this._resumeVideoSuppressed = false;
 
         if (video) {
             // Unbind events before clearing src to prevent error events from firing
@@ -1007,6 +1150,41 @@ export class HtmlVideoPlayer {
         document.addEventListener('click', unmute, { capture: true, once: true });
 
         log.info('Scheduled unmute on next user interaction (keydown/click).');
+    }
+
+    /**
+     * Suppress video element presentation during resume seek operations.
+     * Prevents stale pre-seek or timestamp 0:00 video frames from rendering
+     * onto the screen before the decoder finishes seeking to the resume target.
+     *
+     * @private
+     * @param {HTMLVideoElement} video - The HTML5 video element
+     */
+    _suppressVideoForResume(video) {
+        if (!video) return;
+        this._resumeVideoSuppressed = true;
+        // Apply both zero opacity and hidden visibility for robust compositor handling
+        video.style.opacity = '0';
+        video.style.visibility = 'hidden';
+        log.debug('HtmlVideoPlayer: Suppressed video visibility for resume');
+    }
+
+    /**
+     * Restore video element presentation once the resume position is landed.
+     * Re-reveals the video element displaying the confirmed target resume frame.
+     *
+     * @private
+     * @param {HTMLVideoElement} [video] - The HTML5 video element (optional, defaults to _videoElement)
+     */
+    _restoreVideoAfterResume(video) {
+        if (!this._resumeVideoSuppressed) return;
+        this._resumeVideoSuppressed = false;
+        const targetVideo = video || this._videoElement;
+        if (targetVideo) {
+            targetVideo.style.opacity = '';
+            targetVideo.style.visibility = '';
+            log.debug('HtmlVideoPlayer: Restored video visibility after resume landing');
+        }
     }
 
     /**
@@ -1618,11 +1796,17 @@ export class HtmlVideoPlayer {
             this.setMuted(false);
         }
 
+        // Resume is confirmed safe. Ensure video element presentation is fully restored.
+        if (this._resumeVideoSuppressed) {
+            this._restoreVideoAfterResume(this._videoElement);
+        }
+
         if (!this._started) {
             this._started = true;
             log.info('Playback started');
             this.onEvent({ type: 'playbackstart' });
         }
+        this._clearHlsStartTimeout();
         this._clearStallCheck();
         this.onEvent({ type: 'playing' });
     }
@@ -1658,6 +1842,14 @@ export class HtmlVideoPlayer {
         // Dispatch the official 'seeked' event so orchestrator clears seeking lock.
         // ---------------------------------------------------------------------
         this.onEvent({ type: 'seeked' });
+
+        /*
+         * Execute queued play command if unpause() was called while seek was in flight
+         */
+        if (this._pendingPlayAfterSeek) {
+            this._pendingPlayAfterSeek = false;
+            this.unpause();
+        }
 
         // ---------------------------------------------------------------------
         // Accurate Post-Seek Presentation Timestamp:
@@ -1757,10 +1949,22 @@ export class HtmlVideoPlayer {
     // ========================================================================
 
     /**
+     * Clear startup HLS detection timer
+     * @private
+     */
+    _clearHlsStartTimeout() {
+        if (this._hlsStartTimeout) {
+            clearTimeout(this._hlsStartTimeout);
+            this._hlsStartTimeout = null;
+        }
+    }
+
+    /**
      * Destroy HLS.js player
      * @private
      */
     _destroyHlsPlayer() {
+        this._clearHlsStartTimeout();
         if (this._hlsPlayer) {
             try {
                 this._hlsPlayer.destroy();

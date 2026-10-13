@@ -46,6 +46,27 @@ export const SEERR_STATUS = Object.freeze({
 });
 
 /**
+ * TMDB keyword ID Seerr uses to classify a series as anime (mirrors
+ * ANIME_KEYWORD_ID in the Seerr source). It is a keyword, not a genre:
+ * TMDB has no anime TV genre, so the keyword is the only reliable marker.
+ */
+export const SEERR_ANIME_KEYWORD_ID = 210024;
+
+/**
+ * Tells whether a normalized Seerr item is an anime. Anime routing only
+ * applies to TV series — movies are never flagged. A missing keywords list
+ * degrades to false (treated as a classic series), matching Seerr's own
+ * fallback when it cannot detect.
+ * @param {Object|null} item - Item produced by normalizeSeerrItem
+ * @returns {boolean}
+ */
+export function isSeerrAnimeItem(item) {
+    if (!item || item._mediaType !== 'tv') return false;
+    if (!Array.isArray(item.Tags)) return false;
+    return item.Tags.some((tag) => tag && Number(tag.Id) === SEERR_ANIME_KEYWORD_ID);
+}
+
+/**
  * Normalizes a user-typed instance address: trims, drops trailing slashes and
  * infers a scheme when none was typed. Typing 'http://' on a remote is painful,
  * and fetch() rejects a schemeless URL outright rather than assuming one.
@@ -163,6 +184,7 @@ export function normalizeSeerrItem(result, fallbackMediaType = null) {
             ? `${TMDB_POSTER_DETAIL_BASE}${result.posterPath}`
             : (result.profilePath ? `${TMDB_POSTER_DETAIL_BASE}${result.profilePath}` : ''),
         _backdropUrl: result.backdropPath ? `${TMDB_BACKDROP_BASE}${result.backdropPath}` : '',
+        WatchProviders: Array.isArray(result.watchProviders) ? result.watchProviders : [],
         _seerrStatus: (result.mediaInfo && result.mediaInfo.status) || SEERR_STATUS.NOT_REQUESTED,
         _jellyfinMediaId: (() => {
             const info = result.mediaInfo || {};

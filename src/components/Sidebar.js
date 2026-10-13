@@ -21,6 +21,7 @@ import { sidebarLayoutManager } from '../utils/SidebarLayoutManager.js';
 import { sidebarIcons, getLibraryIcon } from '../utils/Icons.js';
 import { seerr } from '../api/seerrClient.js';
 import { layoutManager } from '../ui/LayoutManager.js';
+import { platformInfo } from '../utils/PlatformInfo.js';
 
 const log = logger.create('Sidebar');
 
@@ -57,6 +58,15 @@ class Sidebar extends Component {
     render() {
         return `
             <nav class="sidebar collapsed" id="main-sidebar">
+                <!-- Native Back Navigation Control (Web & Desktop) -->
+                <!-- Displayed when viewing 2nd-level routes in desktop/web environments with spring animation -->
+                <button class="sidebar-item sidebar-back-btn" id="sidebar-back-btn" tabindex="0" aria-label="${i18n.t('Back') || 'Back'}" style="display: none;">
+                    <div class="item-icon back-icon">
+                        ${sidebarIcons.back}
+                    </div>
+                    <span class="item-text back-text" data-i18n="Back">${i18n.t('Back') || 'Back'}</span>
+                </button>
+
                 <!-- Logo Section -->
                 <div class="sidebar-header" id="sidebar-logo-header">
                     <div class="logo-icon">
@@ -65,6 +75,10 @@ class Sidebar extends Component {
                     </div>
                     <span class="logo-text">Litefin</span>
                 </div>
+
+                <!-- Floating Island Stationary Capsule Track -->
+                <!-- Renders the fixed background capsule for floating-island layout during scrolling -->
+                <div class="floating-island-pill" id="floating-island-pill"></div>
 
                 <!-- Scrollable Sidebar Content -->
                 <div class="sidebar-content">
@@ -207,10 +221,26 @@ class Sidebar extends Component {
         this.el.classList.toggle('show-lib-icons-collapsed', showLibIcons);
 
         this._onShowLibIconsChanged = (newValue) => {
+            // Determine boolean state from incoming event payload or storage
             const enabled = newValue === true || newValue === 'true';
             this.el.classList.toggle('show-lib-icons-collapsed', enabled);
-            // Re-apply DOM layout to refresh cache
+
+            // In normal mode, ensure sidebar content remains anchored to the top
+            const scrollContainer = this.el.querySelector('.sidebar-content');
+            if (scrollContainer && !enabled) {
+                scrollContainer.scrollTop = 0;
+            }
+
+            // Re-apply full DOM layout tree to reposition library elements into rail or sub-container
             this._applySidebarLayout();
+            this._updateActiveState();
+
+            // Invalidate FocusManager cache so D-pad navigation picks up the reordered items immediately
+            focusManager.resetDOMCache();
+            focusManager.invalidateCache('sidebar');
+
+            // Re-evaluate sidebar item alignment with updated element heights
+            setTimeout(() => this._updateSidebarItemsAlign(), 0);
         };
         eventBus.on('prefChanged:showCollapsedLibraryIcons', this._onShowLibIconsChanged);
 
@@ -225,6 +255,7 @@ class Sidebar extends Component {
         };
         eventBus.on('pref:collapsedSidebarColor', this._onTransparentCollapsedChanged);
         eventBus.on('pref:expandedSidebarColor', this._onTransparentCollapsedChanged);
+        eventBus.on('pref:sidebarMode', this._onTransparentCollapsedChanged);
 
         this._onHideLibraryHeaderChanged = () => {
             this._loadLibraries();
@@ -256,6 +287,22 @@ class Sidebar extends Component {
             }
         };
         eventBus.on('seerr:statusResolved', this._onSeerrStatusResolved);
+
+        // ---------------------------------------------------------------------
+        // FLOATING ISLAND GEOMETRY RESIZE LISTENER
+        // ---------------------------------------------------------------------
+        // Keep stationary pill bounds and floating popovers in sync with screen dimension adjustments
+        this._onResizeGeometry = () => {
+            this._updateFloatingIslandGeometry();
+            if (this.floatingLibrariesOpen) {
+                this._toggleFloatingLibraries(true);
+            }
+        };
+        window.addEventListener('resize', this._onResizeGeometry);
+
+        // Initial geometry calculation once DOM tree mounts and reflow settles
+        this._updateFloatingIslandGeometry();
+        setTimeout(() => this._updateFloatingIslandGeometry(), 50);
 
         // Resolve the default focus item from saved prefs (falls back to 'home')
         const defaultFocusId = sidebarLayoutManager.getDefaultFocus();
@@ -350,6 +397,9 @@ class Sidebar extends Component {
 
         // Initial setup of indicator
         this._updateIndicator();
+
+        // Initial setup of Desktop & Web back button state
+        this._updateBackButtonState();
     }
 
     async _updateSeerrVisibility() {
@@ -368,6 +418,7 @@ class Sidebar extends Component {
         this._seerrAvailable = isAvailable;
         button.style.display = isAvailable ? '' : 'none';
         focusManager.invalidateCache('sidebar');
+        this._updateFloatingIslandGeometry();
     }
 
     onDestroyed() {
@@ -416,6 +467,7 @@ class Sidebar extends Component {
         if (this._onTransparentCollapsedChanged) {
             eventBus.off('pref:collapsedSidebarColor', this._onTransparentCollapsedChanged);
             eventBus.off('pref:expandedSidebarColor', this._onTransparentCollapsedChanged);
+            eventBus.off('pref:sidebarMode', this._onTransparentCollapsedChanged);
         }
 
         if (this._onHideLibraryHeaderChanged) {
@@ -424,6 +476,12 @@ class Sidebar extends Component {
 
         if (this._onSidebarItemsAlignChanged) {
             eventBus.off('pref:sidebarItemsAlign', this._onSidebarItemsAlignChanged);
+        }
+
+        // Clean up floating island resize listener
+        if (this._onResizeGeometry) {
+            window.removeEventListener('resize', this._onResizeGeometry);
+            this._onResizeGeometry = null;
         }
 
         // Clean up floating popover event listeners
@@ -512,6 +570,9 @@ class Sidebar extends Component {
                 const isLogoVisible = logoPref !== 'hidden';
                 logoHeader.style.display = isLogoVisible ? '' : 'none';
 
+                // Track logo visibility state on parent container for CSS layout headroom adjustments
+                this.el.classList.toggle('sidebar-logo-hidden', !isLogoVisible);
+
                 // Determine if logo behaves as an interactive/focusable button
                 const isClickable = logoPref === 'settings' || logoPref === 'home';
                 logoHeader.classList.toggle('sidebar-item', isClickable);
@@ -562,6 +623,9 @@ class Sidebar extends Component {
 
                 // Invalidate focusManager cache since focusability of a header element changed
                 focusManager.invalidateCache('sidebar');
+
+                // Synchronize floating island pill geometry with the updated logo headroom
+                this._updateFloatingIslandGeometry();
             }
         } catch (err) {
             log.error('Failed to update sidebar logo settings due to DOM error:', err);
@@ -635,9 +699,37 @@ class Sidebar extends Component {
                 const focusedItem = this.el.querySelector('.focused');
                 const hasFocus = !!focusedItem;
 
-                if (focusedItem) {
-                    // Automatically scroll the sidebar container so the newly focused item is in view
-                    focusedItem.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                // ---------------------------------------------------------------------
+                // RAIL SCROLLING & SUB-LIBRARIES ISOLATION
+                // ---------------------------------------------------------------------
+                // Only allow scrolling the sidebar container when 'showCollapsedLibraryIcons'
+                // is active and focus is directly on a rail item. In normal mode, or when
+                // navigating within #sidebar-sub-libraries (accordion or floating popover),
+                // the sidebar container must NEVER scroll or push upward.
+                // ---------------------------------------------------------------------
+                const showLibIcons = storage.getItem('pref:showCollapsedLibraryIcons') === 'true' ||
+                    this.el.classList.contains('show-lib-icons-collapsed');
+                const scrollContainer = this.el.querySelector('.sidebar-content');
+
+                if (scrollContainer && !showLibIcons) {
+                    // In normal mode, guarantee sidebar content stays anchored to top
+                    if (scrollContainer.scrollTop !== 0) {
+                        scrollContainer.scrollTop = 0;
+                    }
+                } else if (focusedItem && showLibIcons && !focusedItem.closest('#sidebar-sub-libraries')) {
+                    // Ensure the focused item inside the collapsed rail is visible
+                    if (scrollContainer && scrollContainer.contains(focusedItem)) {
+                        const containerHeight = scrollContainer.clientHeight;
+                        const itemTop = focusedItem.offsetTop;
+                        const itemHeight = focusedItem.offsetHeight || 72;
+                        const currentScroll = scrollContainer.scrollTop;
+
+                        if (itemTop < currentScroll) {
+                            scrollContainer.scrollTop = itemTop;
+                        } else if (itemTop + itemHeight > currentScroll + containerHeight) {
+                            scrollContainer.scrollTop = itemTop + itemHeight - containerHeight;
+                        }
+                    }
                 }
 
                 // Update indicator FIRST while transition is still disabled (collapsed state)
@@ -708,6 +800,7 @@ class Sidebar extends Component {
         const items = this.el.querySelectorAll('.sidebar-item');
         items.forEach((item) => {
             if (item.id === 'sidebar-logo-header') return; // Handled above
+            if (item.id === 'sidebar-back-btn') return; // Handled explicitly below
             if (item.id === 'sidebar-libraries') return; // Handled by accordion toggle
 
             this._bindItem(item, () => {
@@ -735,6 +828,18 @@ class Sidebar extends Component {
                 }
             });
         });
+
+        // macOS-style back button click and keyboard activation
+        const backBtn = this.el.querySelector('#sidebar-back-btn');
+        if (backBtn) {
+            this._bindItem(backBtn, (e) => {
+                if (e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                }
+                router.back();
+            });
+        }
 
         // Libraries accordion toggle button handler
         const librariesBtn = this.el.querySelector('#sidebar-libraries');
@@ -947,6 +1052,7 @@ class Sidebar extends Component {
             sidebarContent.querySelectorAll('.library-item, .sidebar-section-header').forEach((el) => el.remove());
 
             const isModern = !layoutManager.isClassicSidebarLayout();
+            const showCollapsedLibIcons = storage.getItem('pref:showCollapsedLibraryIcons') === 'true';
             const hideHeader = storage.getItem('pref:hideSidebarLibraryHeader') === 'true';
 
             if (!isModern && items.length > 0 && !hideHeader) {
@@ -962,10 +1068,14 @@ class Sidebar extends Component {
             items.forEach((lib) => {
                 const btn = document.createElement('button');
                 btn.className = 'sidebar-item library-item';
-                const canFocus = isModern ? (this.expanded && this.librariesExpanded) : true;
+
+                // In modern layouts without collapsed icons, focus is gated by expansion state.
+                // When collapsed library icons are enabled (or in classic mode), library buttons
+                // are always focusable direct children.
+                const canFocus = (isModern && !showCollapsedLibIcons) ? (this.expanded && this.librariesExpanded) : true;
                 btn.tabIndex = canFocus ? 0 : -1;
 
-                if (isModern && !this.librariesExpanded) {
+                if (isModern && !showCollapsedLibIcons && !this.librariesExpanded) {
                     btn.classList.add('hidden');
                     btn.style.display = 'none';
                 }
@@ -1015,7 +1125,9 @@ class Sidebar extends Component {
                     router.navigate(buttonPath);
                 });
 
-                if (isModern && subContainer) {
+                // When showCollapsedLibIcons is enabled, append to sidebarContent directly;
+                // otherwise nest inside subContainer accordion for modern layout.
+                if (isModern && !showCollapsedLibIcons && subContainer) {
                     subContainer.appendChild(btn);
                 } else {
                     sidebarContent.appendChild(btn);
@@ -1070,12 +1182,70 @@ class Sidebar extends Component {
         const childBtns = subLibs.querySelectorAll('.library-item');
 
         if (next) {
+            /*
+             * =================================================================
+             * FLOATING SUB-LIBRARIES ATTACHMENT & STACKING ISOLATION
+             * =================================================================
+             * In modern collapsed, floating-buttons, and floating-island modes,
+             * the sub-libraries menu acts as a standalone floating popover.
+             * We ensure it is attached directly to the root sidebar element (this.el)
+             * so it is not constrained or shifted by .sidebar-content's flexbox
+             * auto margins or overflow scrolling.
+             * =================================================================
+             */
+            if (layoutManager.isModernCollapsedSidebarLayout() && subLibs.parentElement !== this.el) {
+                this.el.appendChild(subLibs);
+            }
+
             subLibs.removeAttribute('hidden');
             subLibs.style.display = 'flex';
 
-            // Calculate vertical positioning beside the libraries button inside .sidebar-content
-            const topOffset = typeof libBtn.offsetTop === 'number' ? libBtn.offsetTop : 150;
-            subLibs.style.top = `${Math.max(10, topOffset - 6)}px`;
+            // Guarantee sidebar-content is never scrolled in normal mode
+            const scrollContainer = this.el.querySelector('.sidebar-content');
+            if (scrollContainer && scrollContainer.scrollTop !== 0) {
+                scrollContainer.scrollTop = 0;
+            }
+
+            /*
+             * =================================================================
+             * POPOVER VERTICAL ALIGNMENT BESIDE LIBRARIES BUTTON
+             * =================================================================
+             * Popover Positioning & Viewport Clamping:
+             * - Accurately aligns the popover directly adjacent to the anchor icon
+             * - Measures against the actual offsetParent to prevent double offsets
+             * - Clamps top offset within screen viewport bounds for TV safe areas
+             * =================================================================
+             */
+            const libRect = libBtn.getBoundingClientRect();
+            const parentEl = subLibs.offsetParent || this.el;
+            const parentRect = parentEl.getBoundingClientRect();
+            const topOffset = (libRect && parentRect && libRect.top > 0)
+                ? (libRect.top - parentRect.top)
+                : (typeof libBtn.offsetTop === 'number' ? libBtn.offsetTop : 150);
+
+            // Keep popover safely within the TV screen viewport bounds.
+            // On Android the document is scaled with CSS zoom (root.style.zoom),
+            // so window.innerHeight is RAW visual px while top/rects here are in
+            // design-canvas px — convert innerHeight into the same design space
+            // (innerHeight / zoom) or the clamp fires far too early and parks
+            // the popover high above the libraries button. Unscaled platforms
+            // (TV, zoom = 1 or unsupported) get exactly the old behavior.
+            const rootZoom = parseFloat(getComputedStyle(document.documentElement).zoom) || 1;
+            const viewportHeight = (window.innerHeight || 1080) / rootZoom;
+            const subLibsHeight = subLibs.offsetHeight || 250;
+            // Portrait (phone) UX: center the panel vertically against the
+            // libraries button with a small breathing gap. Applied in BOTH
+            // orientations on the touch (Android) layout — each orientation
+            // gets its own horizontal anchor via its own stylesheet. TV
+            // layouts (no data-litefin-touch gate) keep the stock top-aligned
+            // (button top − 6px) placement.
+            const isTouchLayout = document.documentElement.hasAttribute('data-litefin-touch');
+            const unclampedTop = isTouchLayout
+                ? topOffset + ((libBtn.offsetHeight || 0) - subLibsHeight) / 2
+                : topOffset - 6;
+            const maxTop = Math.max(10, viewportHeight - subLibsHeight - 20);
+            const clampedTop = Math.min(Math.max(10, unclampedTop), maxTop);
+            subLibs.style.top = `${clampedTop}px`;
 
             childBtns.forEach((btn) => {
                 btn.classList.remove('hidden');
@@ -1246,6 +1416,7 @@ class Sidebar extends Component {
         this.activePath = path;
         this._updateActiveState();
         this._updateTransparentCollapsed();
+        this._updateBackButtonState();
         setTimeout(() => this._updateSidebarItemsAlign(), 0);
     }
 
@@ -1262,9 +1433,28 @@ class Sidebar extends Component {
      * ============================================================================
      */
     _updateTransparentCollapsed() {
-        // Retrieve configured background preferences with defaults
-        const colorPref = storage.getItem('pref:collapsedSidebarColor') || 'transparent';
+        // Detect whether the sidebar is operating in hidden mode.
+        // Hidden mode is active when pref:sidebarMode is explicitly 'hidden',
+        // when in 'mixed' mode on a details page, or when body has .sidebar-mode-hidden.
+        const sidebarMode = storage.getItem('pref:sidebarMode') || 'shown';
+        const isHiddenMode = Boolean(
+            sidebarMode === 'hidden' ||
+            (sidebarMode === 'mixed' && (
+                this.activePath === '/details' ||
+                this.activePath?.startsWith('/details') ||
+                (typeof window !== 'undefined' && window.location.hash.startsWith('#/details'))
+            )) ||
+            (typeof document !== 'undefined' && document.body && document.body.classList.contains('sidebar-mode-hidden'))
+        );
+
+        // Retrieve configured background preferences from local storage
+        const collapsedColorPref = storage.getItem('pref:collapsedSidebarColor') || 'transparent';
         const expandedColorPref = storage.getItem('pref:expandedSidebarColor') || 'theme';
+
+        // In normal non-hidden collapsed mode, strictly follow the collapsed color setting.
+        // In hidden mode (revealed over media or page content), use the expanded background color
+        // to provide a solid backdrop behind the icons when sliding into view.
+        const colorPref = isHiddenMode ? expandedColorPref : collapsedColorPref;
 
         // Check if current active route corresponds to the Settings screen
         const isSettings = Boolean(
@@ -1273,11 +1463,8 @@ class Sidebar extends Component {
             (typeof window !== 'undefined' && window.location.hash.startsWith('#/settings'))
         );
 
-        // If collapsed sidebar is transparent, override it in Settings to render solid theme bg
-        const isTransparentCollapsed = colorPref === 'transparent' && !isSettings;
-
         // Apply collapsed style classes to element DOM
-        this.el.classList.toggle('transparent-collapsed', isTransparentCollapsed);
+        this.el.classList.toggle('transparent-collapsed', colorPref === 'transparent');
         this.el.classList.toggle('semi-transparent-collapsed', colorPref === 'semi');
         this.el.classList.toggle('tinted-semi-collapsed', colorPref === 'tinted-semi');
         this.el.classList.toggle('black-collapsed', colorPref === 'black');
@@ -1309,6 +1496,9 @@ class Sidebar extends Component {
         this.el.classList.toggle('align-center', alignPref === 'center' && shouldAlign);
         this.el.classList.toggle('align-bottom', alignPref === 'bottom' && shouldAlign);
 
+        // Synchronize floating island pill geometry with the updated vertical alignment
+        this._updateFloatingIslandGeometry();
+
         const focused = this.el.querySelector('.sidebar-item.focused');
         if (focused) {
             // Update immediately for engines that reflow synchronously
@@ -1317,6 +1507,57 @@ class Sidebar extends Component {
             setTimeout(() => {
                 this._updateIndicator(focused, { instant: true });
             }, 50);
+        }
+    }
+
+    /**
+     * =========================================================================
+     * FLOATING ISLAND GEOMETRY SYNCHRONIZATION
+     * =========================================================================
+     * - Dynamically calculates the offset and height of .sidebar-content so the
+     *   stationary background pill perfectly hugs the navigation items when
+     *   compact (no awkward empty tail), and stays stationary at max-height when
+     *   scrolling is active.
+     * - Re-computes whenever library items, logo visibility, or window dimensions
+     *   change to keep the UI pixel-perfect across all screen sizes.
+     * =========================================================================
+     * @private
+     */
+    _updateFloatingIslandGeometry() {
+        // Guard check: ensure root sidebar element exists
+        if (!this.el) return;
+
+        // Only compute when layout is configured as floating-island
+        if (!layoutManager.isFloatingIslandSidebarLayout()) return;
+
+        // Query the stationary pill capsule and scrolling content container
+        const pill = this.el.querySelector('#floating-island-pill');
+        const content = this.el.querySelector('.sidebar-content');
+        if (!pill || !content) return;
+
+        // Compute relative bounding box of content inside the fixed sidebar container
+        const update = () => {
+            if (!this.el || !pill || !content) return;
+
+            // Measure relative coordinates between fixed sidebar container and content box
+            const sidebarRect = this.el.getBoundingClientRect();
+            const contentRect = content.getBoundingClientRect();
+            const top = contentRect.top - sidebarRect.top;
+            const height = contentRect.height;
+
+            // Only apply valid non-zero bounding box values
+            if (height > 0) {
+                pill.style.top = `${Math.round(top)}px`;
+                pill.style.height = `${Math.round(height)}px`;
+            }
+        };
+
+        // Run immediately for snappy UI response
+        update();
+
+        // Also schedule in requestAnimationFrame to catch reflows once TV paint settles
+        if (typeof window.requestAnimationFrame === 'function') {
+            window.requestAnimationFrame(update);
         }
     }
 
@@ -1340,11 +1581,12 @@ class Sidebar extends Component {
             }
         });
 
-        // In Modern mode, if any library is active, highlight the parent Libraries toggle button as active too
+        // In Modern mode, if any library is active, highlight the parent Libraries toggle button as active too (when not showing collapsed icons)
         const libToggle = this.el.querySelector('#sidebar-libraries');
+        const showCollapsedLibIcons = storage.getItem('pref:showCollapsedLibraryIcons') === 'true';
         if (libToggle) {
-            libToggle.classList.toggle('active', isModern && hasActiveLibrary);
-            if (isModern) {
+            libToggle.classList.toggle('active', isModern && hasActiveLibrary && !showCollapsedLibIcons);
+            if (isModern && !showCollapsedLibIcons) {
                 if (layoutManager.isModernCollapsedSidebarLayout()) {
                     if (this.floatingLibrariesOpen) {
                         this._toggleFloatingLibraries(false);
@@ -1465,6 +1707,7 @@ class Sidebar extends Component {
         for (let i = 0; i < itemsLen; i++) {
             const el = items[i];
             if (el.id === 'sidebar-logo-header') continue;
+            if (el.id === 'sidebar-back-btn') continue;
 
             if (el.classList.contains('library-item')) {
                 // Dynamically injected library shortcut
@@ -1485,12 +1728,26 @@ class Sidebar extends Component {
 
         /* ── 2. Ask the manager to order and annotate items ────────────────── */
         const ordered = sidebarLayoutManager.applyLayout(allItems);
+        const showCollapsedLibIcons = storage.getItem('pref:showCollapsedLibraryIcons') === 'true';
 
         /* ── 3. Re-insert items and apply visibility ───────────────────────── */
         if (isModern) {
-            // Modern Mode: Single expandable item + nested sub-libraries container + pinned footer
+            // Modern Mode: Single expandable item + nested sub-libraries container (or individual collapsed items if showCollapsedLibIcons) + pinned footer
             if (librariesToggleBtn) {
-                librariesToggleBtn.style.display = '';
+                if (showCollapsedLibIcons) {
+                    librariesToggleBtn.style.display = 'none';
+                    librariesToggleBtn.classList.add('hidden');
+                    librariesToggleBtn.tabIndex = -1;
+                } else {
+                    librariesToggleBtn.style.display = '';
+                    librariesToggleBtn.classList.remove('hidden');
+                }
+            }
+
+            if (subLibrariesContainer && showCollapsedLibIcons) {
+                subLibrariesContainer.style.display = 'none';
+                subLibrariesContainer.classList.add('hidden');
+                subLibrariesContainer.setAttribute('hidden', '');
             }
 
             ordered.forEach(({ id, el, hidden }) => {
@@ -1501,19 +1758,35 @@ class Sidebar extends Component {
                     return;
                 }
 
+                if (id === 'librariesContainer' && showCollapsedLibIcons) {
+                    // Suppress generic libraries toggle accordion button when showing individual collapsed library shortcuts
+                    el.style.display = 'none';
+                    el.classList.add('hidden');
+                    el.tabIndex = -1;
+                    return;
+                }
+
                 if (id.startsWith('lib-')) {
-                    // Place child library inside the sub-libraries container
-                    const canFocus = this.expanded && this.librariesExpanded;
-                    el.tabIndex = canFocus ? 0 : -1;
-                    if (isModern && !this.librariesExpanded) {
-                        el.classList.add('hidden');
-                        el.style.display = 'none';
-                    } else {
+                    if (showCollapsedLibIcons) {
+                        // Place library directly as a first-class collapsed sidebar rail item
+                        el.tabIndex = hidden ? -1 : 0;
                         el.classList.toggle('hidden', !!hidden);
                         el.style.display = hidden ? 'none' : '';
-                    }
-                    if (subLibrariesContainer) {
-                        subLibrariesContainer.appendChild(el);
+                        sidebarContent.appendChild(el);
+                    } else {
+                        // Place child library inside the sub-libraries container accordion / popover
+                        const canFocus = this.expanded && this.librariesExpanded;
+                        el.tabIndex = canFocus ? 0 : -1;
+                        if (!this.librariesExpanded) {
+                            el.classList.add('hidden');
+                            el.style.display = 'none';
+                        } else {
+                            el.classList.toggle('hidden', !!hidden);
+                            el.style.display = hidden ? 'none' : '';
+                        }
+                        if (subLibrariesContainer) {
+                            subLibrariesContainer.appendChild(el);
+                        }
                     }
                     return;
                 }
@@ -1538,14 +1811,23 @@ class Sidebar extends Component {
                 el.style.display = shouldHide ? 'none' : '';
                 sidebarContent.appendChild(el);
 
-                // If this is the modern libraries container, place sub-libraries container right after it
-                if (id === 'librariesContainer' && subLibrariesContainer) {
+                // If this is the modern libraries container, place sub-libraries container accordingly
+                if (id === 'librariesContainer' && subLibrariesContainer && !showCollapsedLibIcons) {
                     if (shouldHide) {
                         subLibrariesContainer.style.display = 'none';
                         subLibrariesContainer.classList.add('hidden');
                         subLibrariesContainer.setAttribute('hidden', '');
                     }
-                    sidebarContent.appendChild(subLibrariesContainer);
+                    /*
+                     * In collapsed/floating layouts, attach subLibrariesContainer directly to
+                     * sidebarEl so that the floating popover is positioned in the root sidebar's
+                     * coordinate space without getting displaced by sidebarContent flexbox centering.
+                     */
+                    if (layoutManager.isModernCollapsedSidebarLayout()) {
+                        sidebarEl.appendChild(subLibrariesContainer);
+                    } else {
+                        sidebarContent.appendChild(subLibrariesContainer);
+                    }
                 }
             });
         } else {
@@ -1559,6 +1841,14 @@ class Sidebar extends Component {
                 if (id === 'librariesContainer') {
                     // Suppress modern toggle in classic mode
                     el.style.display = 'none';
+                    return;
+                }
+
+                if (id.startsWith('lib-')) {
+                    el.tabIndex = hidden ? -1 : 0;
+                    el.classList.toggle('hidden', !!hidden);
+                    el.style.display = hidden ? 'none' : '';
+                    sidebarContent.appendChild(el);
                     return;
                 }
 
@@ -1582,6 +1872,48 @@ class Sidebar extends Component {
         }
 
         // Invalidate the focus cache so the updated DOM structure is re-scanned
+        focusManager.invalidateCache('sidebar');
+
+        // Re-evaluate back button state for desktop and web layouts
+        this._updateBackButtonState();
+
+        // Re-evaluate sidebar vertical alignment (center vs top) and floating island geometry once DOM reflow settles
+        setTimeout(() => {
+            this._updateSidebarItemsAlign();
+            this._updateFloatingIslandGeometry();
+        }, 0);
+    }
+
+    /**
+     * =========================================================================
+     * Desktop & Web Back Button State Synchronizer
+     * =========================================================================
+     * Evaluates route depth and navigation history on Desktop and Web platforms.
+     * When there is an ancestor page in the stack (router.canGoBack() is true),
+     * dynamically surfaces the sleek back button and pushes the
+     * Litefin brand logo downward with fluid spring physics.
+     * =========================================================================
+     * @private
+     */
+    _updateBackButtonState() {
+        if (!this.el) return;
+
+        // Dedicated mouse/pointer back control is only surfaced on Desktop and Web.
+        // TV platforms (Tizen, webOS, Android TV) use remote control Back hardware keys.
+        const isDesktopOrWeb = platformInfo.isWeb || platformInfo.isDesktop;
+        const canBack = isDesktopOrWeb && router.canGoBack();
+
+        // Toggle state class on parent container to trigger CSS spring transition pushing logo down
+        this.el.classList.toggle('has-back-button', canBack);
+
+        // Control interactive display and accessibility tabindex on the back button
+        const backBtn = this.el.querySelector('#sidebar-back-btn');
+        if (backBtn) {
+            backBtn.style.display = canBack ? 'flex' : 'none';
+            backBtn.tabIndex = canBack ? 0 : -1;
+        }
+
+        // Invalidate FocusManager DOM cache so spatial navigation and arrow keys recognize state
         focusManager.invalidateCache('sidebar');
     }
 

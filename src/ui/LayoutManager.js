@@ -63,6 +63,14 @@ class LayoutManager {
          */
         this._sidebarLayout = 'modern-collapsed';
 
+        /*
+         * Active Alphabet Selector Position ('top' or 'right').
+         * Configures placement and orientation of the library alphabet quick-jump index:
+         * - 'top': Classic horizontal ribbon placed inside the library header row.
+         * - 'right': Sleek vertical floating pill docked to the right edge.
+         */
+        this._alphaPickerPosition = 'top';
+
         // Current theme mode
         // Black (OLED) is the default — zero compositing, pure black pixels, maximum performance.
         this._themeMode = THEME_MODES.BLACK;
@@ -166,7 +174,15 @@ class LayoutManager {
 
         // Internal style element for dynamic variables
         this._dynamicStyleEl = null;
+
+        /*
+         * Global interface display scaling factor.
+         * Supports 'auto' (dynamically fits viewport to 1080p proportions) or manual float strings ('0.8', '0.9', etc.)
+         * Loaded eagerly from storage to be available immediately during early platform initialization.
+         */
+        this._displayScale = storage.getItem('pref:displayScale') || 'auto';
     }
+
 
     /**
      * Initialize layout manager
@@ -191,14 +207,20 @@ class LayoutManager {
         }
 
         /*
-         * Load saved sidebar navigation layout preference.
-         * Ultra-legacy hardware (Chrome <47 / Tizen 2.x / c26 quirks) requires the classic sidebar layout.
-         * Modern/legacy tiers default cleanly to 'modern'.
+         * ---------------------------------------------------------------------
+         * SIDEBAR LAYOUT CONFIGURATION & DEFAULT SELECTION
+         * ---------------------------------------------------------------------
+         * Load saved sidebar navigation layout preference from persistent storage.
+         * Ultra-legacy hardware (Chrome <47 / Tizen 2.x / c26 quirks) defaults
+         * gracefully to the lightweight 'classic' sidebar layout for maximum
+         * performance and compatibility, but users can freely select other
+         * modern or floating layout modes in Settings.
+         * Modern and legacy tiers default to 'modern-collapsed'.
+         * ---------------------------------------------------------------------
          */
         const isUltraLegacy = platformInfo.layoutTier === 'ultra-legacy';
-        const savedSidebarLayout = isUltraLegacy
-            ? 'classic'
-            : storage.getItem('pref:sidebarLayoutMode') || 'modern-collapsed';
+        const defaultSidebarLayout = isUltraLegacy ? 'classic' : 'modern-collapsed';
+        const savedSidebarLayout = storage.getItem('pref:sidebarLayoutMode') || defaultSidebarLayout;
 
         // Load saved theme mode
         const savedThemeMode = storage.getItem('litefin:themeMode');
@@ -236,6 +258,11 @@ class LayoutManager {
         const savedLightMusicPlayer = storage.getItem('pref:lightMusicPlayer') === 'true';
         const savedBadgeStyle = storage.getItem('litefin:badgeStyle') || 'auto';
         const savedCardLabelScale = parseFloat(storage.getItem('pref:cardLabelScale') || '1.0');
+        /*
+         * Load saved interface display scale preference.
+         * Defaults to 'auto', which dynamically scales non-TV and browser viewports to 1080p canvas proportions.
+         */
+        const savedDisplayScale = storage.getItem('pref:displayScale') || 'auto';
 
         // Load user preferred button customization style
         const savedButtonStyle = storage.getItem('litefin:buttonStyle') || 'theme-default';
@@ -256,7 +283,12 @@ class LayoutManager {
         this.setMediaRowsLayout(savedMediaRowsLayout, false);
         this.setLoginPageLayout(savedLoginPageLayout, false);
         // Initialize sidebar layout without triggering duplicate persistence
+        // Load user-selected alphabet quick-jump position ('top' or 'right')
+        const savedAlphaPickerPosition = storage.getItem('pref:alphaPickerPosition') || 'top';
+
         this.setSidebarLayout(savedSidebarLayout, false);
+        // Initialize alphabet selector position without re-persisting
+        this.setAlphaPickerPosition(savedAlphaPickerPosition, false);
         this.setThemeMode(initialMode, false);
         this.setThemeColor(savedThemeColor, false);
         // Apply lighter background configuration without extra persistence cycle
@@ -265,6 +297,8 @@ class LayoutManager {
         this.setRoundedCorners(savedRoundedCorners, false);
         this.setTextScale(savedTextScale, false);
         this.setCardLabelScale(savedCardLabelScale, false);
+        // Apply saved display scale factor immediately without duplicate persistence write
+        this.setDisplayScale(savedDisplayScale, false);
 
         this.setLowVramMode(savedLowVram, false);
         this.setDisableCardScaling(savedDisableScaling, false);
@@ -311,6 +345,22 @@ class LayoutManager {
         // from the standard ultra-legacy styling layers.
         if (platformInfo.isAncientChrome) {
             document.documentElement.setAttribute('data-layout-quirks', 'c26');
+        }
+
+        /*
+         * Setup dynamic resize & orientation change observers for display scaling.
+         * Recalculates viewport zoom factor whenever the window is resized or rotated
+         * to preserve layout proportions and responsive mobile UI across desktop, web, and mobile.
+         */
+        if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+            const handleViewportChange = () => {
+                this._applyDisplayScale();
+            };
+            window.addEventListener('resize', handleViewportChange, { passive: true });
+            window.addEventListener('orientationchange', handleViewportChange, { passive: true });
+            if (window.screen?.orientation?.addEventListener) {
+                window.screen.orientation.addEventListener('change', handleViewportChange);
+            }
         }
 
         log.info(
@@ -382,6 +432,48 @@ class LayoutManager {
     }
 
     /**
+     * Get Alphabet Selector Position preference.
+     * Indicates whether the library quick-jump index renders horizontally
+     * in the header or vertically on the right edge.
+     *
+     * @returns {string} 'top' or 'right'
+     * @public
+     */
+    getAlphaPickerPosition() {
+        return this._alphaPickerPosition;
+    }
+
+    /**
+     * Set Alphabet Selector Position preference.
+     * Updates root HTML attribute and state to toggle between top horizontal
+     * and right vertical layouts.
+     *
+     * @param {string} position - 'top' or 'right'
+     * @param {boolean} [save=true] - Whether to persist to storage
+     * @public
+     */
+    setAlphaPickerPosition(position, save = true) {
+        // Enforce valid setting values with fallback to default 'top'
+        const validPosition = position === 'right' ? 'right' : 'top';
+        this._alphaPickerPosition = validPosition;
+
+        // Apply attribute on root html element for instant global CSS styling
+        document.documentElement.setAttribute('data-alpha-picker-position', validPosition);
+
+        // Update state manager for reactive components
+        state.set('pref:alphaPickerPosition', validPosition, true);
+
+        // Persist preference to local storage when requested
+        if (save) {
+            storage.setItem('pref:alphaPickerPosition', validPosition);
+        }
+
+        // Broadcast change event for active views like LibraryPage
+        log.info(`Alphabet Selector Position set to: ${validPosition}`);
+        eventBus.emit('alphaPickerPosition:changed', { position: validPosition });
+    }
+
+    /**
      * Returns the currently active sidebar navigation layout mode.
      * @returns {string} The active sidebar layout identifier (e.g. 'classic').
      */
@@ -393,15 +485,10 @@ class LayoutManager {
      * Sets and activates the sidebar layout mode across the entire UI.
      * Stamped onto <html> as data-layout-sidebar to power layout-scoped styling.
      *
-     * @param {string} layout - The target sidebar layout identifier ('classic', etc.)
+     * @param {string} layout - The target sidebar layout identifier ('classic', 'modern', etc.)
      * @param {boolean} [save=true] - Whether to persist this preference in storage
      */
     setSidebarLayout(layout, save = true) {
-        // Enforce classic layout on ultra-legacy tier to maintain c26 rendering quirks compatibility
-        if (platformInfo.layoutTier === 'ultra-legacy') {
-            layout = 'classic';
-        }
-
         // Record new layout state in memory
         this._sidebarLayout = layout;
 
@@ -419,13 +506,10 @@ class LayoutManager {
 
     /**
      * Checks if the sidebar is currently configured with the classic layout.
-     * Always returns true on ultra-legacy (Chrome <47 / Tizen 2.x / c26 quirks) hardware.
-     * @returns {boolean} True if sidebar layout is 'classic' or platform is ultra-legacy.
+     *
+     * @returns {boolean} True if sidebar layout is 'classic'.
      */
     isClassicSidebarLayout() {
-        if (platformInfo.layoutTier === 'ultra-legacy') {
-            return true;
-        }
         return this._sidebarLayout === 'classic';
     }
 
@@ -629,6 +713,7 @@ class LayoutManager {
             // Elegant, matte ultra-dark background.
             // A deeply saturated charcoal canvas serves as the foundation.
             // Translucent material cards absorb the dynamically-cast ambient gradients.
+            // Set sidebar background to transparent to ensure ambient glow bleeds through cleanly.
             dynamicCss += `
             --jf-background: #0a0b0c;
             --jf-background-alt: #070809;
@@ -825,6 +910,10 @@ class LayoutManager {
         document.documentElement.setAttribute('data-rounded-corners', enabled ? 'true' : 'false');
         if (save) storage.setItem('litefin:roundedCorners', enabled ? 'true' : 'false');
         eventBus.emit('roundedCorners:changed', { enabled });
+        // Re-apply ponyfill so Chromium 47 legacy engines pick up updated border-radius variables
+        if (cssVarsPolyfill && typeof cssVarsPolyfill.update === 'function') {
+            cssVarsPolyfill.update();
+        }
     }
 
     getBadgeStyle() {
@@ -878,6 +967,241 @@ class LayoutManager {
 
     getCardLabelScale() {
         return this._cardLabelScale;
+    }
+
+    /**
+     * ========================================================================
+     * Display Scaling Engine
+     * ========================================================================
+     * Manages global viewport zoom scaling across web, desktop, and TV targets.
+     * Provides a hybrid mechanism:
+     * - 'auto': Dynamically fits canvas to standard 1080p (1920x1080) dimensions,
+     *   ensuring TV-grade proportions on smaller or desktop browser viewports.
+     * - manual: Explicit zoom factor (e.g. 0.75, 0.8, 0.9, 1.0, 1.1).
+     * ========================================================================
+     */
+
+    /**
+     * Retrieves the configured display scale mode ('auto', '0.75', '0.8', etc.)
+     * @returns {string} Configured display scale value
+     */
+    getDisplayScale() {
+        return this._displayScale;
+    }
+
+    /**
+     * Configures global interface display scaling and applies CSS zoom.
+     * @param {string|number} scale - Scale factor or 'auto' for responsive 1080p fit
+     * @param {boolean} [save=true] - Persist preference to persistent storage
+     */
+    setDisplayScale(scale, save = true) {
+        this._displayScale = String(scale);
+
+        if (save) {
+            storage.setItem('pref:displayScale', this._displayScale);
+        }
+
+        this._applyDisplayScale();
+        eventBus.emit('displayScale:changed', { scale: this._displayScale });
+    }
+
+    /**
+     * ========================================================================
+     * Display Scaling Engine (Unified Across Desktop, Mobile & TV)
+     * ========================================================================
+     * Computes and applies full-bleed CSS zoom scaling to the application canvas.
+     * Supports:
+     * 1. Mobile Portrait: 750px base design width scaled proportionally down to MIN_SCALE (0.15)
+     *    and multiplied by the user's Display Scale option. Stamping data-litefin-portrait
+     *    and data-litefin-scaled for mobile navigation and layout adaptations.
+     * 2. Mobile Landscape: 1600px base design width scaled proportionally and multiplied
+     *    by the user's Display Scale option.
+     * 3. Desktop / Web Wide: Fits 1080p canvas with auto scale or user manual scale factor.
+     * 4. Dedicated TV: 1:1 unscaled framebuffer by default or user manual scale factor.
+     *
+     * Counter-expands root and container bounds (--litefin-app-w and --litefin-app-h)
+     * so that fixed and backdrop elements span 100% of the viewport with zero letterboxing.
+     * @private
+     */
+    _applyDisplayScale() {
+        if (typeof document === 'undefined' || typeof window === 'undefined') return;
+
+        const root = document.documentElement;
+        const appEl = document.getElementById('app');
+        if (!root) return;
+
+        // Dedicated television environments run at fixed 1080p framebuffer
+        const isNativeTv =
+            platformInfo.isTizen ||
+            platformInfo.isWebOS ||
+            (platformInfo.isAndroid && Boolean(window.LitefinAndroid?.isTv?.()));
+
+        // Resolve user display scale multiplier from settings ('auto' => 1.0, '0.8' => 0.8, etc.)
+        const userMultiplier = this._displayScale === 'auto' ? 1.0 : (parseFloat(this._displayScale) || 1.0);
+
+        if (isNativeTv) {
+            // Television panels run natively at 1:1 scale unless user sets manual factor
+            const tvScale = userMultiplier;
+            if (Math.abs(tvScale - 1.0) < 0.02) {
+                root.style.removeProperty('zoom');
+                root.removeAttribute('data-display-scale');
+            } else {
+                root.style.setProperty('zoom', String(tvScale));
+                root.setAttribute('data-display-scale', '1');
+            }
+            root.removeAttribute('data-litefin-portrait');
+            root.removeAttribute('data-litefin-scaled');
+            root.style.removeProperty('--litefin-app-w');
+            root.style.removeProperty('--litefin-app-h');
+            if (appEl) {
+                appEl.style.removeProperty('width');
+                appEl.style.removeProperty('height');
+            }
+            return;
+        }
+
+        // Detect touch capability to stamp touch indicators across platforms
+        const hasTouch =
+            platformInfo.isAndroid ||
+            'ontouchstart' in window ||
+            (typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0);
+        if (hasTouch) {
+            root.setAttribute('data-litefin-touch', '1');
+        }
+
+        const winW = window.innerWidth || 1920;
+        const winH = window.innerHeight || 1080;
+        const isPortrait = winH > winW;
+        const isAndroidMobile = platformInfo.isAndroid && !platformInfo.isAndroidTv;
+        const isNarrowViewport = winW <= 1000;
+        const isMobileMode = isAndroidMobile || isPortrait || isNarrowViewport;
+
+        const MIN_SCALE = 0.15;
+        const MAX_SCALE = 2.0;
+
+        if (isPortrait) {
+            // ================================================================
+            // 1. Mobile Portrait UI Scaling Mode
+            // ================================================================
+            // Stamp portrait marker attributes for mobile nav and vertical CSS layouts
+            const hadPortrait = root.hasAttribute('data-litefin-portrait');
+            root.setAttribute('data-litefin-portrait', '1');
+            root.setAttribute('data-litefin-scaled', '1');
+            if (!hadPortrait) {
+                eventBus.emit('viewport:orientationChange', { isPortrait: true });
+            }
+
+            const PORTRAIT_DESIGN_WIDTH = 750;
+            // Proportional base scale to fit 750px portrait layout into current window width
+            const baseScale = Math.min(1.0, Math.max(MIN_SCALE, winW / PORTRAIT_DESIGN_WIDTH));
+            // Apply user display scale multiplier from settings
+            const finalScale = Math.min(
+                MAX_SCALE,
+                Math.max(MIN_SCALE, Math.round(baseScale * userMultiplier * 1000) / 1000)
+            );
+
+            // Compute counter-expanded virtual bounds for full-bleed mobile display
+            const designW = `${Math.round(winW / finalScale)}px`;
+            const designH = `${Math.round(winH / finalScale)}px`;
+
+            root.style.setProperty('zoom', String(finalScale));
+            root.setAttribute('data-display-scale', '1');
+            root.style.setProperty('--litefin-app-w', designW);
+            root.style.setProperty('--litefin-app-h', designH);
+
+            if (appEl) {
+                appEl.style.width = designW;
+                appEl.style.height = designH;
+            }
+
+            log.debug(
+                `Portrait scale applied: final=${finalScale.toFixed(3)} (base=${baseScale.toFixed(3)} x user=${userMultiplier}) [${winW}x${winH}]`
+            );
+            return;
+        }
+
+        // Viewport is landscape: remove portrait marker if previously set
+        if (root.hasAttribute('data-litefin-portrait')) {
+            root.removeAttribute('data-litefin-portrait');
+            eventBus.emit('viewport:orientationChange', { isPortrait: false });
+        }
+
+        if (isMobileMode) {
+            // ================================================================
+            // 2. Mobile / Tablet Landscape UI Scaling Mode
+            // ================================================================
+            const LANDSCAPE_DESIGN_WIDTH = 1600;
+            // Base scale to fit landscape mobile canvas into physical width
+            const baseScale = Math.min(1.0, Math.max(MIN_SCALE, winW / LANDSCAPE_DESIGN_WIDTH));
+            // Multiply by user display scale preference
+            const finalScale = Math.min(
+                MAX_SCALE,
+                Math.max(MIN_SCALE, Math.round(baseScale * userMultiplier * 1000) / 1000)
+            );
+
+            if (finalScale >= 1.0 && this._displayScale === 'auto' && !isAndroidMobile) {
+                // Wide landscape screen at 100% scale
+                root.style.removeProperty('zoom');
+                root.removeAttribute('data-litefin-scaled');
+                root.removeAttribute('data-display-scale');
+                root.style.removeProperty('--litefin-app-w');
+                root.style.removeProperty('--litefin-app-h');
+                if (appEl) {
+                    appEl.style.removeProperty('width');
+                    appEl.style.removeProperty('height');
+                }
+            } else {
+                const designW = `${Math.round(winW / finalScale)}px`;
+                const designH = `${Math.round(winH / finalScale)}px`;
+
+                root.style.setProperty('zoom', String(finalScale));
+                root.setAttribute('data-litefin-scaled', '1');
+                root.setAttribute('data-display-scale', '1');
+                root.style.setProperty('--litefin-app-w', designW);
+                root.style.setProperty('--litefin-app-h', designH);
+
+                if (appEl) {
+                    appEl.style.width = designW;
+                    appEl.style.height = designH;
+                }
+            }
+
+            log.debug(
+                `Landscape mobile scale applied: final=${finalScale.toFixed(3)} (base=${baseScale.toFixed(3)} x user=${userMultiplier}) [${winW}x${winH}]`
+            );
+            return;
+        }
+
+        // ====================================================================
+        // 3. Desktop / Web Wide Layout Scaling Mode
+        // ====================================================================
+        root.removeAttribute('data-litefin-scaled');
+        root.style.removeProperty('--litefin-app-w');
+        root.style.removeProperty('--litefin-app-h');
+        if (appEl) {
+            appEl.style.removeProperty('width');
+            appEl.style.removeProperty('height');
+        }
+
+        let desktopEffectiveScale = 1.0;
+        if (this._displayScale === 'auto') {
+            const widthScale = winW / 1920;
+            const heightScale = winH / 1080;
+            const autoScale = Math.min(widthScale, heightScale);
+            desktopEffectiveScale = Math.min(1.0, Math.max(0.6, Math.round(autoScale * 100) / 100));
+        } else {
+            desktopEffectiveScale = userMultiplier;
+        }
+
+        if (Math.abs(desktopEffectiveScale - 1.0) < 0.02) {
+            root.style.removeProperty('zoom');
+            root.removeAttribute('data-display-scale');
+        } else {
+            root.style.setProperty('zoom', String(desktopEffectiveScale));
+            root.setAttribute('data-display-scale', '1');
+        }
+
+        log.info(`Desktop display scale applied: mode=${this._displayScale}, effective=${desktopEffectiveScale}`);
     }
 
     /**

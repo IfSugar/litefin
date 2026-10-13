@@ -13,6 +13,7 @@ import SeerrRequestModal from '../components/SeerrRequestModal.js';
 import { RichMetadataTable } from '../components/RichMetadataTable.js';
 import { api } from '../api/ApiClient.js';
 import { seerr } from '../api/seerrClient.js';
+import { renderWatchProviders, watchProviderRegion } from '../utils/WatchProviders.js';
 import { SEERR_STATUS, seerrStatusKey } from '../api/seerrNormalize.js';
 import BackdropManager from '../utils/BackdropManager.js';
 import { focusManager } from '../ui/FocusManager.js';
@@ -101,13 +102,15 @@ class SeerrDetailsPage extends Page {
                                     <span class="action-btn-tooltip-text" id="action-tooltip-text"></span>
                                 </div>
                             </section>
+                            <div id="watch-providers-container" class="hidden"></div>
                             <div class="details-overview">
                                 <div class="overview-text ${getOverviewClampClass()}" id="overview-text" tabindex="-1"></div>
                                 <button class="see-more-btn" tabindex="0" data-i18n="${shouldAlwaysShowOverviewButton() ? 'DetailedView' : 'ShowMore'}">${getOverviewButtonText()}</button>
                             </div>
                         </div>
                     </div>
-                    <div id="rich-meta-container" class="media-row hidden">
+                    <!-- Note: NOT marked as media-row to prevent aggressive top-snapping on focus -->
+                    <div id="rich-meta-container" class="hidden">
                         <div class="details-rich-meta" id="rich-meta"></div>
                     </div>
 
@@ -245,6 +248,20 @@ class SeerrDetailsPage extends Page {
     }
 
     _renderDetails() {
+        const providersContainer = this.$('#watch-providers-container');
+        if (providersContainer) {
+            const showProviders = storage.getItem('pref:showWatchProviders') === 'true';
+            providersContainer.classList.toggle('hidden', !showProviders);
+            providersContainer.innerHTML = showProviders
+                ? renderWatchProviders(
+                      this._item.WatchProviders,
+                      watchProviderRegion(storage.getItem('pref:watchProviderRegion')),
+                      (key) => i18n.t(key),
+                      i18n.currentLang
+                  )
+                : '';
+        }
+
         const item = this._item;
         const runtimeMinutes = item.RunTimeTicks ? Math.round(item.RunTimeTicks / 600000000) : 0;
         const runtime = runtimeMinutes
@@ -330,9 +347,10 @@ class SeerrDetailsPage extends Page {
 
         if (item._backdropUrl) BackdropManager.applyBackdrop(this.$('#backdrop'), item._backdropUrl);
 
+        // Defaults to 'genres-studios-writers' to avoid hundreds of tag chips on low-end TV chips
         const richMetadataStyle =
             storage.getItem('pref:richMetadataStyle') ||
-            (storage.getItem('pref:hideRichMetadata') === 'true' ? 'none' : 'all');
+            (storage.getItem('pref:hideRichMetadata') === 'true' ? 'none' : 'genres-studios-writers');
         const isHidden = richMetadataStyle === 'none';
 
         this._richMetaTable = new RichMetadataTable({
@@ -524,7 +542,7 @@ class SeerrDetailsPage extends Page {
 
     _showRemoteTrailerPlayer() {
         themeSongPlayer.stopInstant();
-        const mode = PlayerSettings.get('trailerPlaybackMode') || 'internal_proxy';
+        const mode = PlayerSettings.get('trailerPlaybackMode');
         const trailers = (this._item && this._item.RemoteTrailers) || [];
         if (!trailers.length) return;
 
@@ -1027,8 +1045,10 @@ class SeerrDetailsPage extends Page {
         }
 
         if (hasRichMeta) {
+            // Target the table element directly to avoid querying or filtering inactive chips on D-pad moves
             updateSection('details-rich-meta', this.$('#rich-meta-container'), {
                 orientation: 'vertical',
+                selector: '#rich-meta',
                 leaveUp: hasOverviewAction ? 'seerr-details-overview' : (hasAction ? 'seerr-details-actions' : null),
                 leaveDown: getDownFromRichMeta(),
                 leaveLeft: 'sidebar',
@@ -1305,6 +1325,7 @@ class SeerrDetailsPage extends Page {
     }
 
     destroy() {
+
         if (this._tooltipTimers) {
             this._tooltipTimers.forEach((t) => clearTimeout(t));
             this._tooltipTimers = null;

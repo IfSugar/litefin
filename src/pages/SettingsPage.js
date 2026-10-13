@@ -28,14 +28,16 @@ import { pluginManager } from '../plugins/PluginManager.js';
 import { platformInfo } from '../utils/PlatformInfo.js';
 import { homeLayoutManager } from '../utils/HomeLayoutManager.js';
 import { sidebarLayoutManager } from '../utils/SidebarLayoutManager.js';
+import { AUDIO_FALLBACK_SLOTS, isAudioFallbackSelect } from '../utils/AudioFallbackConfig.js';
 import { eventBus } from '../core/EventBus.js';
 import { versionChecker } from '../utils/VersionChecker.js';
-import { settingsIcons, setIconStyle, getSupportedStyles, getLibraryIcon } from '../utils/Icons.js';
+import { settingsIcons, setIconStyle, getSupportedStyles } from '../utils/Icons.js';
 import { toast } from '../ui/Toast.js';
 import { pinManager } from '../utils/PinManager.js';
 import { pinDialog } from '../ui/PinDialog.js';
 import { seerr } from '../api/seerrClient.js';
 import { escapeHtml } from '../utils/Utils.js';
+import { watchProviderRegion, watchProviderRegionName } from '../utils/WatchProviders.js';
 import CardRenderer from '../utils/CardRenderer.js';
 
 const log = logger.create('SettingsPage');
@@ -54,6 +56,13 @@ class SettingsPage extends Page {
 
         // Preference Languages (Audio/Subtitle) - fetched from server
         this.prefLanguages = cachedCultures || [{ value: 'Default', label: i18n.t('Default') }];
+
+        // Mobile portrait 2-page navigation state
+        // When false, the full category list is displayed; when true, the active tab details are shown.
+        this._mobileDetailOpen = false;
+
+        // Bound viewport resize listener for orientation transitions
+        this._onResize = null;
     }
 
     async onInit() {
@@ -91,71 +100,112 @@ class SettingsPage extends Page {
         this.markReady();
     }
 
-    render() {
+    /**
+     * Determines whether the settings interface is viewed in a portrait orientation.
+     * Aligns directly with CSS @media (orientation: portrait) rules.
+     * @returns {boolean} True if in portrait mode
+     * @private
+     */
+    _isPortraitMode() {
+        if (typeof window === 'undefined') return false;
+
+        // Priority 1: Direct portrait marker attribute applied by display scaler
+        if (typeof document !== 'undefined' && document.documentElement?.hasAttribute('data-litefin-portrait')) {
+            return true;
+        }
+
+        // Priority 2: CSS orientation media query and viewport dimension check
+        const isPortraitMedia = window.matchMedia && window.matchMedia('(orientation: portrait)').matches;
+        const isVerticalDim = window.innerHeight > window.innerWidth;
+
+        return Boolean(isPortraitMedia || isVerticalDim);
+    }
+
+    /**
+     * Assembles setting category tab descriptors with localized titles, descriptions, and icons.
+     * In mobile portrait, the descriptive summaries are rendered directly under each category title.
+     * @returns {Array<Object>} List of setting tab configurations
+     * @private
+     */
+    _getTabs() {
+        // Base category catalogue spanning core visual and playback subsystems
         const tabs = [
             {
                 id: 'appearance',
                 label: i18n.t('Display'),
+                desc: i18n.t('SettingsDescAppearance') || 'Themes, accent colors, background styles, and visuals',
                 icon: settingsIcons.appearance
             },
             {
                 id: 'layout',
                 label: i18n.t('Layout') || 'Layout',
+                desc: i18n.t('SettingsDescLayout') || 'Display density, media cards, poster styles, and scaling',
                 icon: settingsIcons.layout
             },
             {
                 id: 'home',
                 label: i18n.t('Home') || 'Home',
+                desc: i18n.t('SettingsDescHome') || 'Hero carousel, section ordering, and row visibility',
                 icon: settingsIcons.home
             },
             {
                 id: 'sidebar',
                 label: i18n.t('Sidebar') || 'Sidebar',
+                desc: i18n.t('SettingsDescSidebar') || 'Sidebar display modes, collapsed behavior, and shortcuts',
                 icon: settingsIcons.sidebar
             },
             {
                 id: 'player',
                 label: i18n.t('TitlePlayback'),
+                desc: i18n.t('SettingsDescPlayer') || 'Video player engine, playback quality, and audio tracks',
                 icon: settingsIcons.player
             },
             {
                 id: 'subtitles',
                 label: i18n.t('Subtitles'),
+                desc: i18n.t('SettingsDescSubtitles') || 'Subtitle appearance, size, styling, and language rules',
                 icon: settingsIcons.subtitles
             },
             {
                 id: 'performance',
                 label: i18n.t('Performance') || 'Performance',
+                desc: i18n.t('SettingsDescPerformance') || 'Rendering optimization, animations, and image cache',
                 icon: settingsIcons.performance
             },
             {
                 id: 'controls',
                 label: i18n.t('Controls') || 'Controls',
+                desc: i18n.t('SettingsDescControls') || 'Keyboard bindings, remote shortcuts, and gestures',
                 icon: settingsIcons.controls
             },
             {
                 id: 'plugins',
                 label: i18n.t('Plugins'),
+                desc: i18n.t('SettingsDescPlugins') || 'Seerr media discovery and external extensions',
                 icon: settingsIcons.plugins
             },
             {
                 id: 'account',
                 label: i18n.t('Account'),
+                desc: i18n.t('SettingsDescAccount') || 'Active profile, server connections, and credentials',
                 icon: settingsIcons.account
             },
             {
                 id: 'backup',
                 label: i18n.t('BackupRestore') || 'Backup & Restore',
+                desc: i18n.t('SettingsDescBackup') || 'Export and restore your app configuration and preferences',
                 icon: settingsIcons.backup
             },
             {
                 id: 'about',
                 label: i18n.t('About'),
+                desc: i18n.t('SettingsDescAbout') || 'Version information, device details, and open-source licenses',
                 icon: settingsIcons.about
             },
             {
                 id: 'debug',
                 label: i18n.t('Debug'),
+                desc: i18n.t('SettingsDescDebug') || 'Diagnostic logs, storage usage breakdown, and testing tools',
                 icon: settingsIcons.debug
             }
         ];
@@ -167,11 +217,12 @@ class SettingsPage extends Page {
         const user = auth.getCurrentUser();
         const isAdmin = Boolean(user?.Policy?.IsAdministrator);
         if (isAdmin) {
-            // Position the Libraries management tab before backup
+            // Position the Libraries management tab right before backup
             const backupIndex = tabs.findIndex((t) => t.id === 'backup');
             const libraryTab = {
                 id: 'libraries',
                 label: i18n.t('Libraries') || 'Libraries',
+                desc: i18n.t('SettingsDescLibraries') || 'Server media library scanning, refreshes, and metadata',
                 icon: settingsIcons.libraries
             };
             if (backupIndex !== -1) {
@@ -181,33 +232,57 @@ class SettingsPage extends Page {
             }
         }
 
+        return tabs;
+    }
+
+    render() {
+        const tabs = this._getTabs();
+
         return `
             <div class="page settings-page">
-
-                
                 <!-- Split View Container -->
                 <div class="settings-split-view">
-                    <!-- Sidebar -->
+                    <!-- Sidebar (Screen 1: Category Selection in Portrait) -->
                     <aside class="settings-sidebar" id="settings-sidebar">
                         <div class="settings-sidebar-header">
                             <h2 data-i18n="Settings">${i18n.t('Settings')}</h2>
+                            <p class="settings-sidebar-subtitle" data-i18n="SettingsPreferencesSubtitle">${i18n.t('SettingsPreferencesSubtitle') || 'Preferences & Configuration'}</p>
                         </div>
+
+                        <!-- Category Navigation Cards -->
+                        <div class="settings-menu-list">
                         ${tabs
                 .map(
                     (tab) => `
                             <button class="settings-menu-btn ${this.activeTab === tab.id ? 'active' : ''}" 
                                     data-tab="${tab.id}" tabindex="0">
                                 <span class="menu-icon">${tab.icon}</span>
-                                <span class="menu-label">${tab.label}</span>
+                                <div class="menu-text-wrap">
+                                    <span class="menu-label">${tab.label}</span>
+                                    <span class="menu-desc">${tab.desc}</span>
+                                </div>
+                                <span class="menu-chevron" aria-hidden="true">
+                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M9 18l6-6-6-6"/>
+                                    </svg>
+                                </span>
                             </button>
                         `
                 )
                 .join('')}
+                            <!-- Bottom scrolling buffer so mobile navigation bar never obstructs the last category -->
+                            <div class="settings-bottom-spacer" aria-hidden="true"></div>
+                        </div>
                     </aside>
 
-                    <!-- Content Panel -->
+                    <!-- Content Panel (Screen 2: Tab Detail in Portrait) -->
                     <main class="settings-content-panel page-content" id="settings-content-panel">
-                        ${this._renderActiveTabContent()}
+                        <!-- Tab Settings Body -->
+                        <div class="settings-tab-body" id="settings-tab-body">
+                            ${this._renderActiveTabContent()}
+                            <!-- Bottom scrolling buffer so mobile navigation bar never obstructs the last setting control -->
+                            <div class="settings-bottom-spacer" aria-hidden="true"></div>
+                        </div>
                     </main>
                 </div>
                 
@@ -519,6 +594,62 @@ class SettingsPage extends Page {
 
                 <div class="setting-item">
                     <div class="setting-label">
+                        <span class="setting-name" data-i18n="DisplayScale">${i18n.t('DisplayScale') || 'Display Scale'}</span>
+                        <span class="setting-description" data-i18n="DisplayScaleDescription">${i18n.t('DisplayScaleDescription') || 'Adjust overall interface scaling. "Auto" dynamically fits the layout to 1080p canvas proportions.'}</span>
+                    </div>
+                    <div class="setting-control">
+                        ${this._renderDropdown(
+            'display-scale-select',
+            [
+                { value: 'auto', label: i18n.t('DisplayScaleAuto') || 'Auto (Fit 1080p)' },
+                { value: '0.67', label: '67%' },
+                { value: '0.75', label: '75%' },
+                { value: '0.8', label: '80%' },
+                { value: '0.85', label: '85%' },
+                { value: '0.9', label: '90%' },
+                { value: '0.95', label: '95%' },
+                { value: '1', label: '100% (Native / TV)' },
+                { value: '1.05', label: '105%' },
+                { value: '1.1', label: '110%' },
+                { value: '1.15', label: '115%' },
+                { value: '1.2', label: '120%' }
+            ],
+            layoutManager.getDisplayScale().toString()
+        )}
+                    </div>
+                </div>
+
+
+                <div class="setting-item">
+                    <div class="setting-label">
+                        <span class="setting-name" data-i18n="TextScale">${i18n.t('TextScale') || 'Text scale'}</span>
+                        <span class="setting-description" data-i18n="TextScaleDescription">${i18n.t('TextScaleDescription') || 'Adjust the size of all text and UI elements proportionally'}</span>
+                    </div>
+                    <div class="setting-control">
+                        ${this._renderDropdown(
+            'text-scale-select',
+            [
+                { value: '0.8', label: '80%' },
+                { value: '0.85', label: '85%' },
+                { value: '0.9', label: '90%' },
+                { value: '0.95', label: '95%' },
+                { value: '1', label: 'Normal (100%)' },
+                { value: '1.05', label: '105%' },
+                { value: '1.1', label: '110%' },
+                { value: '1.15', label: '115%' },
+                { value: '1.2', label: '120%' },
+                { value: '1.25', label: '125%' },
+                { value: '1.3', label: '130%' },
+                { value: '1.35', label: '135%' },
+                { value: '1.4', label: '140%' }
+            ],
+            layoutManager.getTextScale().toString()
+        )}
+                    </div>
+                </div>
+
+                <div class="setting-item">
+                    <div class="setting-label">
                         <span class="setting-name" data-i18n="LayoutDirection">${i18n.t('LayoutDirection')}</span>
                         <span class="setting-description" data-i18n="LayoutDirectionDescription">${i18n.t('LayoutDirectionDescription')}</span>
                     </div>
@@ -575,7 +706,8 @@ class SettingsPage extends Page {
                     label: i18n.t('FontZenKakuGothicNew') || 'Zen Kaku Gothic New'
                 },
                 { value: 'opendyslexic', label: i18n.t('FontOpenDyslexic') || 'OpenDyslexic' },
-                { value: 'atkinson', label: i18n.t('FontAtkinson') || 'Atkinson Hyperlegible' }
+                { value: 'atkinson', label: i18n.t('FontAtkinson') || 'Atkinson Hyperlegible' },
+                { value: 'manrope', label: i18n.t('FontManrope') || 'Manrope' }
             ],
             layoutManager.getUiFont()
         )}
@@ -592,34 +724,6 @@ class SettingsPage extends Page {
             'jellyfin-fallback-font-select',
             [],
             storage.getItem('pref:jellyfinFallbackFont') || ''
-        )}
-                    </div>
-                </div>
-
-                <div class="setting-item">
-                    <div class="setting-label">
-                        <span class="setting-name" data-i18n="TextScale">${i18n.t('TextScale') || 'Text scale'}</span>
-                        <span class="setting-description" data-i18n="TextScaleDescription">${i18n.t('TextScaleDescription') || 'Adjust the size of all text and UI elements proportionally'}</span>
-                    </div>
-                    <div class="setting-control">
-                        ${this._renderDropdown(
-            'text-scale-select',
-            [
-                { value: '0.8', label: '80%' },
-                { value: '0.85', label: '85%' },
-                { value: '0.9', label: '90%' },
-                { value: '0.95', label: '95%' },
-                { value: '1', label: 'Normal (100%)' },
-                { value: '1.05', label: '105%' },
-                { value: '1.1', label: '110%' },
-                { value: '1.15', label: '115%' },
-                { value: '1.2', label: '120%' },
-                { value: '1.25', label: '125%' },
-                { value: '1.3', label: '130%' },
-                { value: '1.35', label: '135%' },
-                { value: '1.4', label: '140%' }
-            ],
-            layoutManager.getTextScale().toString()
         )}
                     </div>
                 </div>
@@ -1503,7 +1607,7 @@ class SettingsPage extends Page {
         )}
                     </div>
                 </div>
-             
+
                 <div class="setting-item">
                     <div class="setting-label">
                         <span class="setting-name" data-i18n="OsdLayout">${i18n.t('OsdLayout') || 'OSD Layout'}</span>
@@ -1514,7 +1618,8 @@ class SettingsPage extends Page {
             'osd-layout-select',
             [
                 { value: 'left', label: i18n.t('OsdLayoutLeft') || 'Left Aligned (Default)' },
-                { value: 'centered', label: i18n.t('OsdLayoutCentered') || 'Centered' }
+                { value: 'centered', label: i18n.t('OsdLayoutCentered') || 'Centered' },
+                { value: 'hidden', label: i18n.t('OsdLayoutHidden') || 'Stealth / Anti-Spoiler (Hold Down to Reveal)' }
             ],
             PlayerSettings.get('osdLayout') || 'left'
         )}
@@ -1637,6 +1742,25 @@ class SettingsPage extends Page {
         )}
                     </div>
                 </div>
+
+                <!-- Alphabet Selector Placement preference for Library view -->
+                <div class="setting-item">
+                    <div class="setting-label">
+                        <span class="setting-name" data-i18n="LabelAlphaPickerPosition">${i18n.t('LabelAlphaPickerPosition') || 'Alphabet Selector Position'}</span>
+                        <span class="setting-description" data-i18n="AlphaPickerPositionDescription">${i18n.t('AlphaPickerPositionDescription') || 'Choose the layout and placement of the alphabet quick-jump selector in library views.'}</span>
+                    </div>
+                    <div class="setting-control">
+                        ${this._renderDropdown(
+            'alpha-picker-position-select',
+            [
+                { value: 'top', label: i18n.t('OptionAlphaPickerTop') || 'Top (Horizontal)' },
+                { value: 'right', label: i18n.t('OptionAlphaPickerRight') || 'Right Side (Vertical)' }
+            ],
+            layoutManager.getAlphaPickerPosition() || 'top'
+        )}
+                    </div>
+                </div>
+             
 
                 <!-- Player OSD Section -->
                 <h3 class="setting-section-title" data-i18n="PlayerOSD">${i18n.t('PlayerOSD')}</h3>
@@ -1874,7 +1998,8 @@ class SettingsPage extends Page {
                         <span class="setting-description" data-i18n="SwapEpisodeTitlesDescription">${i18n.t('SwapEpisodeTitlesDescription') || 'Display the episode name as the card title and the show name as the subtitle.'}</span>
                     </div>
                     <div class="setting-control">
-                         <button class="toggle-switch ${storage.getItem('pref:swapEpisodeTitles') === 'true' ? 'active' : ''}" 
+                         <!-- Toggle switch for swapping episode title & subtitle (defaults to enabled/active) -->
+                         <button class="toggle-switch ${storage.getItem('pref:swapEpisodeTitles') !== 'false' ? 'active' : ''}" 
                                  id="toggle-swap-episode-titles" 
                                  tabindex="0">
                         </button>
@@ -2280,24 +2405,28 @@ class SettingsPage extends Page {
                 'rich-metadata-select',
                 [
                     { value: 'all', label: i18n.t('OptionRichMetadataAll') || 'Show Full Rich Metadata' },
+                    // Option to hide tags and directors while showing genres, studios, and writers
                     {
                         value: 'genres-studios-writers',
                         label:
-                            i18n.t('OptionRichMetadataGenresStudiosWriters') ||
-                            'Show Genres, Studios & Writers'
+                            i18n.t('OptionRichMetadataHideTagsOnly') ||
+                            'Hide Tags Only'
                     },
+                    // Option to hide tags and studios while showing genres and writers
                     {
                         value: 'genres-writers',
-                        label: i18n.t('OptionRichMetadataGenresWriters') || 'Show Genres & Writers'
+                        label: i18n.t('OptionRichMetadataHideTagsAndStudios') || 'Hide Tags and Studios'
                     },
+                    // Option to display genres alone and suppress other metadata sections
                     {
                         value: 'genres-only',
-                        label: i18n.t('OptionRichMetadataGenresOnly') || 'Show Only Genres'
+                        label: i18n.t('OptionRichMetadataShowGenresOnly') || 'Show Genres Only'
                     },
+                    // Option to hide all rich metadata completely
                     { value: 'none', label: i18n.t('OptionRichMetadataNone') || 'Hide All' }
                 ],
                 storage.getItem('pref:richMetadataStyle') ||
-                (storage.getItem('pref:hideRichMetadata') === 'true' ? 'none' : 'all')
+                (storage.getItem('pref:hideRichMetadata') === 'true' ? 'none' : 'genres-studios-writers')
             )}
                     </div>
                 </div>
@@ -2351,6 +2480,52 @@ class SettingsPage extends Page {
                                 id="toggle-hide-similar-section" 
                                 tabindex="0">
                         </button>
+                    </div>
+                </div>
+
+                <div class="setting-item">
+                    <div class="setting-label">
+                        <span class="setting-name">${i18n.t('ShowWatchProviders')}</span>
+                        <span class="setting-description">${i18n.t('ShowWatchProvidersDescription')}</span>
+                    </div>
+                    <div class="setting-control">
+                        <button class="toggle-switch ${storage.getItem('pref:showWatchProviders') === 'true' ? 'active' : ''}"
+                            id="toggle-show-watch-providers" tabindex="0" role="switch"
+                            aria-label="${i18n.t('ShowWatchProviders')}"
+                            aria-checked="${storage.getItem('pref:showWatchProviders') === 'true'}"></button>
+                    </div>
+                </div>
+
+                <h3 class="setting-section-title" data-i18n="Seerr">${i18n.t('Seerr') || 'Seerr'}</h3>
+
+                <!-- Seerr Recommendations row on details pages (enabled by default) -->
+                <div class="setting-item">
+                    <div class="setting-label">
+                        <span class="setting-name" data-i18n="SeerrRecommendations">${i18n.t('SeerrRecommendations') || 'Seerr Recommendations'}</span>
+                        <span class="setting-description" data-i18n="SeerrRecommendationsDescription">${i18n.t('SeerrRecommendationsDescription') || 'Show recommendations from Seerr on media details pages.'}</span>
+                    </div>
+                    <div class="setting-control">
+                        <button class="toggle-switch ${storage.getItem('pref:SeerrRecommendations') !== 'false' ? 'active' : ''}"
+                            id="toggle-show-seerr-recommendations" tabindex="0" role="switch"
+                            aria-label="${i18n.t('SeerrRecommendations') || 'Seerr Recommendations'}"
+                            aria-checked="${storage.getItem('pref:SeerrRecommendations') !== 'false'}"></button>
+                    </div>
+                </div>
+
+                <div class="setting-item">
+                    <div class="setting-label">
+                        <span class="setting-name">${i18n.t('WatchProvidersRegion')}</span>
+                        <span class="setting-description">${i18n.t('WatchProvidersRegionDescription')}</span>
+                    </div>
+                    <div class="setting-control">
+                        ${this._renderDropdown(
+                'watch-provider-region-select',
+                [watchProviderRegion(storage.getItem('pref:watchProviderRegion'))].map((value) => ({
+                    value,
+                    label: watchProviderRegionName(value, i18n.currentLang)
+                })),
+                watchProviderRegion(storage.getItem('pref:watchProviderRegion'))
+            )}
                     </div>
                 </div>
             </div>
@@ -2486,6 +2661,20 @@ class SettingsPage extends Page {
                          <button class="toggle-switch ${storage.getItem('pref:useTrendingCollectionName') === 'true' ? 'active' : ''}" 
                                  id="toggle-use-trending-collection-name" 
                                  tabindex="0">
+                        </button>
+                    </div>
+                </div>
+
+                <div class="setting-item" id="setting-custom-collections" style="display: ${storage.getItem('pref:enableCollectionRows') === 'true' ? '' : 'none'}">
+                    <div class="setting-label">
+                        <span class="setting-name" data-i18n="LabelCustomCollectionRows">${i18n.t('LabelCustomCollectionRows')}</span>
+                        <span class="setting-description" data-i18n="LabelCustomCollectionRowsDesc">${i18n.t('LabelCustomCollectionRowsDesc')}</span>
+                    </div>
+                    <div class="setting-control">
+                        <button class="setting-action-btn select-btn" id="btn-manage-custom-collections" tabindex="0" data-focusable="true">
+                            <span class="btn-label" id="custom-collections-count-label">
+                                ${this._getCustomCollectionsLabel()}
+                            </span>
                         </button>
                     </div>
                 </div>
@@ -3072,6 +3261,36 @@ class SettingsPage extends Page {
                     </div>
                 </div>
 
+                <!-- Bottom Navigation Bar Color Section (Mobile Portrait) -->
+                <div class="setting-item">
+                    <div class="setting-label">
+                        <span class="setting-name" data-i18n="LabelBottomNavBarColor">${i18n.t('LabelBottomNavBarColor') || 'Bottom Nav Bar Color'}</span>
+                        <span class="setting-description" data-i18n="BottomNavBarColorDescription">${i18n.t('BottomNavBarColorDescription') || 'Choose the background transparency or style for the mobile bottom navigation bar.'}</span>
+                    </div>
+                    <div class="setting-control">
+                        ${this._renderDropdown(
+            'bottom-nav-bar-color-select',
+            [
+                { value: 'theme', label: i18n.t('OptionCollapsedSidebarColorTheme') || 'Follow Theme' },
+                { value: 'black', label: i18n.t('OptionCollapsedSidebarColorBlack') || 'Black' },
+                {
+                    value: 'semi',
+                    label: i18n.t('OptionCollapsedSidebarColorSemi') || 'Semi-transparent'
+                },
+                {
+                    value: 'tinted-semi',
+                    label: i18n.t('OptionCollapsedSidebarColorTintedSemi') || 'Tinted Semi-transparent'
+                },
+                {
+                    value: 'transparent',
+                    label: i18n.t('OptionCollapsedSidebarColorTransparent') || 'Transparent'
+                }
+            ],
+            storage.getItem('pref:bottomNavBarColor') || storage.getItem('pref:collapsedSidebarColor') || 'theme'
+        )}
+                    </div>
+                </div>
+
                 <!-- Litefin Logo Section -->
                 <div class="setting-item">
                     <div class="setting-label">
@@ -3192,6 +3411,8 @@ class SettingsPage extends Page {
         const currentBackend = PlayerSettings.get('playerBackend') || 'auto';
         const skipForward = PlayerSettings.get('skipForwardLength') || 30000;
         const skipBack = PlayerSettings.get('skipBackLength') || 10000;
+        // Resume rewind setting: 0 = disabled (None), 5000 = 5s, 10000 = 10s, etc.
+        const resumeRewind = PlayerSettings.get('resumeRewindLength') || 0;
         const currentAudioNormalization = PlayerSettings.get('audioNormalization') || 'TrackGain';
 
         const caps = getDeviceCapabilities();
@@ -3248,19 +3469,91 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${(() => {
-                const options = [
-                    { value: 'auto', label: i18n.t('AutoRecommended') },
-                    { value: 'html5', label: i18n.t('BackendWeb') }
-                ];
-                if (platformInfo.isTizen) {
-                    options.push({ value: 'avplay', label: i18n.t('BackendTizen') });
+                // Determine the highest-fidelity, native video backend recommended for the active platform
+                const recommendedBackend = typeof PlayerSettings.getRecommendedBackend === 'function'
+                    ? PlayerSettings.getRecommendedBackend()
+                    : (() => {
+                        if (platformInfo.isAndroid) return 'exoplayer';
+                        if (platformInfo.isTizen) return 'avplay';
+                        if (platformInfo.isWebOS) return 'webos';
+                        if ((platformInfo.isDesktop || platformInfo.isWeb) && platformInfo.hasWebCodecsSupport) return 'movi';
+                        return 'html5';
+                    })();
+
+                // Extract localized '(Recommended)' string from AutoRecommended translation across all 106 languages
+                const autoRec = i18n.t('AutoRecommended') || '';
+                const recMatch = autoRec.match(/\((.+?)\)|（(.+?)）/);
+                const recWord = (recMatch && (recMatch[1] || recMatch[2])) || 'Recommended';
+                const recSuffix = ` (${recWord})`;
+
+                // Assemble available options without the generic 'auto' option
+                const options = [];
+
+                // Native hardware backends
+                const hasExoBridge = typeof window !== 'undefined' && Boolean(
+                    window.LitefinExoPlayer ||
+                    window.LitefinAndroid ||
+                    window.__TAURI_INTERNALS__?.invoke ||
+                    window.__TAURI__?.core?.invoke
+                );
+                if (platformInfo.isAndroid && (hasExoBridge || platformInfo._platform === 'android')) {
+                    const base = i18n.t('BackendExoPlayer') || 'Media3 ExoPlayer (Android Native)';
+                    options.push({
+                        value: 'exoplayer',
+                        label: recommendedBackend === 'exoplayer' ? `${base}${recSuffix}` : base
+                    });
+                } else if (platformInfo.isTizen) {
+                    const base = i18n.t('BackendTizen') || 'Tizen Native (Avplay)';
+                    options.push({
+                        value: 'avplay',
+                        label: recommendedBackend === 'avplay' ? `${base}${recSuffix}` : base
+                    });
                 } else if (platformInfo.isWebOS) {
-                    options.push({ value: 'webos', label: i18n.t('BackendWebOS') });
+                    const base = i18n.t('BackendWebOS') || 'LG Native (webOS Player)';
+                    options.push({
+                        value: 'webos',
+                        label: recommendedBackend === 'webos' ? `${base}${recSuffix}` : base
+                    });
                 }
-                return this._renderDropdown('player-backend-select', options, currentBackend);
+
+                // WebCodecs hardware accelerated player (Movi)
+                // Excluded on television builds (Tizen and webOS) where Movi is replaced with a stub
+                if (platformInfo.hasWebCodecsSupport && !platformInfo.isTizen && !platformInfo.isWebOS) {
+                    const base = i18n.t('BackendMovi') || 'Movi Player (MKV/WebCodecs)';
+                    options.push({
+                        value: 'movi',
+                        label: recommendedBackend === 'movi' ? `${base}${recSuffix}` : base
+                    });
+                }
+
+                // Universal browser video backend (HTML5)
+                const html5Base = i18n.t('BackendWeb') || 'Web (HTML5 Player)';
+                options.push({
+                    value: 'html5',
+                    label: recommendedBackend === 'html5' ? `${html5Base}${recSuffix}` : html5Base
+                });
+
+                // If currently stored backend setting is 'movi' but WebCodecs is not supported or on TV builds,
+                // or 'exoplayer' without native bridge, fall back to 'html5'. If backend setting was legacy 'auto'
+                // or unconfigured or missing from available build options, re-select and bind directly to recommended.
+                const effectiveBackend = (currentBackend === 'movi' && (!platformInfo.hasWebCodecsSupport || platformInfo.isTizen || platformInfo.isWebOS))
+                    ? 'html5'
+                    : (currentBackend === 'exoplayer' && !hasExoBridge && !platformInfo.isAndroid)
+                        ? 'html5'
+                        : (currentBackend === 'auto' || !currentBackend || !options.some(o => o.value === currentBackend))
+                            ? recommendedBackend
+                            : currentBackend;
+
+                // Re-select and persist if user had previously selected or stored 'auto' or an unavailable backend
+                if (currentBackend === 'auto' || (currentBackend && currentBackend !== effectiveBackend && !options.some(o => o.value === currentBackend))) {
+                    PlayerSettings.set('playerBackend', effectiveBackend);
+                }
+
+                return this._renderDropdown('player-backend-select', options, effectiveBackend);
             })()}
                     </div>
                 </div>
+
 
                 <div class="setting-item">
                     <div class="setting-label">
@@ -3370,15 +3663,35 @@ class SettingsPage extends Page {
 
                 <div class="setting-item">
                     <div class="setting-label">
-                        <span class="setting-name" data-i18n="LabelAudioLanguagePreference">${i18n.t('LabelAudioLanguagePreference')}</span>
-                        <span class="setting-description" data-i18n="PreferredAudioLanguageDescription">${i18n.t('PreferredAudioLanguageDescription')}</span>
+                        <span class="setting-name" data-i18n="EnableSeekAcceleration">${i18n.t('EnableSeekAcceleration') || 'Accelerate seek speed'}</span>
+                        <span class="setting-description" data-i18n="EnableSeekAccelerationDescription">${i18n.t('EnableSeekAccelerationDescription') || 'Gradually increase seek speed (up to 10x) when holding directional buttons on the timeline.'}</span>
                     </div>
                     <div class="setting-control">
-                        ${this._renderDropdown(
-                'audio-lang-select',
-                [{ value: 'Default', label: i18n.t('Default') }, ...this.prefLanguages],
-                storage.getItem('pref:audioLang') || 'Default'
-            )}
+                        <button class="toggle-switch ${PlayerSettings.get('enableSeekAcceleration') ? 'active' : ''}"
+                                id="toggle-enable-seek-acceleration" tabindex="0"></button>
+                    </div>
+                </div>
+
+                <div class="setting-item">
+                    <div class="setting-label">
+                        <span class="setting-name" data-i18n="ResetSeekSpeedOnDirectionChange">${i18n.t('ResetSeekSpeedOnDirectionChange') || 'Reset seek speed on direction change'}</span>
+                        <span class="setting-description" data-i18n="ResetSeekSpeedOnDirectionChangeDescription">${i18n.t('ResetSeekSpeedOnDirectionChangeDescription') || 'Reset accelerated seek speed back to 1x when reversing direction during timeline scrubbing.'}</span>
+                    </div>
+                    <div class="setting-control">
+                        <button class="toggle-switch ${PlayerSettings.get('resetSeekSpeedOnDirectionChange') ? 'active' : ''}"
+                                id="toggle-reset-seek-speed-on-direction-change" tabindex="0"></button>
+                    </div>
+                </div>
+
+                <div class="setting-item">
+                    <div class="setting-label">
+                        <span class="setting-name" data-i18n="LabelAudioLanguagePreference">${i18n.t('LabelAudioLanguagePreference')}</span>
+                        <span class="setting-description" data-i18n="AudioLanguageFallbackDescription">${i18n.t('AudioLanguageFallbackDescription')}</span>
+                    </div>
+                    <div class="setting-control">
+                        <button class="setting-action-btn audio-fallback-select-btn" id="audio-fallback-languages-btn" tabindex="0" data-focusable="true">
+                            <span class="btn-label">${this._getAudioPreferencesSummaryLabel()}</span>
+                        </button>
                     </div>
                 </div>
 
@@ -3394,6 +3707,7 @@ class SettingsPage extends Page {
                     { value: 5000, label: i18n.t('Seconds', ['5']) },
                     { value: 10000, label: i18n.t('Seconds', ['10']) },
                     { value: 15000, label: i18n.t('Seconds', ['15']) },
+                    { value: 20000, label: i18n.t('Seconds', ['20']) },
                     { value: 30000, label: i18n.t('Seconds', ['30']) },
                     { value: 60000, label: i18n.t('Seconds', ['60']) }
                 ],
@@ -3414,10 +3728,33 @@ class SettingsPage extends Page {
                     { value: 5000, label: i18n.t('Seconds', ['5']) },
                     { value: 10000, label: i18n.t('Seconds', ['10']) },
                     { value: 15000, label: i18n.t('Seconds', ['15']) },
+                    { value: 20000, label: i18n.t('Seconds', ['20']) },
                     { value: 30000, label: i18n.t('Seconds', ['30']) },
                     { value: 60000, label: i18n.t('Seconds', ['60']) }
                 ],
                 skipBack
+            )}
+                    </div>
+                </div>
+
+                <!-- Resume Rewind Offset (Recap previous seconds upon resuming) -->
+                <div class="setting-item">
+                    <div class="setting-label">
+                        <span class="setting-name" data-i18n="LabelResumeRewindLength">${i18n.t('LabelResumeRewindLength') || 'Resume rewind'}</span>
+                        <span class="setting-description" data-i18n="ResumeRewindDurationDescription">${i18n.t('ResumeRewindDurationDescription') || 'Rewind playback slightly when resuming an in-progress video to review the previous scene.'}</span>
+                    </div>
+                    <div class="setting-control">
+                        ${this._renderDropdown(
+                'resume-rewind-select',
+                [
+                    { value: 0, label: i18n.t('None') || 'None' },
+                    { value: 5000, label: i18n.t('Seconds', ['5']) },
+                    { value: 10000, label: i18n.t('Seconds', ['10']) },
+                    { value: 15000, label: i18n.t('Seconds', ['15']) },
+                    { value: 20000, label: i18n.t('Seconds', ['20']) },
+                    { value: 30000, label: i18n.t('Seconds', ['30']) }
+                ],
+                resumeRewind
             )}
                     </div>
                 </div>
@@ -3432,6 +3769,47 @@ class SettingsPage extends Page {
                                 id="toggle-auto-next" 
                                 tabindex="0">
                         </button>
+                    </div>
+                </div>
+
+                <!-- Mark as Watched Completion Threshold (Apple HIG style tactile selector) -->
+                <!-- Allows viewer to keep Litefin's 80% credits-friendly default or respect server MaxResumePct -->
+                <div class="setting-item">
+                    <div class="setting-label">
+                        <span class="setting-name" data-i18n="WatchedThreshold">${i18n.t('WatchedThreshold') || 'Mark as Watched Threshold'}</span>
+                        <span class="setting-description" data-i18n="WatchedThresholdDescription">${i18n.t('WatchedThresholdDescription') || 'Choose the completion percentage required to mark an item as watched. Litefin defaults to 80% to accommodate credit and ending sequences, or you can respect your Jellyfin server setting.'}</span>
+                    </div>
+                    <div class="setting-control">
+                        ${this._renderDropdown(
+                'watched-threshold-select',
+                [
+                    {
+                        value: 'server',
+                        label: i18n.t('OptionWatchedThresholdServer') || 'Server Setting (MaxResumePct)'
+                    },
+                    {
+                        value: '80',
+                        label: i18n.t('OptionWatchedThreshold80') || '80% (Litefin Default - Credits friendly)'
+                    },
+                    {
+                        value: '85',
+                        label: i18n.t('OptionWatchedThreshold85') || '85%'
+                    },
+                    {
+                        value: '90',
+                        label: i18n.t('OptionWatchedThreshold90') || '90%'
+                    },
+                    {
+                        value: '95',
+                        label: i18n.t('OptionWatchedThreshold95') || '95%'
+                    },
+                    {
+                        value: '100',
+                        label: i18n.t('OptionWatchedThreshold100') || '100% (Strict Completion)'
+                    }
+                ],
+                PlayerSettings.get('watchedThreshold') || '80'
+            )}
                     </div>
                 </div>
 
@@ -3539,6 +3917,20 @@ class SettingsPage extends Page {
                         <button class="toggle-switch ${PlayerSettings.get('okShowOsdOnly') ? 'active' : ''}"
                                 id="toggle-ok-show-osd-only"
                                 data-setting="okShowOsdOnly"
+                                tabindex="0">
+                        </button>
+                    </div>
+                </div>
+
+                <div class="setting-item">
+                    <div class="setting-label">
+                        <span class="setting-name" data-i18n="OsdColorButtonsReveal">${i18n.t('OsdColorButtonsReveal') || 'Colored Buttons Reveal OSD'}</span>
+                        <span class="setting-description" data-i18n="OsdColorButtonsRevealDescription">${i18n.t('OsdColorButtonsRevealDescription') || 'Allow pressing colored remote buttons (Red, Green, Yellow, Blue) to instantly reveal controls in stealth mode instead of holding Down.'}</span>
+                    </div>
+                    <div class="setting-control">
+                        <button class="toggle-switch ${PlayerSettings.get('osdColorButtonsReveal') !== false ? 'active' : ''}"
+                                id="toggle-osd-color-buttons-reveal"
+                                data-setting="osdColorButtonsReveal"
                                 tabindex="0">
                         </button>
                     </div>
@@ -4038,8 +4430,75 @@ class SettingsPage extends Page {
                     </div>
                 </div>
 
+                <div class="setting-item">
+                    <div class="setting-label">
+                        <span class="setting-name" data-i18n="AutoTranscodeOnError">${i18n.t('AutoTranscodeOnError') || 'Auto-Fallback to Transcode'}</span>
+                        <span class="setting-description" data-i18n="AutoTranscodeOnErrorDescription">${i18n.t('AutoTranscodeOnErrorDescription') || 'Automatically escalate to server-side transcoding if DirectPlay or Remux fails during playback startup or mid-stream.'}</span>
+                    </div>
+                    <div class="setting-control">
+                        <button class="toggle-switch ${PlayerSettings.get('autoTranscodeOnError') !== false ? 'active' : ''}" 
+                                id="toggle-auto-transcode-on-error" 
+                                data-setting="autoTranscodeOnError"
+                                tabindex="0">
+                        </button>
+                    </div>
+                </div>
+
+                <h3 class="setting-section-title" data-i18n="TrailersSettings">${i18n.t('TrailersSettings')}</h3>
+
+                <div class="setting-item">
+                    <div class="setting-label">
+                        <span class="setting-name" data-i18n="TrailerPlayback">${i18n.t('TrailerPlayback') || 'Trailer Playback'}</span>
+                        <span class="setting-description" data-i18n="TrailerPlaybackDescription">${i18n.t('TrailerPlaybackDescription') || 'Choose how remote trailers are opened'}</span>
+                    </div>
+                    <div class="setting-control">
+                        ${this._renderDropdown(
+                'trailer-playback-select',
+                [
+                    {
+                        value: 'internal_proxy',
+                        label: i18n.t('InternalPlayerNew') || 'Internal Player (New)'
+                    },
+                    {
+                        value: 'internal_iframe',
+                        label: i18n.t('InternalPlayerLegacy') || 'Internal Player (Legacy Iframe)'
+                    },
+                    { value: 'external', label: i18n.t('ExternalApp') || 'External App' }
+                ],
+                PlayerSettings.get('trailerPlaybackMode')
+            )}
+                    </div>
+                </div>
+
+                <div class="setting-item">
+                    <div class="setting-label">
+                        <span class="setting-name" data-i18n="TrailerAutoChain">${i18n.t('TrailerAutoChain') || 'Auto-play local, then online'}</span>
+                        <span class="setting-description" data-i18n="TrailerAutoChainDescription">${i18n.t('TrailerAutoChainDescription') || 'Plays the server-side trailer first, then jumps straight to the online trailer when it ends. No picking required.'}</span>
+                    </div>
+                    <div class="setting-control">
+                        <button class="toggle-switch ${PlayerSettings.get('trailerAutoChain') ? 'active' : ''}"
+                                id="toggle-trailer-auto-chain"
+                                data-setting="trailerAutoChain"
+                                tabindex="0">
+                        </button>
+                    </div>
+                </div>
+
+                <div class="setting-item">
+                    <div class="setting-label">
+                        <span class="setting-name" data-i18n="EnableBackgroundService">${i18n.t('EnableBackgroundService') || 'Enable Background Service'}</span>
+                        <span class="setting-description" data-i18n="EnableBackgroundServiceDescription">${i18n.t('EnableBackgroundServiceDescription') || 'Enable the background Node.js service for Discovery and Proxy playback. Disable if you experience performance issues.'}</span>
+                    </div>
+                    <div class="setting-control">
+                        <button class="toggle-switch ${PlayerSettings.get('enableBackgroundService') ? 'active' : ''}" 
+                                id="toggle-background-service" 
+                                data-setting="enableBackgroundService"
+                                tabindex="0">
+                        </button>
+                    </div>
+                </div>
+
                 <!-- Playback Buffering Section -->
-                <h3 class="setting-section-title" data-i18n="PlaybackBuffering">${i18n.t('PlaybackBuffering') || 'Playback Buffering'}</h3>
                 
                 ${(() => {
                 let html = '';
@@ -4047,6 +4506,8 @@ class SettingsPage extends Page {
                 // WebOS Buffering
                 if (currentBackend === 'webos' || (currentBackend === 'auto' && platformInfo.isWebOS)) {
                     html += `
+
+                    <h3 class="setting-section-title" data-i18n="PlaybackBuffering">${i18n.t('PlaybackBuffering') || 'Playback Buffering'}</h3>
                         <div class="setting-item">
                             <div class="setting-label">
                                 <span class="setting-name" data-i18n="WebosBufferGate">${i18n.t('WebosBufferGate') || 'Buffer Gate'}</span>
@@ -4121,6 +4582,7 @@ class SettingsPage extends Page {
                 // Tizen Buffering
                 if (currentBackend === 'avplay' || (currentBackend === 'auto' && platformInfo.isTizen)) {
                     html += `
+                    <h3 class="setting-section-title" data-i18n="PlaybackBuffering">${i18n.t('PlaybackBuffering') || 'Playback Buffering'}</h3>
                         <div class="setting-item">
                             <div class="setting-label">
                                 <span class="setting-name" data-i18n="TizenInitialBuffer">${i18n.t('TizenInitialBuffer') || 'Initial Buffer'}</span>
@@ -4202,6 +4664,7 @@ class SettingsPage extends Page {
                     (currentBackend === 'auto' && !platformInfo.isTizen && !platformInfo.isWebOS)
                 ) {
                     html += `
+                    <h3 class="setting-section-title" data-i18n="PlaybackBuffering">${i18n.t('PlaybackBuffering') || 'Playback Buffering'}</h3>
                         <div class="setting-item">
                             <div class="setting-label">
                                 <span class="setting-name" data-i18n="Html5MaxBufferLength">${i18n.t('Html5MaxBufferLength') || 'Max Buffer Length'}</span>
@@ -4275,59 +4738,7 @@ class SettingsPage extends Page {
                     )}
                             </div>
                         </div>
-                        <h3 class="setting-section-title" data-i18n="TrailersSettings">${i18n.t('TrailersSettings')}</h3>
-
-                <div class="setting-item">
-                    <div class="setting-label">
-                        <span class="setting-name" data-i18n="TrailerPlayback">${i18n.t('TrailerPlayback') || 'Trailer Playback'}</span>
-                        <span class="setting-description" data-i18n="TrailerPlaybackDescription">${i18n.t('TrailerPlaybackDescription') || 'Choose how remote trailers are opened'}</span>
-                    </div>
-                    <div class="setting-control">
-                        ${this._renderDropdown(
-                        'trailer-playback-select',
-                        [
-                            {
-                                value: 'internal_proxy',
-                                label: i18n.t('InternalPlayerNew') || 'Internal Player (New)'
-                            },
-                            {
-                                value: 'internal_iframe',
-                                label: i18n.t('InternalPlayerLegacy') || 'Internal Player (Legacy Iframe)'
-                            },
-                            { value: 'external', label: i18n.t('ExternalApp') || 'External App' }
-                        ],
-                        PlayerSettings.get('trailerPlaybackMode') || 'internal_proxy'
-                    )}
-                    </div>
-                </div>
-
-                <div class="setting-item">
-                    <div class="setting-label">
-                        <span class="setting-name" data-i18n="TrailerAutoChain">${i18n.t('TrailerAutoChain') || 'Auto-play local, then online'}</span>
-                        <span class="setting-description" data-i18n="TrailerAutoChainDescription">${i18n.t('TrailerAutoChainDescription') || 'Plays the server-side trailer first, then jumps straight to the online trailer when it ends. No picking required.'}</span>
-                    </div>
-                    <div class="setting-control">
-                        <button class="toggle-switch ${PlayerSettings.get('trailerAutoChain') ? 'active' : ''}"
-                                id="toggle-trailer-auto-chain"
-                                data-setting="trailerAutoChain"
-                                tabindex="0">
-                        </button>
-                    </div>
-                </div>
-
-                <div class="setting-item">
-                    <div class="setting-label">
-                        <span class="setting-name" data-i18n="EnableBackgroundService">${i18n.t('EnableBackgroundService') || 'Enable Background Service'}</span>
-                        <span class="setting-description" data-i18n="EnableBackgroundServiceDescription">${i18n.t('EnableBackgroundServiceDescription') || 'Enable the background Node.js service for Discovery and Proxy playback. Disable if you experience performance issues.'}</span>
-                    </div>
-                    <div class="setting-control">
-                        <button class="toggle-switch ${PlayerSettings.get('enableBackgroundService') ? 'active' : ''}" 
-                                id="toggle-background-service" 
-                                data-setting="enableBackgroundService"
-                                tabindex="0">
-                        </button>
-                    </div>
-                </div>
+                        
                         `;
                 }
 
@@ -4572,7 +4983,8 @@ class SettingsPage extends Page {
                     label: i18n.t('FontZenKakuGothicNew') || 'Zen Kaku Gothic New'
                 },
                 { value: 'opendyslexic', label: i18n.t('FontOpenDyslexic') || 'OpenDyslexic' },
-                { value: 'atkinson', label: i18n.t('FontAtkinson') || 'Atkinson Hyperlegible' }
+                { value: 'atkinson', label: i18n.t('FontAtkinson') || 'Atkinson Hyperlegible' },
+                { value: 'manrope', label: i18n.t('FontManrope') || 'Manrope' }
             ],
             PlayerSettings.get('subtitleFont')
         )}
@@ -4652,6 +5064,21 @@ class SettingsPage extends Page {
             100,
             1
         )}
+                    </div>
+                </div>
+
+                <!-- Subtitle OSD Dodging (Smart Shift) Toggle -->
+                <div class="setting-item">
+                    <div class="setting-label">
+                        <span class="setting-name" data-i18n="LabelSubtitleOsdDodging">${i18n.t('LabelSubtitleOsdDodging')}</span>
+                        <span class="setting-description" data-i18n="SubtitleOsdDodgingDescription">${i18n.t('SubtitleOsdDodgingDescription')}</span>
+                    </div>
+                    <div class="setting-control">
+                        <button class="toggle-switch ${PlayerSettings.get('subtitleOsdDodging') !== false ? 'active' : ''}" 
+                                id="subtitle-osd-dodging-toggle" 
+                                data-setting="subtitleOsdDodging"
+                                tabindex="0">
+                        </button>
                     </div>
                 </div>
 
@@ -4962,6 +5389,7 @@ class SettingsPage extends Page {
                 },
                 { value: 'opendyslexic', label: i18n.t('FontOpenDyslexic') || 'OpenDyslexic' },
                 { value: 'atkinson', label: i18n.t('FontAtkinson') || 'Atkinson Hyperlegible' },
+                { value: 'manrope', label: i18n.t('FontManrope') || 'Manrope' },
                 {
                     value: 'fallback-font',
                     label: i18n.t('JellyfinFallbackFont') || 'Jellyfin Fallback Font'
@@ -5101,12 +5529,40 @@ class SettingsPage extends Page {
      * =========================================================================
      */
     _renderPerformanceTab() {
+        /*
+         * =========================================================================
+         * Platform Defaults: TV (Tizen/webOS) vs Web/Desktop
+         * =========================================================================
+         * On smart TVs (Tizen/webOS), waking from sleep or foregrounding often desyncs
+         * long-lived socket connections, making reload on resume enabled by default.
+         * On web/desktop browsers, keeping it off by default preserves in-memory DOM
+         * trees, scroll offsets, and lazy-loaded items without jarring page refreshes.
+         * If the user explicitly sets the preference, their saved choice takes precedence.
+         * =========================================================================
+         */
+        const isTv = platformInfo.isTizen || platformInfo.isWebOS || platformInfo.isAndroid;
+        const savedReloadPref = storage.getItem('pref:reloadOnResume');
+        const reloadOnResumeEnabled = savedReloadPref !== null ? savedReloadPref === 'true' : isTv;
+
         return `
             <div class="settings-tab-content">
                 <h2 class="content-title" data-i18n="Performance">${i18n.t('Performance') || 'Performance'}</h2>
                 <p class="content-subtitle" data-i18n="PerformanceTabDescription">
                     ${i18n.t('PerformanceTabDescription') || 'Optimize memory usage, scrolling animations, cache policies, and rendering speed.'}
                 </p>
+
+                <div class="setting-item">
+                    <div class="setting-label">
+                        <span class="setting-name" data-i18n="LabelReloadOnResume">${i18n.t('LabelReloadOnResume') || 'Reload Page on Resume'}</span>
+                        <span class="setting-description" data-i18n="ReloadOnResumeDescription">${i18n.t('ReloadOnResumeDescription') || 'Automatically reload the active view when returning from background or waking from sleep. Keep disabled to preserve loaded lists and scroll position.'}</span>
+                    </div>
+                    <div class="setting-control">
+                        <button class="toggle-switch ${reloadOnResumeEnabled ? 'active' : ''}"
+                                id="toggle-reload-on-resume"
+                                tabindex="0">
+                        </button>
+                    </div>
+                </div>
 
                 <div class="setting-item">
                     <div class="setting-label">
@@ -5176,10 +5632,56 @@ class SettingsPage extends Page {
                 { value: 50, label: '50' },
                 { value: 75, label: '75' },
                 { value: 100, label: '100' },
-                { value: 150, label: '150' }
+                { value: 150, label: '150' },
+                { value: 'unlimited', label: i18n.t('OptionUnlimited') || 'Unlimited (Infinite Scroll)' }
             ],
             storage.getItem('pref:libraryPageSize') || 100
         )}
+                    </div>
+                </div>
+
+                <!-- -------------------------------------------------------------
+                 * Dynamic Play Queue Episode Window Size
+                 * Configures how many preceding and succeeding episodes are loaded
+                 * around the currently playing episode. Designed for maximum clarity,
+                 * tactile responsiveness, and minimal memory footprint.
+                 * ------------------------------------------------------------- -->
+                <div class="setting-item">
+                    <div class="setting-label">
+                        <span class="setting-name" data-i18n="LabelPlayQueueEpisodeLimit">${i18n.t('LabelPlayQueueEpisodeLimit') || 'Episode Queue Window Size'}</span>
+                        <span class="setting-description" data-i18n="PlayQueueEpisodeLimitDescription">${i18n.t('PlayQueueEpisodeLimitDescription') || 'Number of previous and next episodes to load into the player queue around the active episode. Lower values reduce memory and improve performance on large series.'}</span>
+                    </div>
+                    <div class="setting-control">
+                        ${this._renderDropdown(
+            'play-queue-episode-limit-select',
+            [
+                { value: 25, label: '25' },
+                { value: 50, label: '50 (Default)' },
+                { value: 75, label: '75' },
+                { value: 100, label: '100' },
+                { value: 150, label: '150' }
+            ],
+            PlayerSettings.get('playQueueEpisodeLimit') || 50
+        )}
+                    </div>
+                </div>
+
+                <!-- -------------------------------------------------------------
+                 * Alphabet Quick-Jump Scroll Behavior (Only in Unlimited Mode)
+                 * Enables scrolling directly to letter anchors instead of querying
+                 * and filtering down the library items strictly to that letter.
+                 * Designed for sleek, fluid tactile control on TV and webOS navigation.
+                 * ------------------------------------------------------------- -->
+                <div class="setting-item" id="alpha-picker-scroll-mode-item" style="${storage.getItem('pref:libraryPageSize') === 'unlimited' ? '' : 'display: none;'}">
+                    <div class="setting-label">
+                        <span class="setting-name" data-i18n="LabelAlphaPickerScrollMode">${i18n.t('LabelAlphaPickerScrollMode') || 'Alphabet Quick-Jump Action'}</span>
+                        <span class="setting-description" data-i18n="AlphaPickerScrollModeDescription">${i18n.t('AlphaPickerScrollModeDescription') || 'In unlimited mode, scroll directly to letter sections instead of filtering the library.'}</span>
+                    </div>
+                    <div class="setting-control">
+                        <button class="toggle-switch ${storage.getItem('pref:alphaPickerScrollMode') !== 'false' ? 'active' : ''}" 
+                                id="toggle-alpha-picker-scroll-mode" 
+                                tabindex="0">
+                        </button>
                     </div>
                 </div>
 
@@ -5360,6 +5862,10 @@ class SettingsPage extends Page {
             {
                 value: 'playerPlaybackInfo',
                 label: i18n.t('OptionPlayerPlaybackInfo') || 'Player: Toggle Playback Info'
+            },
+            {
+                value: 'playerShowOsd',
+                label: i18n.t('OptionPlayerShowOsd') || 'Player: Reveal Controls / OSD'
             },
             /*
              * ========================================================================
@@ -5626,8 +6132,7 @@ class SettingsPage extends Page {
     }
 
     _renderAboutTab() {
-        const caps = getDeviceCapabilities();
-
+        // Render the top version and application identity card, keeping the original layout
         return `
             <div class="settings-tab-content">
                 <h2 class="content-title" data-i18n="AboutLitefin">${i18n.t('AboutLitefin')}</h2>
@@ -5635,6 +6140,7 @@ class SettingsPage extends Page {
                     ${i18n.t('AboutTabDescription') || 'View application version, platform specifications, and hardware identity.'}
                 </p>
                 
+                <!-- Main application version banner -->
                 <div class="about-card" tabindex="0">
                     <h3 class="app-version">${i18n.t('AppVersion', [__APP_VERSION__])}</h3>
                     <p class="about-desc" data-i18n="AppDescription">
@@ -5643,79 +6149,159 @@ class SettingsPage extends Page {
                     <p class="about-credits" data-i18n="DevelopedBy">${i18n.t('DevelopedBy')}</p>
                 </div>
 
+                <!-- Community and Resources Section -->
+                <h3 class="setting-section-title" data-i18n="AboutResourcesTitle">${i18n.t('AboutResourcesTitle') || 'Community & Resources'}</h3>
+                <p class="content-subtitle" data-i18n="AboutResourcesDesc" style="margin-top: -10px; margin-bottom: 16px;">
+                    ${i18n.t('AboutResourcesDesc') || 'Explore project source code, install server plugins, access quick issue reporting, join Discord, or support development.'}
+                </p>
 
-                <h3 class="setting-section-title" data-i18n="DeviceInformation">${i18n.t('DeviceInformation')}</h3>
-                <div class="about-card identity-card" tabindex="0">
-                    <div class="identity-grid">
-                        <div class="identity-item">
-                            <span class="identity-label" data-i18n="Model">${i18n.t('Model')}</span>
-                            <span class="identity-value">${caps.modelName}</span>
+                <!-- Compact Action Cards Grid -->
+                <div class="about-actions-grid" id="about-actions-grid">
+                    <!-- Device Information Card (Row 1 Left) -->
+                    <button class="about-action-card focusable" 
+                            id="btn-about-device-info" 
+                            tabindex="0" 
+                            data-focusable="true"
+                            data-nav-right="#btn-about-github"
+                            data-nav-down="#btn-about-issues">
+                        <div class="about-card-icon-wrap" aria-hidden="true">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
+                                <line x1="8" y1="21" x2="16" y2="21"/>
+                                <line x1="12" y1="17" x2="12" y2="21"/>
+                            </svg>
                         </div>
-                        <div class="identity-item">
-                            <span class="identity-label" data-i18n="Platform">${i18n.t('Platform')}</span>
-                            <span class="identity-value">${platformInfo.isWeb ? i18n.t('BrowserValue', [caps.browserVersion]) : platformInfo.isWebOS ? i18n.t('WebOSValue', [caps.webosVersion]) : i18n.t('TizenValue', [caps.tizenVersion])}</span>
+                        <div class="about-card-info">
+                            <span class="about-card-title" data-i18n="ViewDeviceInfo">${i18n.t('ViewDeviceInfo') || 'Device Specifications'}</span>
+                            <span class="about-card-desc" data-i18n="ViewDeviceInfoDesc">${i18n.t('ViewDeviceInfoDesc') || 'Hardware model, platform details, resolution, and supported audio/video codecs.'}</span>
                         </div>
-                        <div class="identity-item">
-                            <span class="identity-label" data-i18n="Resolution">${i18n.t('Resolution')}</span>
-                            <span class="identity-value">${i18n.t('ResolutionValue', [
-            caps.screenWidth,
-            caps.screenHeight,
-            caps.uhd8K ? i18n.t('UHD8K') : caps.uhd ? i18n.t('UHD') : i18n.t('FHD')
-        ])}</span>
+                        <div class="about-card-chevron" aria-hidden="true">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M9 18l6-6-6-6"/>
+                            </svg>
                         </div>
-                        <div class="identity-item">
-                            <span class="identity-label" data-i18n="HDRSupport">${i18n.t('HDRSupport')}</span>
-                            <span class="identity-value">${(() => {
-                const resolveOverride = (key, hwSupport) => {
-                    const val = PlayerSettings.get(key);
-                    return val === 'enable' ? true : val === 'disable' ? false : hwSupport;
-                };
-                const userHdr = resolveOverride('enableHDR', !!caps.hdr10);
-                const hwHdr = [
-                    caps.hdr10 ? 'HDR10' : null,
-                    caps.hdr10Plus ? 'HDR10+' : null,
-                    caps.hlg ? 'HLG' : null,
-                    caps.dolbyVision ? i18n.t('DolbyVision') : null
-                ].filter(Boolean);
+                    </button>
 
-                if (hwHdr.length === 0) return i18n.t('SDROnly');
-                if (!userHdr) return `${hwHdr.join(', ')} (${i18n.t('Disabled')})`;
-                return hwHdr.join(', ');
-            })()}</span>
+                    <!-- GitHub Repository Card (Row 1 Right) -->
+                    <button class="about-action-card focusable" 
+                            id="btn-about-github" 
+                            tabindex="0" 
+                            data-focusable="true"
+                            data-nav-left="#btn-about-device-info"
+                            data-nav-down="#btn-about-plugins">
+                        <div class="about-card-icon-wrap" aria-hidden="true">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+                                <path d="M12 2A10 10 0 0 0 2 12c0 4.42 2.87 8.17 6.84 9.5.5.08.66-.23.66-.5v-1.69c-2.77.6-3.36-1.34-3.36-1.34-.46-1.16-1.11-1.47-1.11-1.47-.91-.62.07-.6.07-.6 1 .07 1.53 1.03 1.53 1.03.87 1.52 2.34 1.07 2.91.83.1-.65.35-1.09.63-1.34-2.22-.25-4.55-1.11-4.55-4.92 0-1.11.38-2 1.03-2.71-.1-.25-.45-1.29.1-2.64 0 0 .84-.27 2.75 1.02.79-.22 1.65-.33 2.5-.33.85 0 1.71.11 2.5.33 1.91-1.29 2.75-1.02 2.75-1.02.55 1.35.2 2.39.1 2.64.65.71 1.03 1.6 1.03 2.71 0 3.82-2.34 4.66-4.57 4.91.36.31.69.92.69 1.85V21c0 .27.16.59.67.5C19.14 20.16 22 16.42 22 12A10 10 0 0 0 12 2z"/>
+                            </svg>
                         </div>
-                        <div class="identity-item">
-                            <span class="identity-label" data-i18n="VideoCodecs">${i18n.t('VideoCodecs')}</span>
-                            <span class="identity-value">${(() => {
-                const resolveOverride = (key, hwSupport) => {
-                    const val = PlayerSettings.get(key);
-                    return val === 'enable' ? true : val === 'disable' ? false : hwSupport;
-                };
-                const codecs = [
-                    { name: 'H.264', hw: true, user: true },
-                    {
-                        name: 'HEVC',
-                        hw: caps.hevc,
-                        user: resolveOverride('enableHEVC', caps.hevc)
-                    },
-                    {
-                        name: 'AV1',
-                        hw: caps.av1,
-                        user: resolveOverride('enableAV1', caps.av1)
-                    },
-                    {
-                        name: 'VP9',
-                        hw: caps.vp9,
-                        user: resolveOverride('enableVP9', caps.vp9)
-                    }
-                ];
+                        <div class="about-card-info">
+                            <span class="about-card-title" data-i18n="GitHubRepo">${i18n.t('GitHubRepo') || 'GitHub Repository'}</span>
+                            <span class="about-card-desc" data-i18n="GitHubRepoDesc">${i18n.t('GitHubRepoDesc') || 'Explore the source code, check releases, and follow development.'}</span>
+                        </div>
+                        <div class="about-card-chevron" aria-hidden="true">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M9 18l6-6-6-6"/>
+                            </svg>
+                        </div>
+                    </button>
 
-                return codecs
-                    .filter((c) => c.hw)
-                    .map((c) => (c.user ? c.name : `${c.name} (${i18n.t('Disabled')})`))
-                    .join(', ');
-            })()}</span>
+                    <!-- Quick Issue Reporter Card (Row 2 Left) -->
+                    <button class="about-action-card focusable" 
+                            id="btn-about-issues" 
+                            tabindex="0" 
+                            data-focusable="true"
+                            data-nav-up="#btn-about-device-info"
+                            data-nav-right="#btn-about-plugins"
+                            data-nav-down="#btn-about-discord">
+                        <div class="about-card-icon-wrap" aria-hidden="true">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <circle cx="12" cy="12" r="10"/>
+                                <line x1="12" y1="8" x2="12" y2="12"/>
+                                <line x1="12" y1="16" x2="12.01" y2="16"/>
+                            </svg>
                         </div>
-                    </div>
+                        <div class="about-card-info">
+                            <span class="about-card-title" data-i18n="ReportIssue">${i18n.t('ReportIssue') || 'Quick Issue Reporter'}</span>
+                            <span class="about-card-desc" data-i18n="ReportIssueDesc">${i18n.t('ReportIssueDesc') || 'Quickly submit bug reports and feature requests via GitHub.'}</span>
+                        </div>
+                        <div class="about-card-chevron" aria-hidden="true">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M9 18l6-6-6-6"/>
+                            </svg>
+                        </div>
+                    </button>
+
+                    <!-- Companion Plugins Card (Row 2 Right) -->
+                    <button class="about-action-card focusable" 
+                            id="btn-about-plugins" 
+                            tabindex="0" 
+                            data-focusable="true"
+                            data-nav-up="#btn-about-github"
+                            data-nav-left="#btn-about-issues"
+                            data-nav-down="#btn-about-support">
+                        <div class="about-card-icon-wrap" aria-hidden="true">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
+                                <polyline points="3.27 6.96 12 12.01 20.73 6.96"/>
+                                <line x1="12" y1="22.08" x2="12" y2="12"/>
+                            </svg>
+                        </div>
+                        <div class="about-card-info">
+                            <span class="about-card-title" data-i18n="CompanionPlugins">${i18n.t('CompanionPlugins') || 'Companion Plugins'}</span>
+                            <span class="about-card-desc" data-i18n="CompanionPluginsDesc">${i18n.t('CompanionPluginsDesc') || 'Download the Litefin companion plugins for Jellyfin and Emby servers.'}</span>
+                        </div>
+                        <div class="about-card-chevron" aria-hidden="true">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M9 18l6-6-6-6"/>
+                            </svg>
+                        </div>
+                    </button>
+
+                    <!-- Discord Community Card (Row 3 Left) -->
+                    <button class="about-action-card focusable" 
+                            id="btn-about-discord" 
+                            tabindex="0" 
+                            data-focusable="true"
+                            data-nav-up="#btn-about-issues"
+                            data-nav-right="#btn-about-support">
+                        <div class="about-card-icon-wrap" aria-hidden="true">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+                                <path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028c.462-.63.874-1.295 1.226-1.994.021-.041.001-.09-.041-.106a13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.929 1.793 8.18 1.793 12.061 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.894.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.028zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z"/>
+                            </svg>
+                        </div>
+                        <div class="about-card-info">
+                            <span class="about-card-title" data-i18n="DiscordCommunity">${i18n.t('DiscordCommunity') || 'Discord Community'}</span>
+                            <span class="about-card-desc" data-i18n="DiscordCommunityDesc">${i18n.t('DiscordCommunityDesc') || 'Join our live Discord chat for questions, discussions, and updates.'}</span>
+                        </div>
+                        <div class="about-card-chevron" aria-hidden="true">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M9 18l6-6-6-6"/>
+                            </svg>
+                        </div>
+                    </button>
+
+                    <!-- Support & Donations Card (Row 3 Right) -->
+                    <button class="about-action-card focusable" 
+                            id="btn-about-support" 
+                            tabindex="0" 
+                            data-focusable="true"
+                            data-nav-up="#btn-about-plugins"
+                            data-nav-left="#btn-about-discord">
+                        <div class="about-card-icon-wrap" aria-hidden="true">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
+                            </svg>
+                        </div>
+                        <div class="about-card-info">
+                            <span class="about-card-title" data-i18n="SupportDonations">${i18n.t('SupportDonations') || 'Support & Donations'}</span>
+                            <span class="about-card-desc" data-i18n="SupportDonationsDesc">${i18n.t('SupportDonationsDesc') || 'Help support continuous development of Litefin via Buy Me a Coffee or Sponsors.'}</span>
+                        </div>
+                        <div class="about-card-chevron" aria-hidden="true">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M9 18l6-6-6-6"/>
+                            </svg>
+                        </div>
+                    </button>
                 </div>
 
                 <!-- Updates Section -->
@@ -5745,10 +6331,668 @@ class SettingsPage extends Page {
                         </button>
                     </div>
                 </div>
-
-
             </div>
         `;
+    }
+
+    /**
+     * Resolves and structures current device capabilities into displayable sections.
+     * @private
+     * @returns {Object} Structured device specs
+     */
+    _getDeviceSpecsData() {
+        const caps = getDeviceCapabilities();
+
+        // 1. Platform String
+        let platformStr = i18n.t('BrowserValue', [caps.browserVersion]);
+        if (platformInfo.isAndroid) {
+            const ver = caps.androidVersion || platformInfo.androidVersion;
+            platformStr = ver ? `Android ${ver}` : 'Android';
+        } else if (platformInfo.isWebOS) {
+            platformStr = i18n.t('WebOSValue', [caps.webosVersion]);
+        } else if (platformInfo.isTizen) {
+            platformStr = i18n.t('TizenValue', [caps.tizenVersion]);
+        } else if (platformInfo.isDesktop) {
+            platformStr = `Desktop (${platformInfo.operatingSystem || 'Native'})`;
+        }
+
+        // 2. Resolution String
+        const screenW = caps.screenWidth || (typeof window !== 'undefined' ? (window.screen?.width || window.innerWidth || 1920) : 1920);
+        const screenH = caps.screenHeight || (typeof window !== 'undefined' ? (window.screen?.height || window.innerHeight || 1080) : 1080);
+        const resTier = caps.uhd8K ? i18n.t('UHD8K') : caps.uhd ? i18n.t('UHD') : i18n.t('FHD');
+        const resStr = i18n.t('ResolutionValue', [screenW, screenH, resTier]);
+
+        // 3. HDR Formats
+        const resolveOverride = (key, hwSupport) => {
+            const val = PlayerSettings.get(key);
+            return val === 'enable' ? true : val === 'disable' ? false : hwSupport;
+        };
+        const userHdr = resolveOverride('enableHDR', !!caps.hdr10);
+        const hwHdr = [
+            caps.hdr10 ? 'HDR10' : null,
+            caps.hdr10Plus ? 'HDR10+' : null,
+            caps.hlg ? 'HLG' : null,
+            caps.dolbyVision ? i18n.t('DolbyVision') : null
+        ].filter(Boolean);
+
+        let hdrStr = i18n.t('SDROnly');
+        if (hwHdr.length > 0) {
+            hdrStr = userHdr ? hwHdr.join(', ') : `${hwHdr.join(', ')} (${i18n.t('Disabled')})`;
+        }
+
+        // 4. Video Codecs List with statuses
+        const videoCodecs = [
+            { name: 'H.264', hw: true, user: true },
+            { name: 'HEVC', hw: caps.hevc, user: resolveOverride('enableHEVC', caps.hevc) },
+            { name: 'VP9', hw: caps.vp9, user: resolveOverride('enableVP9', caps.vp9) },
+            { name: 'VP8', hw: caps.vp8 !== false, user: true },
+            { name: 'MPEG-2', hw: caps.mpeg2video !== false, user: true },
+            { name: 'AV1', hw: caps.av1, user: resolveOverride('enableAV1', caps.av1) }
+        ];
+
+        // 5. Audio Codecs List with statuses
+        const audioCodecs = [
+            { name: 'AAC', hw: true, user: true },
+            { name: 'AC-3', hw: caps.ac3 !== false, user: true },
+            { name: 'E-AC-3', hw: caps.eac3 !== false, user: resolveOverride('enableEac3', caps.eac3 !== false) },
+            { name: 'TrueHD', hw: caps.truehd !== false, user: resolveOverride('enableTrueHd', caps.truehd !== false) },
+            { name: 'DTS', hw: caps.dts !== false, user: resolveOverride('enableDts', caps.dts !== false) },
+            { name: 'FLAC', hw: true, user: true },
+            { name: 'Opus', hw: true, user: true },
+            { name: 'MP3', hw: true, user: true }
+        ];
+
+        return {
+            modelName: caps.modelName || 'Standard Display',
+            platform: platformStr,
+            resolution: resStr,
+            hdr: hdrStr,
+            videoCodecs,
+            audioCodecs
+        };
+    }
+
+    /**
+     * Safely dispatches an external web URL using the appropriate native platform bridge.
+     * @param {string} url Target URL to launch
+     * @private
+     */
+    _openExternalUrl(url) {
+        log.info(`Opening external link: ${url}`);
+        // Desktop Tauri runtime shell support
+        if (typeof window !== 'undefined' && window.__TAURI_INTERNALS__?.invoke) {
+            window.__TAURI_INTERNALS__.invoke('plugin:opener|open_url', { url })
+                .catch(() => {
+                    try { window.open(url, '_blank'); } catch (_) {}
+                });
+            return;
+        }
+        if (typeof window !== 'undefined' && window.__TAURI__?.core?.invoke) {
+            window.__TAURI__.core.invoke('plugin:opener|open_url', { url })
+                .catch(() => {
+                    try { window.open(url, '_blank'); } catch (_) {}
+                });
+            return;
+        }
+        // Universal web browser fallback
+        try {
+            window.open(url, '_blank');
+        } catch (err) {
+            log.warn('Could not launch window.open:', err);
+        }
+    }
+
+    /**
+     * Closes any currently displayed About modal dialog and safely returns navigation focus.
+     * @private
+     */
+    _closeAboutDialog() {
+        const overlay = this.$('#modal-overlay');
+        if (!overlay || !overlay.classList.contains('visible')) return;
+
+        // Disarm and blur all interactive elements inside dialog to prevent focus latching
+        const actionButtons = overlay.querySelectorAll('button, [tabindex]');
+        actionButtons.forEach((btn) => {
+            btn.setAttribute('tabindex', '-1');
+            btn.setAttribute('disabled', 'true');
+            if (typeof btn.blur === 'function') {
+                btn.blur();
+            }
+        });
+
+        // Hide overlay smoothly
+        overlay.classList.remove('visible');
+        overlay.setAttribute('aria-hidden', 'true');
+        overlay.onclick = null;
+
+        setTimeout(() => {
+            if (overlay) {
+                overlay.innerHTML = '';
+            }
+        }, 300);
+
+        // Pop the modal focus trap and cleanly restore previous focus
+        focusManager.popTrap();
+    }
+
+    /**
+     * Displays the Device Specifications dialog modal with complete hardware identification.
+     * @private
+     */
+    _showDeviceInformationDialog() {
+        const overlay = this.$('#modal-overlay');
+        if (!overlay) return;
+
+        const specs = this._getDeviceSpecsData();
+
+        // Build video codec badges
+        const videoBadgesHtml = specs.videoCodecs
+            .map((c) => {
+                const statusClass = !c.hw ? 'unsupported' : !c.user ? 'disabled' : 'supported';
+                const statusLabel = !c.hw ? ` (${i18n.t('Unsupported') || 'Unsupported'})` : !c.user ? ` (${i18n.t('Disabled') || 'Disabled'})` : '';
+                return `<span class="about-codec-badge ${statusClass}">${c.name}${statusLabel}</span>`;
+            })
+            .join('');
+
+        // Build audio codec badges
+        const audioBadgesHtml = specs.audioCodecs
+            .map((c) => {
+                const statusClass = !c.hw ? 'unsupported' : !c.user ? 'disabled' : 'supported';
+                const statusLabel = !c.hw ? ` (${i18n.t('Unsupported') || 'Unsupported'})` : !c.user ? ` (${i18n.t('Disabled') || 'Disabled'})` : '';
+                return `<span class="about-codec-badge ${statusClass}">${c.name}${statusLabel}</span>`;
+            })
+            .join('');
+
+        overlay.innerHTML = `
+            <div class="settings-modal about-dialog-modal" role="dialog" aria-modal="true" aria-label="${i18n.t('ViewDeviceInfo') || 'Device Specifications'}">
+                <div class="about-dialog-header">
+                    <h2>
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
+                            <line x1="8" y1="21" x2="16" y2="21"/>
+                            <line x1="12" y1="17" x2="12" y2="21"/>
+                        </svg>
+                        ${i18n.t('ViewDeviceInfo') || 'Device Specifications'}
+                    </h2>
+                    <p class="about-dialog-subtitle">Hardware identity, display pipeline, and hardware decoding decoders.</p>
+                </div>
+
+                <div class="about-dialog-content">
+                    <div class="about-device-specs-grid">
+                        <div class="about-device-tile">
+                            <span class="about-device-label" data-i18n="Model">${i18n.t('Model')}</span>
+                            <span class="about-device-val">${specs.modelName}</span>
+                        </div>
+                        <div class="about-device-tile">
+                            <span class="about-device-label" data-i18n="Platform">${i18n.t('Platform')}</span>
+                            <span class="about-device-val">${specs.platform}</span>
+                        </div>
+                        <div class="about-device-tile">
+                            <span class="about-device-label" data-i18n="Resolution">${i18n.t('Resolution')}</span>
+                            <span class="about-device-val">${specs.resolution}</span>
+                        </div>
+                        <div class="about-device-tile">
+                            <span class="about-device-label" data-i18n="HDRSupport">${i18n.t('HDRSupport')}</span>
+                            <span class="about-device-val">${specs.hdr}</span>
+                        </div>
+                        <div class="about-device-tile span-2">
+                            <span class="about-device-label" data-i18n="VideoCodecs">${i18n.t('VideoCodecs')}</span>
+                            <div class="about-badge-cloud">
+                                ${videoBadgesHtml}
+                            </div>
+                        </div>
+                        <div class="about-device-tile span-2">
+                            <span class="about-device-label" data-i18n="AudioCodecs">${i18n.t('AudioCodecs') || 'Audio Codecs'}</span>
+                            <div class="about-badge-cloud">
+                                ${audioBadgesHtml}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="about-dialog-actions" id="device-info-modal-actions">
+                    <!-- Standard modal dismiss button styled for compact viewports -->
+                    <button class="modal-action-btn focusable about-dialog-close-btn" id="btn-device-info-done" tabindex="0" data-focusable="true">
+                        ${i18n.t('Close') || 'Close'}
+                    </button>
+                </div>
+            </div>
+        `;
+
+        overlay.classList.add('visible');
+        overlay.setAttribute('aria-hidden', 'false');
+
+        // Close on backdrop click
+        overlay.onclick = (e) => {
+            if (e.target === overlay) this._closeAboutDialog();
+        };
+
+        const doneBtn = overlay.querySelector('#btn-device-info-done');
+        if (doneBtn) {
+            doneBtn.onclick = (e) => {
+                e.stopPropagation();
+                this._closeAboutDialog();
+            };
+        }
+
+        // Lock focus trap inside modal with focus on Done button
+        focusManager.pushTrap(overlay.querySelector('.about-dialog-modal'), {
+            orientation: 'horizontal',
+            defaultFocusSelector: '#btn-device-info-done'
+        });
+    }
+
+    /**
+     * Displays GitHub repository and issue tracker dialog with 2 QR codes side by side.
+     * @param {'repo'|'issues'} [initialFocus='repo'] Whether to highlight the repository or issues link
+     * @private
+     */
+    _showGitHubDialog(initialFocus = 'repo') {
+        const overlay = this.$('#modal-overlay');
+        if (!overlay) return;
+
+        overlay.innerHTML = `
+            <div class="settings-modal about-dialog-modal" role="dialog" aria-modal="true" aria-label="GitHub & Bug Reporter">
+                <div class="about-dialog-header">
+                    <h2>
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M12 2A10 10 0 0 0 2 12c0 4.42 2.87 8.17 6.84 9.5.5.08.66-.23.66-.5v-1.69c-2.77.6-3.36-1.34-3.36-1.34-.46-1.16-1.11-1.47-1.11-1.47-.91-.62.07-.6.07-.6 1 .07 1.53 1.03 1.53 1.03.87 1.52 2.34 1.07 2.91.83.1-.65.35-1.09.63-1.34-2.22-.25-4.55-1.11-4.55-4.92 0-1.11.38-2 1.03-2.71-.1-.25-.45-1.29.1-2.64 0 0 .84-.27 2.75 1.02.79-.22 1.65-.33 2.5-.33.85 0 1.71.11 2.5.33 1.91-1.29 2.75-1.02 2.75-1.02.55 1.35.2 2.39.1 2.64.65.71 1.03 1.6 1.03 2.71 0 3.82-2.34 4.66-4.57 4.91.36.31.69.92.69 1.85V21c0 .27.16.59.67.5C19.14 20.16 22 16.42 22 12A10 10 0 0 0 12 2z"/>
+                        </svg>
+                        GitHub & Bug Tracker
+                    </h2>
+                    <p class="about-dialog-subtitle">Scan with your phone camera, or click to open directly in a browser.</p>
+                </div>
+
+                <div class="about-dialog-content">
+                    <div class="about-qr-grid">
+                        <!-- Repository QR Card -->
+                        <div class="about-qr-card">
+                            <div class="about-qr-image-wrap">
+                                <img src="assets/qr/qr-github.png" class="about-qr-img" alt="GitHub Repository QR Code" />
+                            </div>
+                            <span class="about-qr-title" data-i18n="GitHubRepo">${i18n.t('GitHubRepo') || 'GitHub Repository'}</span>
+                            <span class="about-qr-desc">View source code, release notes, and documentation on GitHub.</span>
+                            <span class="about-qr-url-chip">github.com/MoazSalem/litefin</span>
+                            <button class="btn btn-secondary btn-small focusable about-qr-btn" 
+                                    id="btn-github-open" 
+                                    tabindex="0" 
+                                    data-focusable="true"
+                                    data-nav-right="#btn-issues-open"
+                                    data-nav-down="#btn-about-modal-close">
+                                ${i18n.t('OpenLink') || 'Open Link'}
+                            </button>
+                        </div>
+
+                        <!-- Issues QR Card -->
+                        <div class="about-qr-card">
+                            <div class="about-qr-image-wrap">
+                                <img src="assets/qr/qr-issues.png" class="about-qr-img" alt="GitHub Issues QR Code" />
+                            </div>
+                            <span class="about-qr-title" data-i18n="ReportIssue">${i18n.t('ReportIssue') || 'Quick Issue Reporter'}</span>
+                            <span class="about-qr-desc">Submit bug reports, feature requests, or troubleshooting crash reports.</span>
+                            <span class="about-qr-url-chip">github.com/MoazSalem/litefin/issues</span>
+                            <button class="btn btn-secondary btn-small focusable about-qr-btn" 
+                                    id="btn-issues-open" 
+                                    tabindex="0" 
+                                    data-focusable="true"
+                                    data-nav-left="#btn-github-open"
+                                    data-nav-down="#btn-about-modal-close">
+                                ${i18n.t('OpenLink') || 'Open Link'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="about-dialog-actions" id="github-modal-actions">
+                    <button class="modal-action-btn focusable about-dialog-close-btn" 
+                            id="btn-about-modal-close" 
+                            tabindex="0" 
+                            data-focusable="true"
+                            data-nav-up="#btn-github-open">
+                        ${i18n.t('Close') || 'Close'}
+                    </button>
+                </div>
+            </div>
+        `;
+
+        overlay.classList.add('visible');
+        overlay.setAttribute('aria-hidden', 'false');
+
+        // Bind clicks
+        overlay.onclick = (e) => {
+            if (e.target === overlay) this._closeAboutDialog();
+        };
+
+        const closeBtn = overlay.querySelector('#btn-about-modal-close');
+        if (closeBtn) {
+            closeBtn.onclick = (e) => {
+                e.stopPropagation();
+                this._closeAboutDialog();
+            };
+        }
+
+        const openRepoBtn = overlay.querySelector('#btn-github-open');
+        if (openRepoBtn) {
+            openRepoBtn.onclick = (e) => {
+                e.stopPropagation();
+                this._openExternalUrl('https://github.com/MoazSalem/litefin');
+            };
+        }
+
+        const openIssuesBtn = overlay.querySelector('#btn-issues-open');
+        if (openIssuesBtn) {
+            openIssuesBtn.onclick = (e) => {
+                e.stopPropagation();
+                this._openExternalUrl('https://github.com/MoazSalem/litefin/issues');
+            };
+        }
+
+        // Lock focus trap with contextual initial button
+        focusManager.pushTrap(overlay.querySelector('.about-dialog-modal'), {
+            orientation: 'grid',
+            defaultFocusSelector: initialFocus === 'issues' ? '#btn-issues-open' : '#btn-github-open'
+        });
+    }
+
+    /**
+     * Displays server companion plugins dialog featuring 2 QR codes (Jellyfin & Emby).
+     * @private
+     */
+    _showPluginsDialog() {
+        const overlay = this.$('#modal-overlay');
+        if (!overlay) return;
+
+        overlay.innerHTML = `
+            <div class="settings-modal about-dialog-modal" role="dialog" aria-modal="true" aria-label="Server Companion Plugins">
+                <div class="about-dialog-header">
+                    <h2>
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
+                            <polyline points="3.27 6.96 12 12.01 20.73 6.96"/>
+                            <line x1="12" y1="22.08" x2="12" y2="12"/>
+                        </svg>
+                        Server Companion Plugins
+                    </h2>
+                    <p class="about-dialog-subtitle">Install companion plugins on your media server for Seerr integration and cloud settings backup.</p>
+                </div>
+
+                <div class="about-dialog-content">
+                    <div class="about-qr-grid">
+                        <!-- Jellyfin Plugin QR Card -->
+                        <div class="about-qr-card">
+                            <div class="about-qr-image-wrap">
+                                <img src="assets/qr/qr-plugin-jellyfin.png" class="about-qr-img" alt="Jellyfin Plugin QR Code" />
+                            </div>
+                            <span class="about-qr-title">Jellyfin Plugin</span>
+                            <span class="about-qr-desc">Official server companion plugin for Jellyfin server instances.</span>
+                            <span class="about-qr-url-chip">github.com/MoazSalem/litefin-plugin</span>
+                            <button class="btn btn-secondary btn-small focusable about-qr-btn" 
+                                    id="btn-plugin-jellyfin-open" 
+                                    tabindex="0" 
+                                    data-focusable="true"
+                                    data-nav-right="#btn-plugin-emby-open"
+                                    data-nav-down="#btn-about-modal-close">
+                                ${i18n.t('OpenLink') || 'Open Link'}
+                            </button>
+                        </div>
+
+                        <!-- Emby Plugin QR Card -->
+                        <div class="about-qr-card">
+                            <div class="about-qr-image-wrap">
+                                <img src="assets/qr/qr-plugin-emby.png" class="about-qr-img" alt="Emby Plugin QR Code" />
+                            </div>
+                            <span class="about-qr-title">Emby Plugin</span>
+                            <span class="about-qr-desc">Official server companion plugin for Emby server instances.</span>
+                            <span class="about-qr-url-chip">github.com/MoazSalem/litefin-plugin-emby</span>
+                            <button class="btn btn-secondary btn-small focusable about-qr-btn" 
+                                    id="btn-plugin-emby-open" 
+                                    tabindex="0" 
+                                    data-focusable="true"
+                                    data-nav-left="#btn-plugin-jellyfin-open"
+                                    data-nav-down="#btn-about-modal-close">
+                                ${i18n.t('OpenLink') || 'Open Link'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="about-dialog-actions" id="plugins-modal-actions">
+                    <button class="modal-action-btn focusable about-dialog-close-btn" 
+                            id="btn-about-modal-close" 
+                            tabindex="0" 
+                            data-focusable="true"
+                            data-nav-up="#btn-plugin-jellyfin-open">
+                        ${i18n.t('Close') || 'Close'}
+                    </button>
+                </div>
+            </div>
+        `;
+
+        overlay.classList.add('visible');
+        overlay.setAttribute('aria-hidden', 'false');
+
+        overlay.onclick = (e) => {
+            if (e.target === overlay) this._closeAboutDialog();
+        };
+
+        const closeBtn = overlay.querySelector('#btn-about-modal-close');
+        if (closeBtn) {
+            closeBtn.onclick = (e) => {
+                e.stopPropagation();
+                this._closeAboutDialog();
+            };
+        }
+
+        const openJfBtn = overlay.querySelector('#btn-plugin-jellyfin-open');
+        if (openJfBtn) {
+            openJfBtn.onclick = (e) => {
+                e.stopPropagation();
+                this._openExternalUrl('https://github.com/MoazSalem/litefin-plugin');
+            };
+        }
+
+        const openEmbyBtn = overlay.querySelector('#btn-plugin-emby-open');
+        if (openEmbyBtn) {
+            openEmbyBtn.onclick = (e) => {
+                e.stopPropagation();
+                this._openExternalUrl('https://github.com/MoazSalem/litefin-plugin-emby');
+            };
+        }
+
+        focusManager.pushTrap(overlay.querySelector('.about-dialog-modal'), {
+            orientation: 'grid',
+            defaultFocusSelector: '#btn-plugin-jellyfin-open'
+        });
+    }
+
+    /**
+     * Displays the Discord Community invitation dialog featuring 1 centered QR code.
+     * @private
+     */
+    _showDiscordDialog() {
+        const overlay = this.$('#modal-overlay');
+        if (!overlay) return;
+
+        overlay.innerHTML = `
+            <div class="settings-modal about-dialog-modal compact-modal" role="dialog" aria-modal="true" aria-label="Discord Community">
+                <div class="about-dialog-header">
+                    <h2>
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028c.462-.63.874-1.295 1.226-1.994.021-.041.001-.09-.041-.106a13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.929 1.793 8.18 1.793 12.061 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.894.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.028zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z"/>
+                        </svg>
+                        ${i18n.t('DiscordCommunity') || 'Discord Community'}
+                    </h2>
+                    <p class="about-dialog-subtitle">Scan to join the official Litefin Discord server. Connect with other users, ask questions, and share feedback.</p>
+                </div>
+
+                <div class="about-dialog-content">
+                    <div class="about-qr-grid">
+                        <div class="about-qr-card" style="max-width: 380px;">
+                            <div class="about-qr-image-wrap">
+                                <img src="assets/qr/qr-discord.png" class="about-qr-img" alt="Discord Invite QR Code" />
+                            </div>
+                            <span class="about-qr-title">Official Discord Server</span>
+                            <span class="about-qr-desc">Real-time troubleshooting, alpha announcements, and community discussions.</span>
+                            <span class="about-qr-url-chip">discord.gg/N3VpazBtTx</span>
+                            <button class="btn btn-secondary btn-small focusable about-qr-btn" 
+                                    id="btn-discord-open" 
+                                    tabindex="0" 
+                                    data-focusable="true"
+                                    data-nav-down="#btn-about-modal-close">
+                                ${i18n.t('OpenLink') || 'Open Link'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="about-dialog-actions" id="discord-modal-actions">
+                    <button class="modal-action-btn focusable about-dialog-close-btn" 
+                            id="btn-about-modal-close" 
+                            tabindex="0" 
+                            data-focusable="true"
+                            data-nav-up="#btn-discord-open">
+                        ${i18n.t('Close') || 'Close'}
+                    </button>
+                </div>
+            </div>
+        `;
+
+        overlay.classList.add('visible');
+        overlay.setAttribute('aria-hidden', 'false');
+
+        overlay.onclick = (e) => {
+            if (e.target === overlay) this._closeAboutDialog();
+        };
+
+        const closeBtn = overlay.querySelector('#btn-about-modal-close');
+        if (closeBtn) {
+            closeBtn.onclick = (e) => {
+                e.stopPropagation();
+                this._closeAboutDialog();
+            };
+        }
+
+        const openDiscordBtn = overlay.querySelector('#btn-discord-open');
+        if (openDiscordBtn) {
+            openDiscordBtn.onclick = (e) => {
+                e.stopPropagation();
+                this._openExternalUrl('https://discord.gg/N3VpazBtTx');
+            };
+        }
+
+        focusManager.pushTrap(overlay.querySelector('.about-dialog-modal'), {
+            orientation: 'grid',
+            defaultFocusSelector: '#btn-discord-open'
+        });
+    }
+
+    /**
+     * Displays the Support & Donations dialog featuring 2 QR codes (Buy Me a Coffee & Sponsors).
+     * @private
+     */
+    _showSupportDialog() {
+        const overlay = this.$('#modal-overlay');
+        if (!overlay) return;
+
+        overlay.innerHTML = `
+            <div class="settings-modal about-dialog-modal" role="dialog" aria-modal="true" aria-label="Support Litefin">
+                <div class="about-dialog-header">
+                    <h2>
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
+                        </svg>
+                        Support & Donations
+                    </h2>
+                    <p class="about-dialog-subtitle">Litefin is free and open-source. Help back continuous development and infrastructure support.</p>
+                </div>
+
+                <div class="about-dialog-content">
+                    <div class="about-qr-grid">
+                        <!-- Buy Me a Coffee QR Card -->
+                        <div class="about-qr-card">
+                            <div class="about-qr-image-wrap">
+                                <img src="assets/qr/qr-donation.png" class="about-qr-img" alt="Buy Me A Coffee QR Code" />
+                            </div>
+                            <span class="about-qr-title">Buy Me a Coffee</span>
+                            <span class="about-qr-desc">Support developer coffee fuels and ongoing rapid release cycles!</span>
+                            <span class="about-qr-url-chip">buymeacoffee.com/moazsalem</span>
+                            <button class="btn btn-secondary btn-small focusable about-qr-btn" 
+                                    id="btn-support-coffee-open" 
+                                    tabindex="0" 
+                                    data-focusable="true"
+                                    data-nav-right="#btn-support-sponsors-open"
+                                    data-nav-down="#btn-about-modal-close">
+                                ${i18n.t('OpenLink') || 'Open Link'}
+                            </button>
+                        </div>
+
+                        <!-- GitHub Sponsors QR Card -->
+                        <div class="about-qr-card">
+                            <div class="about-qr-image-wrap">
+                                <img src="assets/qr/qr-sponsors.png" class="about-qr-img" alt="GitHub Sponsors QR Code" />
+                            </div>
+                            <span class="about-qr-title">GitHub Sponsors</span>
+                            <span class="about-qr-desc">Become an official sponsor of the Litefin repository.</span>
+                            <span class="about-qr-url-chip">github.com/sponsors/MoazSalem</span>
+                            <button class="btn btn-secondary btn-small focusable about-qr-btn" 
+                                    id="btn-support-sponsors-open" 
+                                    tabindex="0" 
+                                    data-focusable="true"
+                                    data-nav-left="#btn-support-coffee-open"
+                                    data-nav-down="#btn-about-modal-close">
+                                ${i18n.t('OpenLink') || 'Open Link'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="about-dialog-actions" id="support-modal-actions">
+                    <button class="modal-action-btn focusable about-dialog-close-btn" 
+                            id="btn-about-modal-close" 
+                            tabindex="0" 
+                            data-focusable="true"
+                            data-nav-up="#btn-support-coffee-open">
+                        ${i18n.t('Close') || 'Close'}
+                    </button>
+                </div>
+            </div>
+        `;
+
+        overlay.classList.add('visible');
+        overlay.setAttribute('aria-hidden', 'false');
+
+        overlay.onclick = (e) => {
+            if (e.target === overlay) this._closeAboutDialog();
+        };
+
+        const closeBtn = overlay.querySelector('#btn-about-modal-close');
+        if (closeBtn) {
+            closeBtn.onclick = (e) => {
+                e.stopPropagation();
+                this._closeAboutDialog();
+            };
+        }
+
+        const openCoffeeBtn = overlay.querySelector('#btn-support-coffee-open');
+        if (openCoffeeBtn) {
+            openCoffeeBtn.onclick = (e) => {
+                e.stopPropagation();
+                this._openExternalUrl('https://www.buymeacoffee.com/moazsalem');
+            };
+        }
+
+        const openSponsorsBtn = overlay.querySelector('#btn-support-sponsors-open');
+        if (openSponsorsBtn) {
+            openSponsorsBtn.onclick = (e) => {
+                e.stopPropagation();
+                this._openExternalUrl('https://github.com/sponsors/MoazSalem');
+            };
+        }
+
+        focusManager.pushTrap(overlay.querySelector('.about-dialog-modal'), {
+            orientation: 'grid',
+            defaultFocusSelector: '#btn-support-coffee-open'
+        });
     }
 
     _renderBackupTab() {
@@ -6479,6 +7723,10 @@ class SettingsPage extends Page {
     _renderDebugTab() {
         const logsEnabled = debugOverlay.isLogsEnabled;
         const overlayEnabled = debugOverlay.isOverlayEnabled;
+        // Check whether low-level Movi player engine logging is enabled (defaults to false)
+        const moviLogsEnabled = storage.getItem('debug_movi_logs') === 'true';
+        // Check whether low-level ExoPlayer native engine logging is enabled (defaults to false)
+        const exoLogsEnabled = storage.getItem('debug_exoplayer_logs') === 'true';
 
         return `
             <div class="settings-tab-content">
@@ -6522,6 +7770,32 @@ class SettingsPage extends Page {
                     <div class="setting-control">
                         <button class="btn btn-option" id="btn-upload-logs" tabindex="0" style="width: auto; min-width: 120px;" data-i18n="Upload">
                             ${i18n.t('Upload')}
+                        </button>
+                    </div>
+                </div>
+
+                <div class="setting-item">
+                    <div class="setting-label">
+                        <span class="setting-name" data-i18n="EnableMoviDebugLogs">${i18n.t('EnableMoviDebugLogs') || 'Enable Movi Engine Logs'}</span>
+                        <span class="setting-description" data-i18n="EnableMoviDebugLogsDescription">${i18n.t('EnableMoviDebugLogsDescription') || 'Output low-level WebAssembly demuxer, FFmpeg, and decoding logs from movi-player to the logger.'}</span>
+                    </div>
+                    <div class="setting-control">
+                        <button class="toggle-switch ${moviLogsEnabled ? 'active' : ''}" 
+                                id="toggle-debug-movi-logs" 
+                                tabindex="0">
+                        </button>
+                    </div>
+                </div>
+
+                <div class="setting-item">
+                    <div class="setting-label">
+                        <span class="setting-name" data-i18n="EnableExoPlayerDebugLogs">${i18n.t('EnableExoPlayerDebugLogs') || 'Enable ExoPlayer Debug Logs'}</span>
+                        <span class="setting-description" data-i18n="EnableExoPlayerDebugLogsDescription">${i18n.t('EnableExoPlayerDebugLogsDescription') || 'Output low-level Media3 ExoPlayer playback and state events to the console.'}</span>
+                    </div>
+                    <div class="setting-control">
+                        <button class="toggle-switch ${exoLogsEnabled ? 'active' : ''}" 
+                                id="toggle-debug-exoplayer-logs" 
+                                tabindex="0">
                         </button>
                     </div>
                 </div>
@@ -6686,15 +7960,36 @@ class SettingsPage extends Page {
         this._bindEvents();
         this._setupFocus();
 
-        // Default focus to the active tab button in the sidebar.
-        // We do this explicitly instead of relying on last-focused behavior,
-        // to ensure we always start at the current selection.
-        const activeBtn = this.$(`.settings-menu-btn[data-tab="${this.activeTab}"]`);
-        if (activeBtn) {
-            focusManager.focusElement(activeBtn);
-        } else {
-            this.setActiveSection('settings-sidebar');
+        // Initialize mobile portrait 2-page view state
+        // Ensures user begins on the category selection view in portrait orientation
+        this._mobileDetailOpen = false;
+        this._updateMobileViewState();
+
+        // Responsive viewport observer to seamlessly transition layouts on rotation
+        this._onResize = () => {
+            this._updateMobileViewState();
+        };
+        window.addEventListener('resize', this._onResize);
+        window.addEventListener('orientationchange', this._onResize);
+
+        // Default focus to the active tab button in the sidebar (landscape/desktop only).
+        // On mobile portrait, we deliberately avoid focusing or enlarging any tabs.
+        if (!this._isPortraitMode()) {
+            const activeBtn = this.$(`.settings-menu-btn[data-tab="${this.activeTab}"]`);
+            if (activeBtn) {
+                focusManager.focusElement(activeBtn);
+            } else {
+                this.setActiveSection('settings-sidebar');
+            }
         }
+
+        // Intercept browser / system gesture back navigation to close detail view in portrait
+        this._onPopState = () => {
+            if (this._mobileDetailOpen) {
+                this._closeMobileDetail(false);
+            }
+        };
+        window.addEventListener('popstate', this._onPopState);
 
         // If the debug tab is active, populate the live storage usage display
         // so the user gets immediate feedback without having to navigate away.
@@ -6748,18 +8043,18 @@ class SettingsPage extends Page {
     }
 
     _bindEvents() {
-        // Back button
-
         // Sidebar Navigation
         this.$$('.settings-menu-btn').forEach((btn) => {
             btn.addEventListener('click', () => {
                 const tab = btn.dataset.tab;
-                this._switchTab(tab, false, true);
+                if (this._isPortraitMode()) {
+                    // Mobile portrait: drill down into full settings for chosen category
+                    this._openMobileTab(tab);
+                } else {
+                    // Landscape / Desktop: update active tab in split-view panel
+                    this._switchTab(tab, false, true);
+                }
             });
-
-            // Also switch on focus for hover-like preview?
-            // Better to switch on click/enter for stability, or debounce focus.
-            // Let's stick to click/enter (standard behavior)
         });
 
         this._bindContentEvents();
@@ -6995,9 +8290,11 @@ class SettingsPage extends Page {
         const moviesColItem = this.$('#trending-movies-collection-item');
         const seriesColItem = this.$('#trending-series-collection-item');
         const colNameItem = this.$('#trending-collection-name-item');
+        const customColsItem = this.$('#setting-custom-collections');
 
         if (enableCollectionRowsBtn) {
             enableCollectionRowsBtn.addEventListener('click', () => {
+                // Determine the next toggle state based on persistent storage
                 const isCurrentlyEnabled = storage.getItem('pref:enableCollectionRows') === 'true';
                 const newValue = !isCurrentlyEnabled;
                 storage.setItem('pref:enableCollectionRows', newValue.toString());
@@ -7023,15 +8320,17 @@ class SettingsPage extends Page {
                         if (labelSpan) labelSpan.innerText = i18n.t('Disabled') || 'Disabled';
                     }
 
-                    // Hide the 3 items
+                    // Hide dependent collection settings items
                     if (moviesColItem) moviesColItem.style.display = 'none';
                     if (seriesColItem) seriesColItem.style.display = 'none';
                     if (colNameItem) colNameItem.style.display = 'none';
+                    if (customColsItem) customColsItem.style.display = 'none';
                 } else {
-                    // Show the 3 items back
+                    // Show dependent collection settings items when enabled
                     if (moviesColItem) moviesColItem.style.display = '';
                     if (seriesColItem) seriesColItem.style.display = '';
                     if (colNameItem) colNameItem.style.display = '';
+                    if (customColsItem) customColsItem.style.display = '';
                 }
 
                 log.info(`Enable Collection Rows set to: ${newValue}`);
@@ -7039,6 +8338,13 @@ class SettingsPage extends Page {
                 // Refresh the home layout ordering manager if present
                 this._setupHomeLayoutUI();
                 focusManager.invalidateCache('settings-content');
+            });
+        }
+
+        const manageCustomColsBtn = this.$('#btn-manage-custom-collections');
+        if (manageCustomColsBtn) {
+            manageCustomColsBtn.addEventListener('click', () => {
+                this._showCustomCollectionsModal();
             });
         }
 
@@ -7293,13 +8599,15 @@ class SettingsPage extends Page {
             });
         }
 
-        // Toggle Swap Episode Titles
+        // Toggle Swap Episode Titles (defaults to true)
         const swapEpisodeTitlesBtn = this.$('#toggle-swap-episode-titles');
         if (swapEpisodeTitlesBtn) {
             swapEpisodeTitlesBtn.addEventListener('click', () => {
-                const isEnabled = storage.getItem('pref:swapEpisodeTitles') === 'true';
+                // Check if currently enabled (default is true if not explicitly 'false')
+                const isEnabled = storage.getItem('pref:swapEpisodeTitles') !== 'false';
                 const newValue = !isEnabled;
-                storage.setItem('pref:swapEpisodeTitles', newValue);
+                // Store updated preference
+                storage.setItem('pref:swapEpisodeTitles', newValue.toString());
                 swapEpisodeTitlesBtn.classList.toggle('active', newValue);
                 log.info(`Swap Episode Titles set to: ${newValue}`);
             });
@@ -7530,6 +8838,27 @@ class SettingsPage extends Page {
             });
         }
 
+        /* -----------------------------------------------------------------
+         * Toggle Alpha Picker Scroll Mode (under Library Item Limit)
+         * In unlimited mode, clicking an alphabet letter glides directly to
+         * that letter anchor instead of reloading filtered single-letter lists.
+         * ----------------------------------------------------------------- */
+        const alphaPickerScrollModeBtn = this.$('#toggle-alpha-picker-scroll-mode');
+        if (alphaPickerScrollModeBtn) {
+            alphaPickerScrollModeBtn.addEventListener('click', () => {
+                // Read current state (defaults to true if unset)
+                const isCurrentActive = storage.getItem('pref:alphaPickerScrollMode') !== 'false';
+                const newValue = !isCurrentActive;
+
+                // Save to local storage and toggle premium iOS-style switch state
+                storage.setItem('pref:alphaPickerScrollMode', newValue.toString());
+                alphaPickerScrollModeBtn.classList.toggle('active', newValue);
+
+                // Emit event for real-time listeners across active views
+                eventBus.emit('pref:alphaPickerScrollMode:changed', newValue);
+            });
+        }
+
         // Toggle Only BlurHash Backdrop
         const onlyBlurhashBackdropBtn = this.$('#toggle-only-blurhash-backdrop');
         if (onlyBlurhashBackdropBtn) {
@@ -7571,6 +8900,26 @@ class SettingsPage extends Page {
                 storage.setItem('pref:disableLibraryCache', newValue.toString());
                 libraryCacheBtn.classList.toggle('active', newValue);
                 log.info(`Disable library cache set to: ${newValue}`);
+            });
+        }
+
+        // Toggle Reload Page on Resume (Performance Tab)
+        // Persists preference to local storage and updates the tactile toggle switch state
+        const reloadOnResumeBtn = this.$('#toggle-reload-on-resume');
+        if (reloadOnResumeBtn) {
+            reloadOnResumeBtn.addEventListener('click', () => {
+                // Determine current state considering platform default (enabled on TV, disabled on Web)
+                const isTv = platformInfo.isTizen || platformInfo.isWebOS;
+                const saved = storage.getItem('pref:reloadOnResume');
+                const isCurrentlyEnabled = saved !== null ? saved === 'true' : isTv;
+                const newValue = !isCurrentlyEnabled;
+
+                // Persist new value to local storage service
+                storage.setItem('pref:reloadOnResume', newValue.toString());
+
+                // Update visual switch state on the toggle button
+                reloadOnResumeBtn.classList.toggle('active', newValue);
+                log.info(`Reload Page on Resume set to: ${newValue}`);
             });
         }
 
@@ -8028,6 +9377,17 @@ class SettingsPage extends Page {
             });
         }
 
+        // Toggle Colored Buttons Reveal OSD in Stealth Mode
+        const colorButtonsRevealBtn = this.$('#toggle-osd-color-buttons-reveal');
+        if (colorButtonsRevealBtn) {
+            colorButtonsRevealBtn.addEventListener('click', () => {
+                const currentValue = PlayerSettings.get('osdColorButtonsReveal') !== false;
+                const newValue = !currentValue;
+                PlayerSettings.set('osdColorButtonsReveal', newValue);
+                colorButtonsRevealBtn.classList.toggle('active', newValue);
+            });
+        }
+
         // Toggle Keep Focus On Subtitle Offset
         const keepFocusOffsetBtn = this.$('#toggle-keep-focus-subtitle-offset');
         if (keepFocusOffsetBtn) {
@@ -8113,6 +9473,30 @@ class SettingsPage extends Page {
 
                 // Invalidate focus cache so the newly visible items can be focused
                 focusManager.invalidateCache();
+            });
+        }
+
+        /*
+         * ====================================================================
+         * SUBTITLE OSD DODGING TOGGLE (SMART SHIFT)
+         * ====================================================================
+         * Manages user preference to dynamically elevate text subtitles above
+         * on-screen display controls whenever playback actions or navigation occur.
+         * Default state is enabled (true).
+         * ====================================================================
+         */
+        const osdDodgingBtn = this.$('#subtitle-osd-dodging-toggle');
+        if (osdDodgingBtn) {
+            osdDodgingBtn.addEventListener('click', () => {
+                // Read current preference state (defaults to true if unset)
+                const currentValue = PlayerSettings.get('subtitleOsdDodging') !== false;
+                const newValue = !currentValue;
+
+                // Persist new toggle state in PlayerSettings
+                PlayerSettings.set('subtitleOsdDodging', newValue);
+
+                // Update visual active state on toggle switch button
+                osdDodgingBtn.classList.toggle('active', newValue);
             });
         }
 
@@ -8279,6 +9663,20 @@ class SettingsPage extends Page {
         if (btnLoaderStylePicker) {
             btnLoaderStylePicker.addEventListener('click', () => {
                 this._openLoaderStyleModal();
+            });
+        }
+
+        // =====================================================================
+        // Fallback Audio Languages Multi-Slot Modal Trigger
+        // =====================================================================
+        // Opens the unified modal containing the 3-slot priority tab switcher
+        // at the top for selecting fallbacks 1, 2, and 3 under a single setting.
+        const btnAudioFallbacks = this.$('#audio-fallback-languages-btn');
+        if (btnAudioFallbacks) {
+            btnAudioFallbacks.addEventListener('click', async (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                await this._openAudioFallbackModal();
             });
         }
 
@@ -8595,6 +9993,7 @@ class SettingsPage extends Page {
         // Check if this dropdown is a language selection menu
         const isLanguageSelect = selectId === 'app-language-select' ||
             selectId === 'audio-lang-select' ||
+            isAudioFallbackSelect(selectId) ||
             selectId === 'subtitle-lang-select' ||
             (title && (title.toLowerCase().includes('language') || title.toLowerCase().includes('idioma') || title.toLowerCase().includes('langue') || title.toLowerCase().includes('sprache')));
 
@@ -8867,6 +10266,7 @@ class SettingsPage extends Page {
 
         // Unregister modal focus
         focusManager.unregister('modal-filter-pills');
+        focusManager.unregister('modal-slot-pills');
         focusManager.unregister('modal-options');
         focusManager.unregister('modal-loader-options');
         focusManager.unregister('modal-color-grid');
@@ -8883,6 +10283,454 @@ class SettingsPage extends Page {
 
         this._prevFocus = null;
         this._prevSection = null;
+    }
+
+    /**
+     * Get a human-readable summary of configured fallback audio languages.
+     * Delegates to the unified preferences summary helper.
+     * @returns {string} Summary string formatted for the settings dropdown trigger
+     */
+    _getAudioFallbackSummaryLabel() {
+        return this._getAudioPreferencesSummaryLabel();
+    }
+
+    /**
+     * Get a human-readable summary of preferred and fallback audio languages.
+     * Formats configured audio priorities (e.g. "Japanese • 1: English")
+     * or defaults to "Default" when no custom preferences are specified.
+     * @returns {string} Formatted summary string for the settings trigger button
+     */
+    _getAudioPreferencesSummaryLabel() {
+        // Retrieve preferred audio language setting
+        const rawPref = storage.getItem('pref:audioLang');
+        const prefVal = (!rawPref || rawPref === 'Default') ? 'Default' : rawPref;
+        let prefLabel = i18n.t('Default') || 'Default';
+
+        // Match localized label for preferred language if available
+        if (prefVal !== 'Default') {
+            const match = (this.prefLanguages || []).find((o) => String(o.value) === String(prefVal));
+            prefLabel = match ? match.label : prefVal;
+        }
+
+        // Collect configured fallback slots
+        const fallbackParts = [];
+        for (const priority of AUDIO_FALLBACK_SLOTS) {
+            const raw = storage.getItem(`pref:audioLangFallback${priority}`);
+            if (raw && raw !== 'Default' && raw !== 'none') {
+                const match = (this.prefLanguages || []).find((o) => String(o.value) === String(raw));
+                const name = match ? match.label : raw;
+                fallbackParts.push(`${priority}: ${name}`);
+            }
+        }
+
+        // Return combined summary string
+        if (fallbackParts.length > 0) {
+            return `${prefLabel} • ${fallbackParts.join(' • ')}`;
+        }
+        return prefLabel;
+    }
+
+    /**
+     * Open the unified preferred and fallback audio languages configuration modal.
+     * Renders a 2-tier tab bar:
+     * - Tier 1 (Filter): 2 tabs for Favorites and All Languages
+     * - Tier 2 (Priority Slot): 4 tabs for Preferred Language, Fallback 1, Fallback 2, Fallback 3
+     * Allows selecting languages per slot with remote D-pad Left/Right navigation across slots.
+     */
+    async _openAudioFallbackModal() {
+        const overlay = this.$('#modal-overlay');
+        if (!overlay) return;
+
+        // Ensure cultures are loaded from server before displaying language options
+        if (!cachedCultures || !this.prefLanguages || this.prefLanguages.length <= 1) {
+            try {
+                const cultures = await api.getCultures();
+                if (cultures && Array.isArray(cultures)) {
+                    languageManager.registerCultures(cultures);
+                    cachedCultures = cultures
+                        .map((c) => ({
+                            value: c.ThreeLetterISOLanguageName || c.Name,
+                            label: i18n.ensureBiDi(c.DisplayName),
+                            ThreeLetterISOLanguageName: c.ThreeLetterISOLanguageName,
+                            TwoLetterISOLanguageName: c.TwoLetterISOLanguageName,
+                            DisplayName: c.DisplayName
+                        }))
+                        .sort((a, b) => a.label.localeCompare(b.label));
+                    this.prefLanguages = cachedCultures;
+                }
+            } catch (err) {
+                log.error('Failed to load cultures for audio language modal:', err);
+            }
+        }
+
+        // Store focus context for restoration upon closing
+        this._prevFocus = focusManager.getFocused();
+        this._prevSection = focusManager.getActiveSection();
+
+        // 4 priority slots: 'pref' (preferred), '1', '2', '3' (fallbacks)
+        const SLOTS = ['pref', '1', '2', '3'];
+        let activeSlot = 'pref';
+
+        // Filter state: default to 'favorites' if favorites exist, otherwise 'all'
+        let activeFilter = languageManager.hasFavorites() ? 'favorites' : 'all';
+
+        // Clean list of server cultures (excluding sentinel keys)
+        const validLanguages = (this.prefLanguages || []).filter(
+            (o) => o.value !== 'Default' && o.value !== 'none'
+        );
+
+        // Helper: retrieve human-readable display label, short code, and value for a given slot
+        const getSlotValueAndLabel = (slot) => {
+            if (slot === 'pref') {
+                const raw = storage.getItem('pref:audioLang');
+                const val = (!raw || raw === 'Default') ? 'Default' : raw;
+                if (val === 'Default') {
+                    return {
+                        value: 'Default',
+                        label: i18n.t('Default') || 'Default',
+                        shortLabel: i18n.t('Default') || 'Default'
+                    };
+                }
+                const match = validLanguages.find((o) => String(o.value) === String(val));
+                const fullLabel = match ? match.label : val;
+                // Extract 2-letter ISO language code (e.g., 'en', 'ar') for ultra-compact tab headers
+                const twoLetter = match?.TwoLetterISOLanguageName || languageManager.normalizeLanguage(val)?.twoLetter;
+                const shortCode = (twoLetter || match?.ThreeLetterISOLanguageName || val).toLowerCase();
+                return { value: val, label: fullLabel, shortLabel: shortCode };
+            } else {
+                const raw = storage.getItem(`pref:audioLangFallback${slot}`);
+                const val = (!raw || raw === 'Default' || raw === 'none') ? 'none' : raw;
+                if (val === 'none') {
+                    return {
+                        value: 'none',
+                        label: i18n.t('None') || 'None',
+                        shortLabel: i18n.t('None') || 'None'
+                    };
+                }
+                const match = validLanguages.find((o) => String(o.value) === String(val));
+                const fullLabel = match ? match.label : val;
+                // Extract 2-letter ISO language code (e.g., 'en', 'ar') for ultra-compact tab headers
+                const twoLetter = match?.TwoLetterISOLanguageName || languageManager.normalizeLanguage(val)?.twoLetter;
+                const shortCode = (twoLetter || match?.ThreeLetterISOLanguageName || val).toLowerCase();
+                return { value: val, label: fullLabel, shortLabel: shortCode };
+            }
+        };
+
+        const renderModal = (focusTarget = 'options') => {
+            // Read active slot's current setting
+            const currentSlotInfo = getSlotValueAndLabel(activeSlot);
+            const currentSlotVal = currentSlotInfo.value;
+
+            // Slot special top option ('Default' for pref, 'None' for fallbacks)
+            const specialOption = activeSlot === 'pref'
+                ? { value: 'Default', label: i18n.t('Default') || 'Default' }
+                : { value: 'none', label: i18n.t('None') || 'None' };
+
+            // Languages filtered according to active filter tab
+            const filteredLanguages = activeFilter === 'favorites'
+                ? languageManager.filterOptions(validLanguages)
+                : validLanguages;
+
+            // Full options list for the active slot
+            const slotOptions = [specialOption, ...filteredLanguages];
+
+            // Counts for filter pills
+            const favoritesCount = validLanguages.filter((o) => languageManager.isFavorite(o)).length;
+            const allCount = validLanguages.length;
+
+            // Tier 1: 2 Filter Tabs (Favorites vs All Languages)
+            const filterPillsHtml = `
+                <div class="modal-filter-pills has-slot-subrow" id="modal-lang-filter-pills">
+                    <button class="modal-filter-pill ${activeFilter === 'favorites' ? 'active' : ''}" 
+                            data-filter="favorites" 
+                            tabindex="0">
+                        ★ ${i18n.t('FavoritesOnly') || 'Favorites'} (${favoritesCount})
+                    </button>
+                    <button class="modal-filter-pill ${activeFilter === 'all' ? 'active' : ''}" 
+                            data-filter="all" 
+                            tabindex="0">
+                        ${i18n.t('AllLanguages') || 'All Languages'} (${allCount})
+                    </button>
+                </div>
+            `;
+
+            // Tier 2: 4 Slot Tabs (Preferred, Fallback 1, Fallback 2, Fallback 3)
+            const slotPillsHtml = `
+                <div class="modal-slot-pills" id="modal-audio-slot-pills">
+                    ${SLOTS.map((slot) => {
+                        const isActive = slot === activeSlot;
+                        const info = getSlotValueAndLabel(slot);
+
+                        // Concise tab title prefix: "Preferred" or "Fallback 1", "Fallback 2", etc.
+                        const displayTitle = slot === 'pref'
+                            ? (i18n.t('Preferred') || 'Preferred')
+                            : `${i18n.t('Fallback') || 'Fallback'} ${slot}`;
+
+                        return `
+                            <button class="modal-filter-pill modal-slot-pill ${isActive ? 'active' : ''}" 
+                                    data-slot="${slot}" 
+                                    tabindex="0"
+                                    title="${displayTitle}: ${escapeHtml(info.label)}">
+                                <span class="slot-pill-title">${displayTitle}:</span>
+                                <span class="slot-pill-val">${escapeHtml(info.shortLabel)}</span>
+                            </button>
+                        `;
+                    }).join('')}
+                </div>
+            `;
+
+            // Tier 3: Language Options List
+            const optionsHtml = slotOptions.map((opt) => {
+                const isSelected = String(opt.value) === String(currentSlotVal);
+                const valStr = String(opt.value).toLowerCase();
+                const isSpecial = valStr === 'none' || valStr === 'default' || valStr === 'auto' || valStr === '-1';
+
+                let starBtnHtml = '';
+                if (!isSpecial) {
+                    const isFav = languageManager.isFavorite(opt);
+                    starBtnHtml = `
+                        <span class="modal-star-btn ${isFav ? 'active' : ''}" 
+                              data-value="${opt.value}" 
+                              title="Toggle Favorite" 
+                              role="button" 
+                              aria-label="Toggle Favorite">
+                            ${isFav ? '★' : '☆'}
+                        </span>
+                    `;
+                }
+
+                return `
+                    <button class="modal-option-btn ${isSelected ? 'selected' : ''}" 
+                            data-value="${opt.value}" 
+                            tabindex="0">
+                        <span class="modal-option-label">${escapeHtml(i18n.ensureBiDi(opt.label))}</span>
+                        ${starBtnHtml}
+                    </button>
+                `;
+            }).join('');
+
+            // Assemble Modal Overlay Markup
+            overlay.innerHTML = `
+                <div class="settings-modal" role="dialog" aria-modal="true">
+                    <div class="modal-header">
+                        <h2>${i18n.t('LabelAudioLanguagePreference') || 'Preferred audio language'}</h2>
+                    </div>
+                    ${filterPillsHtml}
+                    ${slotPillsHtml}
+                    <div class="modal-options">
+                        ${optionsHtml}
+                    </div>
+                    <div class="modal-actions">
+                        <button class="modal-action-btn primary" id="btn-modal-done" tabindex="0" data-i18n="Done">${i18n.t('Done') || 'Done'}</button>
+                    </div>
+                </div>
+            `;
+
+            // Wire option clicks
+            overlay.querySelectorAll('.modal-option-btn').forEach((btn) => {
+                btn.addEventListener('click', (e) => {
+                    // Check if star favorite button was clicked
+                    if (e.target.closest('.modal-star-btn')) {
+                        e.stopPropagation();
+                        const starBtn = e.target.closest('.modal-star-btn');
+                        const val = starBtn.dataset.value;
+                        const matchedOpt = validLanguages.find((o) => String(o.value) === String(val)) || val;
+                        const isNowFav = languageManager.toggleFavorite(matchedOpt);
+
+                        if (activeFilter === 'all') {
+                            // Update star in-place without rebuilding options
+                            starBtn.classList.toggle('active', isNowFav);
+                            starBtn.textContent = isNowFav ? '★' : '☆';
+                            // Update Favorites count pill in Row 1
+                            const favPill = overlay.querySelector('.modal-filter-pill[data-filter="favorites"]');
+                            if (favPill) {
+                                const newCount = validLanguages.filter((o) => languageManager.isFavorite(o)).length;
+                                favPill.textContent = `★ ${i18n.t('FavoritesOnly') || 'Favorites'} (${newCount})`;
+                            }
+                        } else {
+                            // In favorites view, removing favorite removes option, preserve focus
+                            const currentIdx = Array.from(overlay.querySelectorAll('.modal-option-btn')).indexOf(btn);
+                            renderModal('options');
+                            const remaining = overlay.querySelectorAll('.modal-option-btn');
+                            if (remaining.length > 0) {
+                                const targetIdx = Math.min(currentIdx, remaining.length - 1);
+                                focusManager.setActiveSection('modal-options');
+                                focusManager.focusElement(remaining[targetIdx]);
+                            }
+                        }
+                        return;
+                    }
+
+                    e.stopPropagation();
+                    const chosenValue = btn.dataset.value;
+
+                    // Persist selection according to active slot
+                    if (activeSlot === 'pref') {
+                        storage.setItem('pref:audioLang', chosenValue);
+                    } else {
+                        storage.setItem(`pref:audioLangFallback${activeSlot}`, chosenValue);
+                    }
+
+                    // Update Settings page summary trigger button label
+                    const triggerBtn = this.$('#audio-fallback-languages-btn .btn-label');
+                    if (triggerBtn) {
+                        triggerBtn.innerText = this._getAudioPreferencesSummaryLabel();
+                    }
+
+                    // Re-render modal to refresh active tab text and selection checkmark
+                    renderModal('options');
+                });
+            });
+
+            // Wire Tier 1 Filter Pill Clicks (Favorites vs All)
+            overlay.querySelectorAll('#modal-lang-filter-pills .modal-filter-pill').forEach((pill) => {
+                pill.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const targetFilter = pill.dataset.filter;
+                    if (targetFilter && targetFilter !== activeFilter) {
+                        activeFilter = targetFilter;
+                        renderModal('filter-pills');
+                    }
+                });
+            });
+
+            // Wire Tier 2 Slot Pill Clicks (Preferred, 1, 2, 3)
+            overlay.querySelectorAll('#modal-audio-slot-pills .modal-slot-pill').forEach((pill) => {
+                pill.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const targetSlot = pill.dataset.slot;
+                    if (targetSlot && targetSlot !== activeSlot) {
+                        activeSlot = targetSlot;
+                        renderModal('slot-pills');
+                    }
+                });
+            });
+
+            // Wire Done button
+            overlay.querySelector('#btn-modal-done')?.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this._closeSelectionModal();
+            });
+
+            // Backdrop dismiss
+            overlay.onclick = (e) => {
+                if (e.target === overlay) {
+                    e.stopPropagation();
+                    this._closeSelectionModal();
+                }
+            };
+
+            // Helper to navigate between slots via Left/Right keys
+            const switchSlot = (direction, focusTarget) => {
+                const isRtl = document.documentElement.getAttribute('dir') === 'rtl';
+                const currentIndex = SLOTS.indexOf(activeSlot);
+                const delta = direction === 'left' ? (isRtl ? 1 : -1) : (isRtl ? -1 : 1);
+                const nextIndex = currentIndex + delta;
+                if (nextIndex >= 0 && nextIndex < SLOTS.length) {
+                    activeSlot = SLOTS[nextIndex];
+                    renderModal(focusTarget);
+                    return true;
+                }
+                return false;
+            };
+
+            // Register Focus Section 1: Tier 1 Filter Pills (Favorites vs All)
+            this.registerFocusSection('modal-filter-pills', overlay.querySelector('#modal-lang-filter-pills'), {
+                orientation: 'horizontal',
+                leaveDown: 'modal-slot-pills',
+                onMove: (direction) => {
+                    const isRtl = document.documentElement.getAttribute('dir') === 'rtl';
+                    if (direction === 'left') {
+                        const targetFilter = isRtl ? 'all' : 'favorites';
+                        if (activeFilter !== targetFilter) {
+                            activeFilter = targetFilter;
+                            renderModal('filter-pills');
+                            return true;
+                        }
+                    } else if (direction === 'right') {
+                        const targetFilter = isRtl ? 'favorites' : 'all';
+                        if (activeFilter !== targetFilter) {
+                            activeFilter = targetFilter;
+                            renderModal('filter-pills');
+                            return true;
+                        }
+                    }
+                    return false;
+                }
+            });
+
+            // Register Focus Section 2: Tier 2 Slot Pills (Preferred, 1, 2, 3)
+            this.registerFocusSection('modal-slot-pills', overlay.querySelector('#modal-audio-slot-pills'), {
+                orientation: 'horizontal',
+                leaveUp: 'modal-filter-pills',
+                leaveDown: 'modal-options',
+                onMove: (direction) => {
+                    if (direction === 'left' || direction === 'right') {
+                        return switchSlot(direction, 'slot-pills');
+                    }
+                    return false;
+                }
+            });
+
+            // Register Focus Section 3: Tier 3 Options List with Left/Right slot switching
+            this.registerFocusSection('modal-options', overlay.querySelector('.modal-options'), {
+                orientation: 'vertical',
+                leaveUp: 'modal-slot-pills',
+                leaveDown: 'modal-actions',
+                enterTo: 'last-focused',
+                onMove: (direction) => {
+                    if (direction === 'left' || direction === 'right') {
+                        return switchSlot(direction, 'options');
+                    }
+                    return false;
+                }
+            });
+
+            // Register Focus Section 4: Modal Actions (Done Button)
+            this.registerFocusSection('modal-actions', overlay.querySelector('.modal-actions'), {
+                orientation: 'horizontal',
+                leaveUp: 'modal-options'
+            });
+
+            // Apply focus according to target
+            if (focusTarget === 'filter-pills') {
+                focusManager.setActiveSection('modal-filter-pills');
+                setTimeout(() => {
+                    const activePill = overlay.querySelector(`#modal-lang-filter-pills .modal-filter-pill[data-filter="${activeFilter}"]`);
+                    if (activePill) focusManager.focusElement(activePill);
+                }, 40);
+            } else if (focusTarget === 'slot-pills') {
+                focusManager.setActiveSection('modal-slot-pills');
+                setTimeout(() => {
+                    const activePill = overlay.querySelector(`#modal-audio-slot-pills .modal-slot-pill[data-slot="${activeSlot}"]`);
+                    if (activePill) focusManager.focusElement(activePill);
+                }, 40);
+            } else if (focusTarget === 'actions') {
+                focusManager.setActiveSection('modal-actions');
+                setTimeout(() => {
+                    const doneBtn = overlay.querySelector('#btn-modal-done');
+                    if (doneBtn) focusManager.focusElement(doneBtn);
+                }, 40);
+            } else {
+                focusManager.setActiveSection('modal-options');
+                setTimeout(() => {
+                    const selected = overlay.querySelector('.modal-option-btn.selected') || overlay.querySelector('.modal-option-btn');
+                    if (selected) {
+                        focusManager.focusElement(selected);
+                        if (typeof selected.scrollIntoView === 'function') {
+                            selected.scrollIntoView({ block: 'nearest' });
+                        }
+                    }
+                }, 40);
+            }
+        };
+
+        // Show Overlay
+        overlay.classList.add('visible');
+        overlay.setAttribute('aria-hidden', 'false');
+
+        // Initial render focusing the options list
+        renderModal('options');
     }
 
     /**
@@ -9532,6 +11380,7 @@ class SettingsPage extends Page {
             'layout-direction-select': { key: 'layout_direction', type: 'local' },
             'media-rows-layout-select': { key: 'pref:mediaRowsLayout', type: 'local', triggerEvent: true },
             'login-page-layout-select': { key: 'pref:loginPageLayout', type: 'local', triggerEvent: true },
+            'alpha-picker-position-select': { key: 'pref:alphaPickerPosition', type: 'local', triggerEvent: true },
             'sidebar-layout-select': { key: 'pref:sidebarLayoutMode', type: 'local', triggerEvent: true },
             'classic-card-size-scale-select': {
                 key: (() => {
@@ -9561,9 +11410,13 @@ class SettingsPage extends Page {
             'max-bitrate-select': { key: 'maxBitrateInternet', type: 'player' },
             'trailer-playback-select': { key: 'trailerPlaybackMode', type: 'player' },
             'audio-lang-select': { key: 'pref:audioLang', type: 'local' },
+            'audio-fallback-lang-1-select': { key: 'pref:audioLangFallback1', type: 'local' },
+            'audio-fallback-lang-2-select': { key: 'pref:audioLangFallback2', type: 'local' },
+            'audio-fallback-lang-3-select': { key: 'pref:audioLangFallback3', type: 'local' },
             'subtitle-lang-select': { key: 'pref:subtitleLang', type: 'local' },
             'skip-forward-select': { key: 'skipForwardLength', type: 'player' },
             'skip-back-select': { key: 'skipBackLength', type: 'player' },
+            'resume-rewind-select': { key: 'resumeRewindLength', type: 'player' },
             'subtitle-mode-select': { key: 'subtitleMode', type: 'player' },
             // Subtitle delivery mode — drives SubtitleProfiles in DeviceProfile
             'subtitle-burn-in-select': { key: 'subtitleBurnIn', type: 'player' },
@@ -9633,6 +11486,7 @@ class SettingsPage extends Page {
             'next-up-dialog-style-select': { type: 'player', key: 'nextUpDialogStyle' },
             'next-up-dialog-scale-select': { type: 'player', key: 'nextUpDialogScale' },
             'next-up-dialog-trigger-select': { type: 'player', key: 'nextUpTriggerMode' },
+            'watched-threshold-select': { type: 'player', key: 'watchedThreshold' },
 
             // Per-segment-type skip action — read by the skip-intro plugin on each onPlayerStart
             'segment-source-select': { type: 'player', key: 'skipSegmentSource' },
@@ -9654,17 +11508,20 @@ class SettingsPage extends Page {
             'html5-segment-length-select': { type: 'player', key: 'html5SegmentLength' },
 
             'text-scale-select': { key: 'litefin:textScale', type: 'local' },
+            'display-scale-select': { key: 'pref:displayScale', type: 'local' },
             'home-rows-limit-select': { key: 'pref:homeRowsLimit', type: 'local', triggerEvent: true },
             'next-up-max-days-select': { key: 'pref:nextUpMaxDays', type: 'local' },
             'score-visibility-select': { key: 'pref:scoreVisibility', type: 'local' },
             'details-title-style-select': { key: 'pref:detailsTitleStyle', type: 'local' },
             'details-overview-max-lines-select': { key: 'pref:detailsOverviewMaxLines', type: 'local' },
+            'watch-provider-region-select': { key: 'pref:watchProviderRegion', type: 'local' },
             'details-layout-select': { key: 'pref:detailsLayout', type: 'local' },
             'season-episode-details-layout-select': { key: 'pref:seasonEpisodeDetailsLayout', type: 'local' },
             'episode-layout-select': { key: 'pref:episodeLayout', type: 'local' },
             'show-dates-select': { key: 'pref:showDates', type: 'local' },
             'rich-metadata-select': { key: 'pref:richMetadataStyle', type: 'local' },
-            'library-page-size-select': { key: 'pref:libraryPageSize', type: 'local' },
+            'library-page-size-select': { key: 'pref:libraryPageSize', type: 'local', triggerEvent: true },
+            'play-queue-episode-limit-select': { type: 'player', key: 'playQueueEpisodeLimit' },
             'hero-carousel-style-select': { key: 'pref:heroCarouselStyle', type: 'local' },
             'hero-carousel-indicator-style-select': { key: 'pref:heroCarouselIndicatorStyle', type: 'local' },
             'hero-image-quality-select': { key: 'pref:heroImageQuality', type: 'local' },
@@ -9687,6 +11544,7 @@ class SettingsPage extends Page {
             'theme-song-volume-select': { key: 'pref:themeSongVolume', type: 'local' },
             'collapsed-sidebar-color-select': { key: 'pref:collapsedSidebarColor', type: 'local', triggerEvent: true },
             'expanded-sidebar-color-select': { key: 'pref:expandedSidebarColor', type: 'local', triggerEvent: true },
+            'bottom-nav-bar-color-select': { key: 'pref:bottomNavBarColor', type: 'local', triggerEvent: true },
             'sidebar-logo-settings-select': { key: 'pref:logoSettings', type: 'local', triggerEvent: true },
             'sidebar-items-align-select': { key: 'pref:sidebarItemsAlign', type: 'local', triggerEvent: true },
             'trending-movies-collection-select': { key: 'pref:trendingMoviesCollection', type: 'local', triggerEvent: true },
@@ -9706,7 +11564,27 @@ class SettingsPage extends Page {
                 const title =
                     btn.closest('.setting-item')?.querySelector('.setting-name')?.textContent || i18n.t('SelectOption');
 
-                if (id === 'trending-movies-collection-select' || id === 'trending-series-collection-select') {
+                if (id === 'watch-provider-region-select') {
+                    btn.classList.add('disabled');
+                    try {
+                        const countries = await api.get('/Localization/Countries');
+                        options = countries
+                            .filter((country) => country && /^[A-Z]{2}$/.test(country.TwoLetterISORegionName))
+                            .map((country) => ({
+                                value: country.TwoLetterISORegionName,
+                                label: watchProviderRegionName(country.TwoLetterISORegionName, i18n.currentLang)
+                            }))
+                            .sort((a, b) => a.label.localeCompare(b.label));
+                        if (!options.length) throw new Error('No countries returned');
+                        btn.dataset.options = JSON.stringify(options);
+                    } catch (err) {
+                        log.warn('Unable to load streaming availability countries', err);
+                        toast.error(i18n.t('WatchProvidersCountriesError'));
+                        return;
+                    } finally {
+                        btn.classList.remove('disabled');
+                    }
+                } else if (id === 'trending-movies-collection-select' || id === 'trending-series-collection-select') {
                     btn.classList.add('disabled');
                     try {
                         const collectionsRes = await api.getItems({
@@ -9768,7 +11646,10 @@ class SettingsPage extends Page {
 
                     // Save Setting based on type
                     if (settingConfig) {
-                        if (id === 'badge-style-select') {
+                        if (id === 'alpha-picker-position-select') {
+                            // SPECIAL CASE: Alphabet Selector Position handled by LayoutManager
+                            layoutManager.setAlphaPickerPosition(newValue);
+                        } else if (id === 'badge-style-select') {
                             // SPECIAL CASE: Badge Style handled by LayoutManager
                             layoutManager.setBadgeStyle(newValue);
                         } else if (id === 'button-style-select') {
@@ -9810,6 +11691,13 @@ class SettingsPage extends Page {
                         } else if (id === 'theme-mode-select') {
                             layoutManager.setThemeMode(newValue);
                             this._updateLighterBackgroundVisibility();
+                        } else if (id === 'watched-threshold-select') {
+                            PlayerSettings.set('watchedThreshold', newValue);
+                            if (newValue === 'server') {
+                                api.getServerConfiguration({ silent: true }).catch((err) => {
+                                    log.debug('Failed to background fetch server config for MaxResumePct:', err);
+                                });
+                            }
                         } else if (id === 'ui-font-select') {
                             // SPECIAL CASE: Font changes handled by LayoutManager
                             layoutManager.setUiFont(newValue);
@@ -9820,6 +11708,9 @@ class SettingsPage extends Page {
                         } else if (id === 'text-scale-select') {
                             // SPECIAL CASE: Text Scale handled by LayoutManager
                             layoutManager.setTextScale(parseFloat(newValue));
+                        } else if (id === 'display-scale-select') {
+                            // Viewport display scaling factor handled by LayoutManager
+                            layoutManager.setDisplayScale(newValue);
                         } else if (id === 'media-rows-layout-select') {
                             layoutManager.setMediaRowsLayout(newValue);
                             if (newValue === 'expanded') {
@@ -9878,6 +11769,9 @@ class SettingsPage extends Page {
                                 eventBus.emit('prefChanged:hideSidebarLibraryHeader', true);
                             }
 
+                            // Emit event to notify Sidebar and other components immediately
+                            eventBus.emit('pref:sidebarMode', newValue);
+
                             focusManager.invalidateCache('sidebar');
                             focusManager.invalidateCache('home');
                         } else if (id === 'icon-style-select') {
@@ -9915,6 +11809,19 @@ class SettingsPage extends Page {
                                 if (animToggleItem) {
                                     const isCarouselEnabled = storage.getItem('pref:heroCarousel') !== 'false';
                                     animToggleItem.style.display = isCarouselEnabled && newValue === 'progress' ? '' : 'none';
+                                }
+                            }
+
+                            /* -------------------------------------------------------------
+                             * Dynamic Sub-Setting Visibility for Library Page Size
+                             * When 'unlimited' is selected, reveal the alphabet scroll mode toggle;
+                             * otherwise, hide it to maintain a clean minimal layout.
+                             * ------------------------------------------------------------- */
+                            if (settingConfig.key === 'pref:libraryPageSize') {
+                                const alphaScrollItem = this.$('#alpha-picker-scroll-mode-item');
+                                if (alphaScrollItem) {
+                                    alphaScrollItem.style.display = String(newValue) === 'unlimited' ? '' : 'none';
+                                    focusManager.invalidateCache('settings-content');
                                 }
                             }
 
@@ -9983,6 +11890,7 @@ class SettingsPage extends Page {
                             const intKeys = [
                                 'skipForwardLength',
                                 'skipBackLength',
+                                'resumeRewindLength',
                                 'maxBitrateInternet',
                                 'webosStallRecovery',
                                 'webosSegmentLength',
@@ -9991,7 +11899,8 @@ class SettingsPage extends Page {
                                 'tizenSegmentLength',
                                 'html5MaxBufferLength',
                                 'html5MaxMaxBufferLength',
-                                'html5SegmentLength'
+                                'html5SegmentLength',
+                                'playQueueEpisodeLimit'
                             ];
 
                             let val = newValue;
@@ -10367,6 +12276,35 @@ class SettingsPage extends Page {
             });
         }
 
+        const showWatchProvidersToggle = this.$('#toggle-show-watch-providers');
+        if (showWatchProvidersToggle) {
+            showWatchProvidersToggle.addEventListener('click', () => {
+                const enabled = storage.getItem('pref:showWatchProviders') !== 'true';
+                storage.setItem('pref:showWatchProviders', String(enabled));
+                showWatchProvidersToggle.classList.toggle('active', enabled);
+                showWatchProvidersToggle.setAttribute('aria-checked', String(enabled));
+            });
+        }
+
+        // ---------------------------------------------------------------------
+        // Toggle Switch for Seerr Recommendations on Details Pages
+        // ---------------------------------------------------------------------
+        // Defaults to enabled (true) unless explicitly toggled off by user.
+        const showSeerrRecsToggle = this.$('#toggle-show-seerr-recommendations');
+        if (showSeerrRecsToggle) {
+            showSeerrRecsToggle.addEventListener('click', () => {
+                // Read current setting (treated as true unless strictly 'false')
+                const isCurrentlyActive = storage.getItem('pref:SeerrRecommendations') !== 'false';
+                const nextVal = !isCurrentlyActive;
+                // Save updated preference to persistent storage
+                storage.setItem('pref:SeerrRecommendations', String(nextVal));
+                // Update button visual state and accessibility attributes
+                showSeerrRecsToggle.classList.toggle('active', nextVal);
+                showSeerrRecsToggle.setAttribute('aria-checked', String(nextVal));
+                log.info(`Show Seerr Recommendations set to: ${nextVal}`);
+            });
+        }
+
         // Toggle Switch for Trailer Auto-Chain
         const trailerAutoChainToggle = this.$('#toggle-trailer-auto-chain');
         if (trailerAutoChainToggle) {
@@ -10397,6 +12335,32 @@ class SettingsPage extends Page {
                 PlayerSettings.set('pausePlaybackOnScrub', enabled);
                 pauseOnScrubToggle.classList.toggle('active', enabled);
                 log.info(`Pause Playback On Scrub set to: ${enabled}`);
+            });
+        }
+
+        // Toggle Switch for Enable Seek Acceleration
+        // Governs progressive timeline scrubbing acceleration (up to 10x)
+        const enableSeekAccelerationToggle = this.$('#toggle-enable-seek-acceleration');
+        if (enableSeekAccelerationToggle) {
+            enableSeekAccelerationToggle.addEventListener('click', () => {
+                // Invert current boolean preference in PlayerSettings
+                const enabled = !PlayerSettings.get('enableSeekAcceleration');
+                PlayerSettings.set('enableSeekAcceleration', enabled);
+
+                // Update visual active class on toggle switch
+                enableSeekAccelerationToggle.classList.toggle('active', enabled);
+                log.info(`Enable Seek Acceleration set to: ${enabled}`);
+            });
+        }
+
+        // Toggle Switch for Reset Seek Speed on Direction Change
+        const resetSeekSpeedToggle = this.$('#toggle-reset-seek-speed-on-direction-change');
+        if (resetSeekSpeedToggle) {
+            resetSeekSpeedToggle.addEventListener('click', () => {
+                const enabled = !PlayerSettings.get('resetSeekSpeedOnDirectionChange');
+                PlayerSettings.set('resetSeekSpeedOnDirectionChange', enabled);
+                resetSeekSpeedToggle.classList.toggle('active', enabled);
+                log.info(`Reset Seek Speed on Direction Change set to: ${enabled}`);
             });
         }
 
@@ -10580,6 +12544,51 @@ class SettingsPage extends Page {
             });
         }
 
+        // ==========================================
+        // ABOUT TAB INTERACTIVE RESOURCE CARDS
+        // ==========================================
+        const btnAboutDeviceInfo = this.$('#btn-about-device-info');
+        if (btnAboutDeviceInfo) {
+            btnAboutDeviceInfo.addEventListener('click', () => {
+                this._showDeviceInformationDialog();
+            });
+        }
+
+        const btnAboutGithub = this.$('#btn-about-github');
+        if (btnAboutGithub) {
+            btnAboutGithub.addEventListener('click', () => {
+                this._showGitHubDialog('repo');
+            });
+        }
+
+        const btnAboutIssues = this.$('#btn-about-issues');
+        if (btnAboutIssues) {
+            btnAboutIssues.addEventListener('click', () => {
+                this._showGitHubDialog('issues');
+            });
+        }
+
+        const btnAboutPlugins = this.$('#btn-about-plugins');
+        if (btnAboutPlugins) {
+            btnAboutPlugins.addEventListener('click', () => {
+                this._showPluginsDialog();
+            });
+        }
+
+        const btnAboutDiscord = this.$('#btn-about-discord');
+        if (btnAboutDiscord) {
+            btnAboutDiscord.addEventListener('click', () => {
+                this._showDiscordDialog();
+            });
+        }
+
+        const btnAboutSupport = this.$('#btn-about-support');
+        if (btnAboutSupport) {
+            btnAboutSupport.addEventListener('click', () => {
+                this._showSupportDialog();
+            });
+        }
+
         // Toggle Switch for Auto Update Check
         const autoUpdateToggle = this.$('#toggle-check-updates');
         if (autoUpdateToggle) {
@@ -10702,6 +12711,43 @@ class SettingsPage extends Page {
                 // Update DebugOverlay
                 debugOverlay.setOverlayEnabled(newState);
                 storage.setItem('debug_overlay_enabled', newState);
+            });
+        }
+
+        // ---------------------------------------------------------------------
+        // Movi Player Engine Logs Toggle
+        // ---------------------------------------------------------------------
+        // Governs output from low-level WebAssembly demuxer, FFmpeg, and decoding
+        // pipelines within the movi-player backend. Disabled by default to avoid
+        // saturating console and debug ring buffers during normal playback.
+        // ---------------------------------------------------------------------
+        const toggleMoviLogs = this.$('#toggle-debug-movi-logs');
+        if (toggleMoviLogs) {
+            toggleMoviLogs.addEventListener('click', () => {
+                // Determine new state based on current class list
+                const newState = !toggleMoviLogs.classList.contains('active');
+                toggleMoviLogs.classList.toggle('active');
+
+                // Persist selection directly into application storage
+                storage.setItem('debug_movi_logs', newState);
+
+                // Broadcast change event across application
+                eventBus.emit('prefChanged:debug_movi_logs', newState);
+            });
+        }
+
+        // ---------------------------------------------------------------------
+        // ExoPlayer Native Debug Logs Toggle
+        // ---------------------------------------------------------------------
+        // Governs low-level logging from Media3 ExoPlayer Android native bridge.
+        // ---------------------------------------------------------------------
+        const toggleExoLogs = this.$('#toggle-debug-exoplayer-logs');
+        if (toggleExoLogs) {
+            toggleExoLogs.addEventListener('click', () => {
+                const newState = !toggleExoLogs.classList.contains('active');
+                toggleExoLogs.classList.toggle('active');
+                storage.setItem('debug_exoplayer_logs', newState);
+                eventBus.emit('prefChanged:debug_exoplayer_logs', newState);
             });
         }
 
@@ -11045,6 +13091,85 @@ class SettingsPage extends Page {
         window.location.href = entryUrl;
     }
 
+    /**
+     * Reveals the full settings detail screen for a selected category tab in mobile portrait.
+     * Transitions from Screen 1 (categories) to Screen 2 (tab details).
+     * @param {string} tabId - Identifier of the tab to reveal
+     * @private
+     */
+    _openMobileTab(tabId) {
+        this._mobileDetailOpen = true;
+        this._switchTab(tabId, true, false);
+        this._updateMobileViewState();
+
+        // Push history entry so system back gestures or browser back pop to tab selection
+        try {
+            window.history.pushState({ litefinSettingsDetail: true }, '', window.location.href);
+        } catch (e) {
+            // Safe fallback if history API is restricted in environment
+        }
+    }
+
+    /**
+     * Navigates back from the tab detail screen to the category selection list in mobile portrait.
+     * Transitions from Screen 2 (tab details) back to Screen 1 (categories).
+     * @param {boolean} [shouldPopHistory=true] - Whether to pop window history state
+     * @private
+     */
+    _closeMobileDetail(shouldPopHistory = true) {
+        this._mobileDetailOpen = false;
+        this._updateMobileViewState();
+
+        // If history entry was pushed, pop it cleanly
+        if (shouldPopHistory && window.history.state?.litefinSettingsDetail) {
+            window.history.back();
+        }
+
+        // Return focus to the active tab button only in landscape/desktop
+        // In mobile portrait, we strictly avoid focusing or enlarging any tabs
+        if (!this._isPortraitMode()) {
+            const activeBtn = this.$(`.settings-menu-btn[data-tab="${this.activeTab}"]`);
+            if (activeBtn) {
+                activeBtn.focus();
+                if (typeof focusManager !== 'undefined') {
+                    focusManager.focusElement(activeBtn);
+                }
+            }
+        }
+    }
+
+    /**
+     * Synchronizes mobile portrait layout classes and viewport state.
+     * Toggles .mobile-portrait and .mobile-detail-open on the root page element,
+     * and sets body modifier to ensure pure uninhibited vertical touch scrolling.
+     * @private
+     */
+    _updateMobileViewState() {
+        if (!this.el) return;
+        const isPortrait = this._isPortraitMode();
+
+        // Apply portrait layout modifier
+        this.el.classList.toggle('mobile-portrait', isPortrait);
+
+        // Apply detail screen visibility state
+        this.el.classList.toggle('mobile-detail-open', isPortrait && this._mobileDetailOpen);
+
+        // Toggle body modifier to prevent #app from hijacking vertical touch scrolling
+        if (typeof document !== 'undefined' && document.body) {
+            document.body.classList.toggle('settings-mobile-portrait', isPortrait);
+        }
+
+        // Notify topbar and navigation components of detail view state transitions
+        eventBus.emit('mobile:detail-state-change', { isOpen: Boolean(isPortrait && this._mobileDetailOpen) });
+
+        // Invalidate spatial navigation caches on orientation shift
+        if (typeof focusManager !== 'undefined') {
+            focusManager.invalidateCache('settings-sidebar');
+            focusManager.invalidateCache('settings-content');
+        }
+        this._setupFocus();
+    }
+
     _switchTab(tabId, force = false, focusContent = false) {
         if (this.activeTab === tabId && !force) return;
         this.activeTab = tabId;
@@ -11054,10 +13179,16 @@ class SettingsPage extends Page {
             btn.classList.toggle('active', btn.dataset.tab === tabId);
         });
 
-        // Re-render content panel
+        // Re-render content panel for portrait view
         const panel = this.$('#settings-content-panel');
         if (panel) {
-            panel.innerHTML = this._renderActiveTabContent();
+            panel.innerHTML = `
+                <div class="settings-tab-body" id="settings-tab-body">
+                    ${this._renderActiveTabContent()}
+                    <!-- Bottom scrolling buffer so mobile navigation bar never obstructs the last setting control -->
+                    <div class="settings-bottom-spacer" aria-hidden="true"></div>
+                </div>
+            `;
             panel.scrollTop = 0; // Reset scroll position to top on tab change
 
             // Apply translations to the newly rendered content
@@ -11548,6 +13679,24 @@ class SettingsPage extends Page {
                 });
             });
 
+            // Add custom collection descriptors
+            try {
+                const rawCustom = storage.getItem('pref:customCollectionRows');
+                if (rawCustom) {
+                    const customList = JSON.parse(rawCustom);
+                    if (Array.isArray(customList)) {
+                        customList.forEach((c) => {
+                            if (c && c.id) {
+                                descriptors.push({
+                                    id: `collection-${c.id}`,
+                                    title: c.name || 'Collection'
+                                });
+                            }
+                        });
+                    }
+                }
+            } catch (e) { }
+
             // Reconcile with saved layout
             const layoutVars = homeLayoutManager.buildSettingsLayout(descriptors);
 
@@ -11660,13 +13809,279 @@ class SettingsPage extends Page {
         }
     }
 
+    /**
+     * Helper to get the human-readable summary of custom collections selected
+     * @returns {string}
+     */
+    _getCustomCollectionsLabel() {
+        try {
+            const raw = storage.getItem('pref:customCollectionRows');
+            const list = raw ? JSON.parse(raw) : [];
+            const count = Array.isArray(list) ? list.length : 0;
+            return count > 0
+                ? i18n.t('CollectionsSelected', [count])
+                : i18n.t('NoCollectionsSelected') || 'None Selected';
+        } catch (_) {
+            return i18n.t('NoCollectionsSelected') || 'None Selected';
+        }
+    }
+
+    async _showCustomCollectionsModal() {
+        const overlay = this.$('#modal-overlay');
+        if (!overlay) return;
+
+        // Save focus context
+        this._prevFocus = focusManager.getFocused();
+        this._prevSection = focusManager.getActiveSection();
+
+        // Parse selected collections from storage
+        let selectedCols = [];
+        try {
+            const raw = storage.getItem('pref:customCollectionRows');
+            selectedCols = raw ? JSON.parse(raw) : [];
+            if (!Array.isArray(selectedCols)) selectedCols = [];
+        } catch (_) {
+            selectedCols = [];
+        }
+
+        const selectedMap = new Map();
+        selectedCols.forEach((c) => {
+            if (c && c.id) selectedMap.set(c.id, { id: c.id, name: c.name || '' });
+        });
+
+        // Show loading state in overlay
+        overlay.classList.add('visible');
+        overlay.setAttribute('aria-hidden', 'false');
+        overlay.innerHTML = `
+            <div class="settings-modal custom-collections-modal" role="dialog" aria-modal="true">
+                <div class="modal-header">
+                    <h2 data-i18n="ManageCollections">${i18n.t('ManageCollections') || 'Manage Collections'}</h2>
+                </div>
+                <div class="modal-loading-spinner" style="padding: 40px; text-align: center; color: var(--jf-text-secondary);">
+                    ${i18n.t('Loading') || 'Loading...'}
+                </div>
+            </div>
+        `;
+
+        let collections = [];
+        try {
+            const res = await api.getItems({
+                IncludeItemTypes: 'BoxSet,Playlist',
+                Recursive: true,
+                EnableTotalRecordCount: false
+            });
+            collections = res?.Items || [];
+            collections.sort((a, b) => (a.Name || '').localeCompare(b.Name || ''));
+        } catch (err) {
+            log.error('Failed to fetch collections for custom rows modal', err);
+        }
+
+        // If overlay was closed while fetching
+        if (!overlay.classList.contains('visible')) return;
+
+        let searchQuery = '';
+
+        const saveSelection = () => {
+            const arrayToSave = Array.from(selectedMap.values());
+            storage.setItem('pref:customCollectionRows', JSON.stringify(arrayToSave));
+            const countLabel = this.$('#custom-collections-count-label');
+            if (countLabel) {
+                countLabel.innerText = this._getCustomCollectionsLabel();
+            }
+        };
+
+        const renderModal = () => {
+            const filteredCols = searchQuery
+                ? collections.filter((c) => (c.Name || '').toLowerCase().includes(searchQuery.toLowerCase()))
+                : collections;
+
+            const colRowsHtml = filteredCols
+                .map((c) => {
+                    const isSelected = selectedMap.has(c.Id);
+                    return `
+                    <button class="modal-option-btn check-btn ${isSelected ? 'selected' : ''}" data-id="${c.Id}" data-name="${escapeHtml(c.Name || '')}" tabindex="0">
+                        <div class="checkbox-box"><span class="check-mark">&#10003;</span></div>
+                        <span class="modal-option-label">${escapeHtml(c.Name || '')}</span>
+                    </button>
+                `;
+                })
+                .join('');
+
+            overlay.innerHTML = `
+                <div class="settings-modal custom-collections-modal" role="dialog" aria-modal="true">
+                    <div class="modal-header">
+                        <h2 data-i18n="ManageCollections">${i18n.t('ManageCollections') || 'Manage Collections'}</h2>
+                    </div>
+
+                    <!-- Search Input -->
+                    <div class="fav-lang-search-box">
+                        <input type="text" id="custom-col-search-input" class="fav-lang-search-input" 
+                               placeholder="${i18n.t('Search') || 'Search...'}" 
+                               value="${escapeHtml(searchQuery)}" tabindex="0" />
+                    </div>
+
+                    <!-- Collections List -->
+                    <div class="modal-options custom-col-list" id="custom-col-list" style="max-height: 50vh; overflow-y: auto;">
+                        ${colRowsHtml || `<div class="modal-no-options" data-i18n="NoCollectionsFound">${i18n.t('NoCollectionsFound') || 'No collections or playlists found'}</div>`}
+                    </div>
+
+                    <div class="modal-actions">
+                        <button class="modal-action-btn" id="btn-custom-col-clear" tabindex="0" data-i18n="ClearAll">${i18n.t('ClearAll') || 'Clear All'}</button>
+                        <button class="modal-action-btn primary" id="btn-custom-col-done" tabindex="0" data-i18n="Done">${i18n.t('Done') || 'Done'}</button>
+                    </div>
+                </div>
+            `;
+
+            // Bind checkbox row clicks
+            overlay.querySelectorAll('.custom-col-list .check-btn').forEach((btn) => {
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const id = btn.dataset.id;
+                    const name = btn.dataset.name;
+                    if (selectedMap.has(id)) {
+                        selectedMap.delete(id);
+                        btn.classList.remove('selected');
+                    } else {
+                        selectedMap.set(id, { id, name });
+                        btn.classList.add('selected');
+                    }
+                    saveSelection();
+                });
+            });
+
+            // Bind search input
+            const searchInput = overlay.querySelector('#custom-col-search-input');
+            if (searchInput) {
+                searchInput.addEventListener('input', (e) => {
+                    searchQuery = e.target.value;
+                    renderModal();
+                    const updatedInput = overlay.querySelector('#custom-col-search-input');
+                    if (updatedInput) {
+                        updatedInput.focus();
+                        updatedInput.setSelectionRange(updatedInput.value.length, updatedInput.value.length);
+                    }
+                });
+            }
+
+            // Bind Clear All
+            const clearBtn = overlay.querySelector('#btn-custom-col-clear');
+            if (clearBtn) {
+                clearBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    selectedMap.clear();
+                    overlay
+                        .querySelectorAll('.custom-col-list .check-btn')
+                        .forEach((b) => b.classList.remove('selected'));
+                    saveSelection();
+                });
+            }
+
+            // Bind Done
+            const doneBtn = overlay.querySelector('#btn-custom-col-done');
+            if (doneBtn) {
+                doneBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    this._closeCustomCollectionsModal();
+                });
+            }
+
+            // Allow exiting modal by clicking the backdrop outside dialog
+            overlay.onclick = (e) => {
+                if (e.target === overlay) {
+                    e.stopPropagation();
+                    this._closeCustomCollectionsModal();
+                }
+            };
+
+            // Register Focus Sections: Search -> List -> Actions
+            this.registerFocusSection('custom-col-search', overlay.querySelector('.fav-lang-search-box'), {
+                orientation: 'horizontal',
+                leaveDown: 'custom-col-list'
+            });
+
+            this.registerFocusSection('custom-col-list', overlay.querySelector('#custom-col-list'), {
+                orientation: 'vertical',
+                leaveUp: 'custom-col-search',
+                leaveDown: 'custom-col-actions'
+            });
+
+            this.registerFocusSection('custom-col-actions', overlay.querySelector('.modal-actions'), {
+                orientation: 'horizontal',
+                leaveUp: 'custom-col-list'
+            });
+
+            // Initial focus
+            const firstOption = overlay.querySelector('#custom-col-list .check-btn');
+            if (firstOption) {
+                focusManager.setActiveSection('custom-col-list');
+                setTimeout(() => {
+                    focusManager.focusElement(firstOption);
+                }, 50);
+            } else {
+                focusManager.setActiveSection('custom-col-search');
+                setTimeout(() => {
+                    const searchEl = overlay.querySelector('#custom-col-search-input');
+                    if (searchEl) focusManager.focusElement(searchEl);
+                }, 50);
+            }
+        };
+
+        renderModal();
+    }
+
+    _closeCustomCollectionsModal() {
+        const overlay = this.$('#modal-overlay');
+        if (!overlay || !overlay.classList.contains('visible')) return;
+
+        overlay.onclick = null;
+        overlay.classList.remove('visible');
+        overlay.setAttribute('aria-hidden', 'true');
+        overlay.innerHTML = '';
+
+        this.unregisterFocusSection('custom-col-search');
+        this.unregisterFocusSection('custom-col-list');
+        this.unregisterFocusSection('custom-col-actions');
+        focusManager.unregister('custom-col-search');
+        focusManager.unregister('custom-col-list');
+        focusManager.unregister('custom-col-actions');
+
+        const countLabel = this.$('#custom-collections-count-label');
+        if (countLabel) {
+            countLabel.innerText = this._getCustomCollectionsLabel();
+        }
+
+        // Re-render Home Layout UI to immediately reflect newly selected/deselected custom collection rows
+        this._setupHomeLayoutUI();
+        focusManager.invalidateCache('settings-content');
+
+        // Restore active section and focus
+        const targetSection = this._prevSection || 'settings-display';
+        focusManager.setActiveSection(targetSection, false);
+
+        if (this._prevFocus && document.contains(this._prevFocus)) {
+            focusManager.focusElement(this._prevFocus);
+        } else {
+            const manageBtn = this.$('#btn-manage-custom-collections');
+            if (manageBtn) {
+                focusManager.focusElement(manageBtn);
+            } else {
+                focusManager.focusFirstInActiveSection();
+            }
+        }
+
+        this._prevFocus = null;
+        this._prevSection = null;
+    }
+
     _setupFocus() {
         // Navigation: Sidebar <-> Content
         // We define these purely logically (LTR space).
         // FocusManager automatically inverts 'leaveLeft' and 'leaveRight' when document dir is 'rtl'.
+        const isPortrait = this._isPortraitMode();
+
         this.registerFocusSection('settings-sidebar', this.$('#settings-sidebar'), {
             orientation: 'vertical',
-            leaveRight: 'settings-content',
+            leaveRight: isPortrait ? null : 'settings-content',
             leaveLeft: 'sidebar',
             enterTo: 'last-focused',
             defaultFocusSelector: '.settings-menu-btn.active'
@@ -11674,7 +14089,7 @@ class SettingsPage extends Page {
 
         this.registerFocusSection('settings-content', this.$('#settings-content-panel'), {
             orientation: 'grid',
-            leaveLeft: 'settings-sidebar',
+            leaveLeft: isPortrait ? null : 'settings-sidebar',
             leaveRight: null,
             enterTo: 'first',
             onMove: (direction, currentElement) => {
@@ -11709,7 +14124,28 @@ class SettingsPage extends Page {
                             return true; // Handled
                         }
                     } else {
-                        // If not in a setting-item (fallback), just escape
+                        // Check if navigating inside the About action cards grid
+                        const aboutGrid = currentElement.closest('.about-actions-grid');
+                        if (aboutGrid) {
+                            // Collect focusable cards inside the grid
+                            const focusSelector = 'a, button, input, select, [tabindex]:not([tabindex="-1"])';
+                            const candidates = Array.from(aboutGrid.querySelectorAll(focusSelector)).filter(
+                                (el) => el.tabIndex !== -1 && !el.disabled && el.offsetParent !== null
+                            );
+
+                            // Check if there is another card to the left within the grid
+                            const nextInGrid = spatialNavigator.findNext(currentElement, candidates, 'left');
+                            if (nextInGrid) {
+                                focusManager.focusElement(nextInGrid);
+                                return true;
+                            }
+
+                            // If on the leftmost column, smoothly transition to the settings sidebar
+                            focusManager._leaveSection('left');
+                            return true;
+                        }
+
+                        // If not in a setting-item or about-actions-grid (fallback), just escape
                         focusManager._leaveSection('left');
                         return true;
                     }
@@ -11966,12 +14402,48 @@ class SettingsPage extends Page {
                 this._closeFavoriteLanguagesModal();
                 return true;
             }
+            // Check if Custom Collections modal is open
+            if (overlay.querySelector('.custom-collections-modal')) {
+                this._closeCustomCollectionsModal();
+                return true;
+            }
+            // Check if About dialog modal is open
+            if (overlay.querySelector('.about-dialog-modal')) {
+                this._closeAboutDialog();
+                return true;
+            }
             this._closeSelectionModal();
+            return true;
+        }
+
+        // Mobile portrait 2-page navigation:
+        // If the user is currently viewing the details of a tab,
+        // pressing Back returns them to the category tab selection list.
+        if (this._mobileDetailOpen) {
+            this._closeMobileDetail(true);
             return true;
         }
 
         router.back();
         return true;
+    }
+
+    onBeforeDestroy() {
+        // Detach viewport resize observer to avoid memory leaks
+        if (this._onResize) {
+            window.removeEventListener('resize', this._onResize);
+            window.removeEventListener('orientationchange', this._onResize);
+            this._onResize = null;
+        }
+        if (this._onPopState) {
+            window.removeEventListener('popstate', this._onPopState);
+            this._onPopState = null;
+        }
+        if (typeof document !== 'undefined' && document.body) {
+            document.body.classList.remove('settings-mobile-portrait');
+        }
+        // Notify navigation components that Settings page is unmounting
+        eventBus.emit('mobile:detail-state-change', { isOpen: false });
     }
 
     _renderUserAvatar(user) {

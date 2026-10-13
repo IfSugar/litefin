@@ -32,11 +32,13 @@ import { logger } from '../utils/Logger.js';
 import { pluginManager } from '../plugins/PluginManager.js';
 import { platformInfo } from '../utils/PlatformInfo.js';
 import { webosAdapter } from '../webos/WebOSAdapter.js';
+import { androidAdapter } from '../android/AndroidAdapter.js';
 import { syncPlayManager } from '../core/syncplay/SyncPlayManager.js';
 import { globalClock } from '../ui/GlobalClock.js';
 import { osdIcons } from '../utils/Icons.js';
 import { sanitizeSubtitleText } from '../utils/Utils.js';
 import { prewarmManager } from '../player/core/PrewarmManager.js';
+import BackdropManager from '../utils/BackdropManager.js';
 
 const log = logger.create('Player');
 
@@ -130,6 +132,9 @@ class PlayerPage extends Page {
         this._playbackStallTimer = null;
         this._onNetworkOffline = null;
         this._onNetworkOnline = null;
+
+        // Lifecycle destruction tracker
+        this._isDestroyed = false;
     }
 
     /**
@@ -261,69 +266,42 @@ class PlayerPage extends Page {
         // Hide global clock during player loading/playback
         globalClock.setVisibility(false);
 
+        // Suspend FocusManager while the player is active so that OSDController
+        // manages all D-pad and media key input exclusively without background fighting
+        focusManager.suspend();
+
         const itemId = this.params.id;
         const resume = this.params.resume === 'true';
         const startPositionTicks = this.params.startPositionTicks ? parseInt(this.params.startPositionTicks, 10) : null;
 
         try {
-            // Show loading
+            // Show loading overlay immediately with a solid opaque black background
             this._showLoading(true);
 
-            // Render cached backdrop if available (for smooth transition)
+            // Ensure loader container has solid black background immediately upon initiation
+            const loader = this.el?.querySelector('.page-loading');
+            if (loader) {
+                loader.style.backgroundColor = '#000000';
+            }
+
+            // Render cached backdrop if available (for seamless visual transition)
             const backdropUrl = state.get('player:backdropUrl');
             if (backdropUrl) {
-                // Apply directly to the loading overlay to ensure visibility
-                const loader = this.el.querySelector('.page-loading');
-                if (loader) {
-                    // IMPORTANT: Do NOT make the loader background transparent yet.
-                    // Setting it to transparent here would expose the black Tizen hardware plane
-                    // for the entire image fetch duration. Instead keep it solidly dark and
-                    // flip to transparent atomically on the same frame as the backdrop fades in.
-                    loader.style.backgroundColor = '#000';
-
-                    // Create a dedicated background layer to fade in independently of the spinner
-                    let backdropLayer = loader.querySelector('.loading-backdrop-layer');
-                    if (!backdropLayer) {
-                        backdropLayer = document.createElement('div');
-                        backdropLayer.className = 'loading-backdrop-layer';
-                        backdropLayer.style.position = 'absolute';
-                        backdropLayer.style.top = '0';
-                        backdropLayer.style.left = '0';
-                        backdropLayer.style.width = '100%';
-                        backdropLayer.style.height = '100%';
-                        backdropLayer.style.backgroundSize = 'cover';
-                        backdropLayer.style.backgroundPosition = 'center';
-                        backdropLayer.style.opacity = '0';
-                        backdropLayer.style.transition = 'opacity 0.6s ease-in-out';
-                        backdropLayer.style.zIndex = '-1';
-                        loader.insertBefore(backdropLayer, loader.firstChild);
-                    }
-
-                    // Preload the image to prevent "half sliced" progressive loading artifact
-                    const img = new Image();
-                    img.onload = () => {
-                        // Now that the image is ready, transition to transparent bg so the
-                        // backdrop layer shows through cleanly with no visible black gap.
-                        loader.style.backgroundColor = 'transparent';
-                        backdropLayer.style.backgroundImage = `linear-gradient(to bottom, rgba(0,0,0,0.3) 0%, rgba(0,0,0,0.8) 100%), url('${backdropUrl}')`;
-                        requestAnimationFrame(() => {
-                            backdropLayer.style.opacity = '1';
-                        });
-                    };
-                    img.onerror = () => {
-                        // If the image fails, just keep the solid dark background — better than black flash
-                        log.warn('Backdrop image failed to load, keeping solid loading background');
-                    };
-                    img.src = backdropUrl;
-
-                    this._loadingBackdrop = backdropLayer; // Mark for cleanup
-                }
+                this._applyLoadingBackdrop(backdropUrl);
             }
 
             // Enable Tizen AVPlayer transparency mode
             // This makes body/app transparent so hardware video plane is visible
             document.body.classList.add('player-active');
             document.documentElement.classList.add('player-active');
+
+            // Enter immersive fullscreen mode during video playback on mobile
+            if (platformInfo.isAndroid) {
+                androidAdapter.setFullscreen(true);
+            }
+
+            // Automatically switch mobile viewport to landscape orientation for video playback
+            androidAdapter.setOrientation('landscape');
 
             // Expose debug helper to force player error screen anytime via console
             window.__forcePlayerError = (msg = 'Simulated playback error for UI testing') => this._showError(msg);
@@ -342,6 +320,29 @@ class PlayerPage extends Page {
 
             // Load item details (and wait for font if needed)
             const [itemResult] = await Promise.all(fetchTasks);
+
+            /*
+             * -----------------------------------------------------------------
+             * Server System Configuration Prefetch (Completion Threshold)
+             * -----------------------------------------------------------------
+             * When the user configures Litefin to respect the Jellyfin server's
+             * MaxResumePct setting, ensure the server configuration is fetched
+             * and cached in the background so stop reporting resolves smoothly.
+             * -----------------------------------------------------------------
+             */
+            if (PlayerSettings.get('watchedThreshold') === 'server' && !storage.getItem('server:maxResumePct')) {
+                api.getServerConfiguration({ silent: true }).catch((err) => {
+                    log.debug('Failed to background fetch server config for MaxResumePct:', err);
+                });
+            }
+
+            // If initial backdrop wasn't pre-cached in state, attempt fallback resolution from item metadata
+            if (!this._loadingBackdrop && this.el?.classList.contains('loading')) {
+                const itemBackdropUrl = BackdropManager.getBackdropUrl(itemResult, { maxWidth: 1920 });
+                if (itemBackdropUrl) {
+                    this._applyLoadingBackdrop(itemBackdropUrl);
+                }
+            }
 
             // Preserve local trailer metadata mutations (Name & ProductionYear) since
             // local trailers lack parent context and the fresh API fetch wipes our changes.
@@ -404,11 +405,18 @@ class PlayerPage extends Page {
 
             // Calculate resume position if needed
             if (startPositionTicks !== null && !isNaN(startPositionTicks)) {
-                // If an explicit position was passed via URL (e.g. from SyncPlay)
+                // If an explicit position was passed via URL (e.g. from SyncPlay), preserve it exactly
                 this._resumePosition = startPositionTicks;
             } else if (resume && this._item.UserData?.PlaybackPositionTicks) {
-                // Otherwise fallback to UserData if resume was requested
-                this._resumePosition = this._item.UserData.PlaybackPositionTicks;
+                /*
+                 * User requested to resume playback. We pass the stored playback ticks
+                 * through PlayerSettings.getAdjustedResumePositionTicks() to apply any
+                 * user-configured rewind offset (e.g. 5 or 10 seconds), ensuring they don't
+                 * miss vital context and can remember where they left off.
+                 */
+                this._resumePosition = PlayerSettings.getAdjustedResumePositionTicks(
+                    this._item.UserData.PlaybackPositionTicks
+                );
             }
 
             // Initialize the player
@@ -427,11 +435,17 @@ class PlayerPage extends Page {
             // ================================================================
             // NETWORK RESILIENCE & OFFLINE EVENT HANDLERS
             // ================================================================
-            // Detect network disconnection immediately rather than waiting
-            // 20-30s for the browser/demuxer socket timeouts.
+            // We listen to browser and operating-system level online/offline events.
+            // Note: The WebSocket connection is solely an auxiliary signaling
+            // and remote-control bridge. Media streaming is carried over HTTP/HTTPS
+            // directly by the hardware decoder or video pipeline. Consequently,
+            // transient WebSocket disconnects or proxy timeouts must NEVER be
+            // treated as total network failures or trigger auto-recovery reloads.
             this._onNetworkOffline = () => this._handleNetworkOffline();
             this._onNetworkOnline = () => this._handleNetworkOnline();
-            eventBus.on('websocket:disconnected', this._onNetworkOffline);
+            
+            // Only listen to websocket:connected to accelerate reconnection polling
+            // when the player is ALREADY actively in the auto-recovery state.
             eventBus.on('websocket:connected', this._onNetworkOnline);
             window.addEventListener('offline', this._onNetworkOffline);
             window.addEventListener('online', this._onNetworkOnline);
@@ -478,10 +492,14 @@ class PlayerPage extends Page {
                     // Report pause state to server
                     this._reportPlaybackProgress('pause');
 
-                    // Show OSD for feedback
+                    // Show OSD for feedback (or transient HUD in stealth layout)
                     if (this._osd) {
-                        this._osd.showAndFocusPlayPause();
-                        this._osd.updatePlayPauseButton();
+                        if (PlayerSettings.get('osdLayout') === 'hidden' && !this._osd.isOsdVisible) {
+                            this._osd.showStealthHud('pause');
+                        } else {
+                            this._osd.showAndFocusPlayPause();
+                            this._osd.updatePlayPauseButton();
+                        }
                     }
                 }
             };
@@ -508,10 +526,14 @@ class PlayerPage extends Page {
                 // Report unpause state to server
                 this._reportPlaybackProgress('unpause');
 
-                // Show OSD for feedback
+                // Show OSD for feedback (or transient HUD in stealth layout)
                 if (this._osd) {
-                    this._osd.showAndFocusPlayPause();
-                    this._osd.updatePlayPauseButton();
+                    if (PlayerSettings.get('osdLayout') === 'hidden' && !this._osd.isOsdVisible) {
+                        this._osd.showStealthHud('play');
+                    } else {
+                        this._osd.showAndFocusPlayPause();
+                        this._osd.updatePlayPauseButton();
+                    }
                 }
             };
             eventBus.on('remote:play', lockCheck(this._onRemotePlay));
@@ -538,10 +560,14 @@ class PlayerPage extends Page {
                     this._reportPlaybackProgress('pause');
                 }
 
-                // Show OSD for feedback
+                // Show OSD for feedback (or transient HUD in stealth layout)
                 if (this._osd) {
-                    this._osd.showAndFocusPlayPause();
-                    this._osd.updatePlayPauseButton();
+                    if (PlayerSettings.get('osdLayout') === 'hidden' && !this._osd.isOsdVisible) {
+                        this._osd.showStealthHud(wasPaused ? 'play' : 'pause');
+                    } else {
+                        this._osd.showAndFocusPlayPause();
+                        this._osd.updatePlayPauseButton();
+                    }
                 }
             };
             eventBus.on('remote:playpause', lockCheck(this._onRemotePlayPause));
@@ -816,17 +842,26 @@ class PlayerPage extends Page {
                     return;
                 }
 
-                // Click landed on the raw video background.
-                // - If OSD is hidden: wake it up.
-                // - If OSD is visible: toggle play/pause (standard media player behaviour).
-                //   This branch is only reached for genuine background clicks — OSD buttons
-                //   and the slider are fully guarded by the contains() check above.
-                if (this._osd && !this._osd._isOsdVisible) {
-                    this._osd.show();
-                    this._osd.resetAutoHide();
-                } else {
-                    this._onRemotePlayPause();
+                // Touch UX: on touchscreen devices (Android phones & tablets), tapping the video
+                // should reveal or dismiss the On-Screen Display controls gracefully, following
+                // Apple Human Interface Guidelines for video playback rather than abruptly pausing.
+                if (document.documentElement.hasAttribute('data-litefin-touch') && !window.matchMedia('(pointer: fine)').matches) {
+                    if (this._osd) {
+                        if (this._osd.isOsdVisible) {
+                            this._osd.hide();
+                        } else {
+                            this._osd.show();
+                        }
+                    }
+                    return;
                 }
+
+                // Click landed on the raw video background.
+                // In all layouts, clicking the video background is the standard media player convention to toggle playback.
+                // - In stealth mode (hidden layout): _onRemotePlayPause shows the transient stealth HUD without waking the full OSD.
+                // - In standard layout: _onRemotePlayPause toggles playback and reveals/focuses the Play/Pause button.
+                // OSD buttons, seekbars, and modals are fully guarded by the contains() check above.
+                this._onRemotePlayPause();
             });
 
             // ================================================================
@@ -849,10 +884,27 @@ class PlayerPage extends Page {
                     this._showLockIndicator();
                     return;
                 }
-                if (this._player) {
-                    log.info('Hardware Remote: Rewind (10s)');
-                    this._player.seekRelative(-10000);
-                    if (this._osd) this._osd.show();
+                /*
+                 * ====================================================================
+                 * UNIFIED DEBOUNCED REWIND DELEGATION
+                 * ====================================================================
+                 * Route hardware rewind keys through OSDController (_executeAction)
+                 * so seeking is managed by the debounced scrub pipeline. This ensures:
+                 * 1. Active playback is cleanly paused during the scrub window.
+                 * 2. Rapid remote presses are debounced into a single request.
+                 * 3. Hardware seek completion ('seeked' event) is awaited before
+                 *    unpausing, eliminating single-frame stutter and audio blips.
+                 * 4. Stealth layout displays the minimal HUD badge without waking OSD.
+                 * ====================================================================
+                 */
+                if (this._osd) {
+                    this._osd._executeAction('rewind');
+                } else if (this._player) {
+                    // Fallback to direct player relative seek if OSD controller is unavailable
+                    const skipBackMs = PlayerSettings.get('skipBackLength') || 10000;
+                    const skipBackSec = Math.round(skipBackMs / 1000);
+                    log.info(`Hardware Remote: Rewind fallback (${skipBackSec}s)`);
+                    this._player.seekRelative(-skipBackMs);
                 }
             });
 
@@ -861,10 +913,22 @@ class PlayerPage extends Page {
                     this._showLockIndicator();
                     return;
                 }
-                if (this._player) {
-                    log.info('Hardware Remote: FastForward (30s)');
-                    this._player.seekRelative(30000);
-                    if (this._osd) this._osd.show();
+                /*
+                 * ====================================================================
+                 * UNIFIED DEBOUNCED FAST-FORWARD DELEGATION
+                 * ====================================================================
+                 * Route hardware fast-forward keys through OSDController (_executeAction)
+                 * to ensure synchronized scrub pause and hardware seek gating.
+                 * ====================================================================
+                 */
+                if (this._osd) {
+                    this._osd._executeAction('fastForward');
+                } else if (this._player) {
+                    // Fallback to direct player relative seek if OSD controller is unavailable
+                    const skipForwardMs = PlayerSettings.get('skipForwardLength') || 30000;
+                    const skipForwardSec = Math.round(skipForwardMs / 1000);
+                    log.info(`Hardware Remote: FastForward fallback (${skipForwardSec}s)`);
+                    this._player.seekRelative(skipForwardMs);
                 }
             });
 
@@ -935,11 +999,20 @@ class PlayerPage extends Page {
 
         if (playerBackend === 'avplay') {
             useTizenPlayer = true;
-        } else if (playerBackend === 'html5') {
+        } else if (playerBackend === 'html5' || playerBackend === 'movi' || playerBackend === 'webos' || playerBackend === 'exoplayer') {
             useTizenPlayer = false;
         }
 
-        log.info(`Resolved player backend: ${playerBackend} (useTizenPlayer: ${useTizenPlayer})`);
+        /*
+         * ====================================================================
+         * Player Backend Resolution Log
+         * ====================================================================
+         * Log the resolved backend setting along with the active device platform.
+         * The useTizenPlayer boolean is only attached when running on Samsung Tizen
+         * hardware to avoid confusing logs on other platforms (Android, WebOS, Desktop, Web).
+         */
+        const tizenDiagnostic = platformInfo.isTizen ? ` (useTizenPlayer: ${useTizenPlayer})` : '';
+        log.info(`Resolved player backend: ${playerBackend} | platform: ${platformInfo.platformString}${tizenDiagnostic}`);
 
         // Construct the player directly — no bridge, no window global
         this._player = new JellyfinPlayer({
@@ -1157,7 +1230,8 @@ class PlayerPage extends Page {
             if (this._osd) {
                 // If we have a cached program for this channel, prefer it over the generic channel item
                 const metadataItem = this._currentLiveTvProgram || this._item;
-                this._osd.updateItem(metadataItem);
+                // Use setMetadata rather than updateItem because this is an in-place metadata enrichment
+                this._osd.setMetadata(metadataItem);
             }
         }
 
@@ -1243,6 +1317,16 @@ class PlayerPage extends Page {
         }
 
         // =========================================================================
+        // 2.0 Touch LRU Track Memory on Playback
+        // =========================================================================
+        // Promotes this item/series to the head of the LRU ring buffer so active
+        // shows are never evicted while being actively watched or binge-watched.
+        // =========================================================================
+        if (item?.Id) {
+            MediaHelper.touchTrackMemory(item.Id, item.SeriesId || null);
+        }
+
+        // =========================================================================
         // 2.1 Restore Item-Specific Track Memory
         // =========================================================================
         // If the user previously selected an audio or subtitle track specifically for
@@ -1283,6 +1367,30 @@ class PlayerPage extends Page {
                             `[Track Memory] Restored item-specific subtitle track: Index ${savedSubtitleIndex} (${streamMatch?.DisplayTitle || streamMatch?.Title || streamMatch?.Language})`
                         );
                     }
+                }
+            }
+        }
+
+        // =========================================================================
+        // 2.15 Restore Series-Level Track Memory
+        // =========================================================================
+        // For TV shows, inherit preferred audio and subtitle languages established
+        // on previous episodes across sessions without requiring active session state.
+        // =========================================================================
+        if (item?.SeriesId) {
+            if (savedAudioIndex === undefined) {
+                const resolvedSeriesAudio = MediaHelper.resolveSeriesTrack(mediaSource, 'Audio', item.SeriesId);
+                if (resolvedSeriesAudio !== undefined) {
+                    savedAudioIndex = resolvedSeriesAudio;
+                    log.info(`[Track Memory] Restored series-level audio track: Index ${savedAudioIndex}`);
+                }
+            }
+
+            if (savedSubtitleIndex === undefined) {
+                const resolvedSeriesSubtitle = MediaHelper.resolveSeriesTrack(mediaSource, 'Subtitle', item.SeriesId);
+                if (resolvedSeriesSubtitle !== undefined) {
+                    savedSubtitleIndex = resolvedSeriesSubtitle;
+                    log.info(`[Track Memory] Restored series-level subtitle track: Index ${savedSubtitleIndex}`);
                 }
             }
         }
@@ -1375,6 +1483,9 @@ class PlayerPage extends Page {
         // Start playback using the player's internal logic
         // This handles PlaybackInfo fetching, media source selection, and stream URL building
         try {
+            // Reset player error latch for the new playback attempt
+            this._hasPlayerError = false;
+
             // Build player options. If a specific media source version was pre-selected
             // on the details screen (e.g. 720p vs 1080p), ensure we pass the target
             // mediaSourceId down as a fallback even if the client-side metadata matching
@@ -1422,6 +1533,18 @@ class PlayerPage extends Page {
                     autoPlay: syncPlayManager.wantsAutoPlay()
                 });
             } else {
+                /*
+                 * -------------------------------------------------------------
+                 * Playback Startup Failure Protection
+                 * -------------------------------------------------------------
+                 * If the backend player failed to initialize (e.g. un-upgraded
+                 * custom element, demuxer failure, codec incompatibility), latch
+                 * _hasPlayerError so routine progress or stop reports do NOT fire
+                 * and zero out the user's saved resume position.
+                 * -------------------------------------------------------------
+                 */
+                this._hasPlayerError = true;
+                log.error('_startPlayback: Player play failed:', err);
                 throw err;
             }
         }
@@ -1446,10 +1569,14 @@ class PlayerPage extends Page {
                     onNext: () => this._onRemoteNext(),
                     onPrevious: () => this._onRemotePrevious(),
                     onSeekForward: () => {
-                        if (this._player) this._player.seekRelative(30000);
+                        // Route seeking through debounced OSD controller if present
+                        if (this._osd) this._osd._executeAction('fastForward');
+                        else if (this._player) this._player.seekRelative(30000);
                     },
                     onSeekBackward: () => {
-                        if (this._player) this._player.seekRelative(-10000);
+                        // Route seeking through debounced OSD controller if present
+                        if (this._osd) this._osd._executeAction('rewind');
+                        else if (this._player) this._player.seekRelative(-10000);
                     }
                 }
             );
@@ -1791,7 +1918,14 @@ class PlayerPage extends Page {
             return;
         }
 
-        const osdContainer = this.$('#osd-overlay');
+        /*
+         * -----------------------------------------------------------------
+         * Query OSD Mounting Target Element
+         * -----------------------------------------------------------------
+         * Locate the #osd-overlay container within the component or the DOM.
+         * -----------------------------------------------------------------
+         */
+        const osdContainer = this.$('#osd-overlay') || document.getElementById('osd-overlay');
         if (!osdContainer) {
             log.error('OSD container #osd-overlay not found');
             return;
@@ -1847,9 +1981,11 @@ class PlayerPage extends Page {
         // SYNC INITIAL METADATA:
         // If _updateLiveTvTitle already fetched the program before the OSD was ready,
         // push it now so the title element populates immediately on render.
+        // We call setMetadata rather than updateItem because this is an in-place guide
+        // data enrichment, not a media item / track transition.
         if (this._currentLiveTvProgram) {
             log.info('OSD ready - Syncing cached program metadata:', this._currentLiveTvProgram.Name);
-            this._osd.updateItem(this._currentLiveTvProgram);
+            this._osd.setMetadata(this._currentLiveTvProgram);
         }
 
         if (this._player) {
@@ -2249,8 +2385,9 @@ class PlayerPage extends Page {
                     const durationTicks =
                         this._player?.getDurationTicks?.() || mediaSource?.RunTimeTicks || outgoingItem?.RunTimeTicks || 0;
 
-                    // If user was near end of outgoing item, mark ended
-                    if (durationTicks > 0 && positionTicks >= durationTicks * 0.8) {
+                    // If user was near end of outgoing item (based on configured watched threshold), mark ended
+                    const thresholdFraction = this._getWatchedThresholdFraction();
+                    if (durationTicks > 0 && positionTicks >= durationTicks * thresholdFraction) {
                         this._isPlaybackEnded = true;
                     }
 
@@ -2398,7 +2535,13 @@ class PlayerPage extends Page {
             // Uses MediaHelper.saveTrackMemory to record full stream metadata (language, title, codec, channels)
             // ensuring resilience against server re-indexing or stream shifts when external subtitles are downloaded.
             if (this._item.Id) {
-                MediaHelper.saveTrackMemory(this._item.Id, 'Audio', activeAudioTrack || activeAudioIndex, mediaSource);
+                MediaHelper.saveTrackMemory(
+                    this._item.Id,
+                    'Audio',
+                    activeAudioTrack || activeAudioIndex,
+                    mediaSource,
+                    this._item.SeriesId || null
+                );
                 log.info(`[Track Memory] Saved item audio track: ${this._item.Id} -> index ${activeAudioIndex}`);
             }
 
@@ -2443,7 +2586,8 @@ class PlayerPage extends Page {
                         this._item.Id,
                         'Subtitle',
                         activeSubtitleTrack !== undefined ? activeSubtitleTrack : activeSubtitleIndex,
-                        mediaSource
+                        mediaSource,
+                        this._item.SeriesId || null
                     );
                     log.info(`[Track Memory] Saved item subtitle track: ${this._item.Id} -> index ${activeSubtitleIndex}`);
                 }
@@ -2524,12 +2668,13 @@ class PlayerPage extends Page {
 
             /*
              * When the user manually advances to the next episode in the queue, or
-             * has watched >= 80% of the outgoing episode before manually selecting
-             * another item, mark playback as ended so the outgoing item triggers
-             * the completion override and scrobbles to ani-sync / trakt plugins.
+             * has watched past the completion threshold of the outgoing episode before
+             * manually selecting another item, mark playback as ended so the outgoing item
+             * triggers the completion override and scrobbles to ani-sync / trakt plugins.
              */
             const previousIndex = playQueue._queue?.findIndex((e) => e.Id === outgoingItem?.Id) ?? -1;
-            if (targetIndex === previousIndex + 1 || (durationTicks > 0 && positionTicks >= durationTicks * 0.8)) {
+            const thresholdFraction = this._getWatchedThresholdFraction();
+            if (targetIndex === previousIndex + 1 || (durationTicks > 0 && positionTicks >= durationTicks * thresholdFraction)) {
                 this._isPlaybackEnded = true;
             }
 
@@ -2599,6 +2744,9 @@ class PlayerPage extends Page {
             log.info(`Captured current position for retry: ${this._resumePosition} ticks`);
         }
 
+        // Latch player error status to halt ongoing progress / stopped server synchronization
+        this._hasPlayerError = true;
+
         log.error('Player error:', error);
 
         // ====================================================================
@@ -2654,11 +2802,15 @@ class PlayerPage extends Page {
 
             log.warn('[PlaybackWatchdog] Buffering stalled for 3.5s, checking network health...');
 
-            // If browser already reports offline or WebSocket disconnected, recover immediately
+            // ----------------------------------------------------------------
+            // 1. Explicit OS/Browser Offline Verification
+            // ----------------------------------------------------------------
+            // Check if the TV browser engine reports that network is truly down.
+            // Notice: We specifically avoid checking WebSocket connectivity here
+            // because HTTP/HTTPS video delivery runs completely out-of-band.
             const isNavigatorOffline = typeof navigator !== 'undefined' && navigator.onLine === false;
-            const isWsDisconnected = typeof api !== 'undefined' && api.isWebSocketConnected === false;
 
-            if (isNavigatorOffline || isWsDisconnected) {
+            if (isNavigatorOffline) {
                 log.warn('[PlaybackWatchdog] Offline status confirmed during stall. Starting auto-recovery.');
                 this._startAutoRecovery({
                     isNetworkError: true,
@@ -2667,7 +2819,12 @@ class PlayerPage extends Page {
                 return;
             }
 
-            // Otherwise, perform a quick 1.5s ping check to verify server availability
+            // ----------------------------------------------------------------
+            // 2. Real HTTP Connectivity Probe to Jellyfin Server
+            // ----------------------------------------------------------------
+            // Perform an active, lightweight HTTP ping directly against the Jellyfin
+            // server. If the server answers, we know the pipe is open and the stall
+            // is merely a standard buffer fetch in progress.
             try {
                 const controller = new AbortController();
                 const timeoutId = setTimeout(() => controller.abort(), 1500);
@@ -2708,23 +2865,24 @@ class PlayerPage extends Page {
 
     /**
      * ========================================================================
-     * Handle Network Dropout & WebSocket Disconnection Events
+     * Handle OS/Browser Network Dropout Events
      * ========================================================================
-     * When network connectivity drops, engaging auto-recovery immediately prevents
-     * the player from freezing for 20-30s while the browser/OS socket times out.
+     * Invoked when the TV's network stack explicitly fires window 'offline'.
+     * Preserves current playback position and transitions to the Reconnection
+     * HUD instead of letting the native demuxer hang indefinitely.
      * ========================================================================
      * @private
      */
     _handleNetworkOffline() {
-        log.warn('[AutoRecovery] Network offline event or WebSocket disconnect detected');
+        log.warn('[AutoRecovery] Network offline event detected from window.offline');
         const currentPosTicks = this._player?.getCurrentPositionTicks?.() || this._resumePosition || 0;
 
-        // If actively playing or buffered and not already recovering or paused
+        // Verify that the player is actively engaged before initiating auto-recovery
         if (!this._isAutoRecovering && !this._isPaused && !this._isExiting && (this._hasReportedStart || currentPosTicks > 0)) {
             log.info('[AutoRecovery] Engaging immediate auto-recovery from network loss event');
             this._startAutoRecovery({
                 isNetworkError: true,
-                message: 'Network offline / WebSocket disconnected'
+                message: 'Network offline'
             });
         }
     }
@@ -3112,6 +3270,12 @@ class PlayerPage extends Page {
             // Clear subtitle
             this._clearSubtitle();
         }
+
+        /*
+         * Re-evaluate dual subtitle state whenever primary cue text updates.
+         * Ensures CSS layout rules adjust in real time if both tracks are showing.
+         */
+        this._updateDualSubtitleState();
     }
 
     _clearSubtitle() {
@@ -3127,6 +3291,11 @@ class PlayerPage extends Page {
         // or re-evaluates the same cue time range, SubtitleManager does not think the cue
         // is still actively displayed in the DOM.
         this._player?._subtitleManager?.clearActivePrimaryCue?.();
+
+        /*
+         * Synchronize dual subtitle state when primary overlay is cleared.
+         */
+        this._updateDualSubtitleState();
     }
 
     /**
@@ -3199,6 +3368,11 @@ class PlayerPage extends Page {
             // Empty cue — clear the overlay
             this._clearSecondarySubtitle();
         }
+
+        /*
+         * Re-evaluate dual subtitle state when secondary cue text updates.
+         */
+        this._updateDualSubtitleState();
     }
 
     /**
@@ -3215,6 +3389,54 @@ class PlayerPage extends Page {
 
         // Synchronize SubtitleManager's active cue state
         this._player?._subtitleManager?.clearActiveSecondaryCue?.();
+
+        /*
+         * Synchronize dual subtitle state when secondary overlay is cleared.
+         */
+        this._updateDualSubtitleState();
+    }
+
+    /**
+     * ========================================================================
+     * DUAL SUBTITLE & OSD DODGING STATE SYNCHRONIZATION
+     * ========================================================================
+     * Inspects active subtitle overlay elements and player stream indices to
+     * detect if dual subtitles (primary at bottom and secondary at top) are
+     * concurrently rendering.
+     *
+     * When dual subtitles are active, the 'has-dual-subtitles' class is applied
+     * to .player-page and #player-container so CSS spring transforms can
+     * intelligently reduce font scale and vertical footprint while OSD controls
+     * are present.
+     *
+     * Also checks the global 'subtitleOsdDodging' setting: if disabled, applies
+     * 'osd-dodging-disabled' so that subtitles stay stationary at their baseline.
+     * ========================================================================
+     */
+    _updateDualSubtitleState() {
+        const pageEl = this.el || document.querySelector('.player-page');
+        const playerContainer = document.getElementById('player-container');
+
+        const primaryOverlay = document.getElementById('subtitle-overlay');
+        const secondaryOverlay = document.getElementById('secondary-subtitle-overlay');
+
+        // Check whether both tracks are selected in player OR both overlays currently hold visible text
+        const secIdx = this._player?.getCurrentSecondarySubtitleStreamIndex?.();
+        const primIdx = this._player?.getCurrentSubtitleStreamIndex?.();
+        const hasSecondaryTrack = secIdx !== -1 && secIdx !== null && secIdx !== undefined;
+        const hasPrimaryTrack = primIdx !== -1 && primIdx !== null && primIdx !== undefined;
+
+        const hasPrimaryOverlay = !!(primaryOverlay && !primaryOverlay.classList.contains('hidden') && primaryOverlay.innerHTML.trim().length > 0);
+        const hasSecondaryOverlay = !!(secondaryOverlay && !secondaryOverlay.classList.contains('hidden') && secondaryOverlay.innerHTML.trim().length > 0);
+
+        const isDual = (hasSecondaryTrack && (hasPrimaryTrack || hasPrimaryOverlay)) || (hasPrimaryOverlay && hasSecondaryOverlay);
+        if (pageEl) pageEl.classList.toggle('has-dual-subtitles', isDual);
+        if (playerContainer) playerContainer.classList.toggle('has-dual-subtitles', isDual);
+
+        // Also check if subtitle OSD dodging is globally disabled in user preferences
+        const isDodgingEnabled = PlayerSettings.get('subtitleOsdDodging') !== false;
+        if (pageEl) pageEl.classList.toggle('osd-dodging-disabled', !isDodgingEnabled);
+        if (playerContainer) playerContainer.classList.toggle('osd-dodging-disabled', !isDodgingEnabled);
     }
 
     _onMediaStreamsChange(data) {
@@ -3251,6 +3473,11 @@ class PlayerPage extends Page {
         log.info('Media streams changed, reporting progress to persist selection');
         const isPaused = this._player.isPaused();
         this._reportPlaybackProgress(isPaused ? 'pause' : 'timeupdate');
+
+        /*
+         * Re-evaluate dual subtitle state when media stream selections change.
+         */
+        this._updateDualSubtitleState();
     }
 
     /**
@@ -3343,6 +3570,11 @@ class PlayerPage extends Page {
                 }
             }
         }
+
+        /*
+         * Re-evaluate dual subtitle state on full style refresh.
+         */
+        this._updateDualSubtitleState();
     }
 
     /**
@@ -3352,6 +3584,20 @@ class PlayerPage extends Page {
      */
     async _reportPlaybackProgress(eventName = 'timeupdate', manualPositionTicks = null) {
         if (!this._player || !this._item) return;
+
+        /*
+         * ---------------------------------------------------------------------
+         * Error & Premature Progress Guard
+         * ---------------------------------------------------------------------
+         * Never report progress if playback has not yet confirmed start on the
+         * server, or if the player entered a fatal error state. Doing so would
+         * report position 0 ticks to the server, erasing the user's progress.
+         * ---------------------------------------------------------------------
+         */
+        if (!this._hasReportedStart || this._hasPlayerError) {
+            log.info('Skipping progress report: playback not started or in error state');
+            return;
+        }
 
         // Skip reporting progress completely if running in private/ghost mode
         if (this._isGhostMode) {
@@ -3415,10 +3661,23 @@ class PlayerPage extends Page {
      */
     _getPlayerState(manualPositionTicks = null) {
         const mediaSource = this._player?.getCurrentMediaSource?.();
-        const positionTicks =
+        let positionTicks =
             manualPositionTicks !== null && manualPositionTicks !== undefined
                 ? manualPositionTicks
                 : this._player?.getCurrentPositionTicks?.() || 0;
+
+        /*
+         * ---------------------------------------------------------------------
+         * Resume Position Preservation Guard
+         * ---------------------------------------------------------------------
+         * If the current position evaluates to 0 ticks, but we arrived into the
+         * player with a valid saved resume position, preserve this._resumePosition.
+         * Prevents transient initialization ticks from overwriting saved progress.
+         * ---------------------------------------------------------------------
+         */
+        if ((!positionTicks || positionTicks === 0) && typeof this._resumePosition === 'number' && this._resumePosition > 0) {
+            positionTicks = this._resumePosition;
+        }
 
         // Cache the play method if it exists, so we survive player instance recreation during audio track switches.
         if (this._player?._currentPlayMethod) {
@@ -3509,8 +3768,81 @@ class PlayerPage extends Page {
     // UI Helpers
     // ========================================================================
 
+    /**
+     * ========================================================================
+     * BACKDROP LOADING OVERLAY HANDLER
+     * ========================================================================
+     * Preloads and displays a backdrop image within the player loading screen.
+     * To prevent desktop transparency artifacts on Tauri Windows/desktop builds,
+     * the base loader maintains an opaque pitch-black (#000000) background while
+     * the backdrop layer softly cross-fades into view on top of it.
+     * ========================================================================
+     * @param {string} backdropUrl - Target backdrop image URL
+     */
+    _applyLoadingBackdrop(backdropUrl) {
+        if (!backdropUrl || !this.el) return;
+
+        // Locate active page loader element
+        const loader = this.el.querySelector('.page-loading');
+        if (!loader) return;
+
+        // Ensure loader container maintains a solid opaque black background
+        loader.style.backgroundColor = '#000000';
+
+        // Retrieve or instantiate the dedicated backdrop presentation layer
+        let backdropLayer = loader.querySelector('.loading-backdrop-layer');
+        if (!backdropLayer) {
+            backdropLayer = document.createElement('div');
+            backdropLayer.className = 'loading-backdrop-layer';
+            backdropLayer.style.position = 'absolute';
+            backdropLayer.style.top = '0';
+            backdropLayer.style.left = '0';
+            backdropLayer.style.width = '100%';
+            backdropLayer.style.height = '100%';
+            backdropLayer.style.backgroundSize = 'cover';
+            backdropLayer.style.backgroundPosition = 'center';
+            backdropLayer.style.opacity = '0';
+            backdropLayer.style.transition = 'opacity 0.6s cubic-bezier(0.25, 1, 0.5, 1)';
+            backdropLayer.style.zIndex = '0';
+            backdropLayer.style.pointerEvents = 'none';
+
+            // Insert layer behind the central loading indicator
+            loader.insertBefore(backdropLayer, loader.firstChild);
+        }
+
+        // Asynchronously preload image to ensure smooth, non-glitchy rendering
+        const img = new Image();
+        img.onload = () => {
+            // Guard against page destruction or loading dismissal before network completion
+            if (!this.el || !this.el.classList.contains('loading')) return;
+
+            // Apply linear gradient over image; base loader remains solidly #000000
+            backdropLayer.style.backgroundImage = `linear-gradient(to bottom, rgba(0,0,0,0.3) 0%, rgba(0,0,0,0.8) 100%), url('${backdropUrl}')`;
+
+            // Fade in gracefully on the next animation frame
+            requestAnimationFrame(() => {
+                backdropLayer.style.opacity = '1';
+            });
+        };
+
+        img.onerror = () => {
+            // Keep solid black on error without exposing transparency
+            log.warn('Backdrop image failed to load, maintaining solid black loading background');
+        };
+
+        img.src = backdropUrl;
+        this._loadingBackdrop = backdropLayer;
+    }
+
     _showLoading(show) {
         this.setLoading(show);
+        if (show && this.el) {
+            // Always ensure the loader has an opaque black background when activated
+            const loader = this.el.querySelector('.page-loading');
+            if (loader) {
+                loader.style.backgroundColor = '#000000';
+            }
+        }
     }
 
     _showError(message) {
@@ -3917,6 +4249,49 @@ class PlayerPage extends Page {
     }
 
     /**
+     * =========================================================================
+     * Watched Completion Threshold Fraction Resolver
+     * =========================================================================
+     * Resolves the completion threshold fraction (e.g. 0.8 for 80%, 0.9 for 90%)
+     * based on user preference and server configuration.
+     *
+     * Options:
+     *   - '80' (default): 0.80 (Litefin Default - credits and ED sequence friendly)
+     *   - 'server': Respects Jellyfin server's configured MaxResumePct (default 90%)
+     *   - '85' / '90' / '95': Explicit custom percentage values
+     *   - '100': 1.0 (Strict completion only)
+     * =========================================================================
+     *
+     * @returns {number} Fractional value between 0.0 and 1.0
+     */
+    _getWatchedThresholdFraction() {
+        const mode = PlayerSettings.get('watchedThreshold') || '80';
+
+        // Respect the Jellyfin host's MaxResumePct server setting
+        if (mode === 'server') {
+            const serverMaxPct = storage.getItem('server:maxResumePct') || state.get('server:maxResumePct');
+            if (typeof serverMaxPct === 'number' && serverMaxPct > 0 && serverMaxPct <= 100) {
+                return serverMaxPct / 100;
+            }
+            const parsed = parseInt(serverMaxPct, 10);
+            if (!isNaN(parsed) && parsed > 0 && parsed <= 100) {
+                return parsed / 100;
+            }
+            // Fallback to Jellyfin's standard factory default (90%)
+            return 0.90;
+        }
+
+        // Parse explicit percentage choices (e.g. '80', '85', '90', '95', '100')
+        const pct = parseInt(mode, 10);
+        if (!isNaN(pct) && pct >= 50 && pct <= 100) {
+            return pct / 100;
+        }
+
+        // Standard Litefin fallback threshold
+        return 0.80;
+    }
+
+    /**
      * Report playback stopped to server
      * @param {Object} [capturedMediaSource] - Pre-captured media source
      * @param {number} [capturedPosition] - Pre-captured position ticks
@@ -3942,6 +4317,21 @@ class PlayerPage extends Page {
             return;
         }
 
+        /*
+         * ---------------------------------------------------------------------
+         * Active Session Guard
+         * ---------------------------------------------------------------------
+         * If playback never successfully started reporting to the server (e.g.
+         * decoder failed immediately, or user closed the player on an error screen),
+         * DO NOT send PlaybackStopped. There is no active session on the server,
+         * and sending 0 ticks would clobber the user's saved resume position!
+         * ---------------------------------------------------------------------
+         */
+        if (!this._hasReportedStart) {
+            log.info('Skipping PlaybackStopped report: playback never successfully started');
+            return;
+        }
+
         try {
             // 1. Capture data
             const mediaSource =
@@ -3950,6 +4340,19 @@ class PlayerPage extends Page {
             // Ensure position is a rounded integer. We grab the reported position
             // from the player backend or the fallback parameters.
             let rawPosition = capturedPosition ?? this._player?.getCurrentPositionTicks?.() ?? 0;
+
+            /*
+             * -----------------------------------------------------------------
+             * Resume Safeguard on Stop
+             * -----------------------------------------------------------------
+             * If the backend stopped at 0 (or failed before first frame rendered)
+             * but a valid resume position was held, preserve the resume position.
+             * -----------------------------------------------------------------
+             */
+            if ((!rawPosition || rawPosition === 0) && typeof this._resumePosition === 'number' && this._resumePosition > 0) {
+                log.info(`Preserving initial resume position (${this._resumePosition} ticks) instead of 0 ticks on stop`);
+                rawPosition = this._resumePosition;
+            }
 
             // If the video naturally completed (ended event was fired), advancing to
             // the next item, or the user watched >= 80% of the content (accommodating
@@ -3965,13 +4368,18 @@ class PlayerPage extends Page {
                 mediaSource?.RunTimeTicks ||
                 item?.RunTimeTicks ||
                 0;
-            const _isNearComplete = durationTicks > 0 && (this._isPlaybackEnded || rawPosition >= durationTicks * 0.8);
+            // Live streams (TV channels, infinite streams, or active live stream IDs) have
+            // rolling buffer durations (e.g. 5s chunks) and must never trigger PlayedToCompletion
+            // position overrides.
+            const isLive = item?.Type === 'TvChannel' || Boolean(mediaSource?.LiveStreamId || mediaSource?.IsInfiniteStream);
+            const thresholdFraction = this._getWatchedThresholdFraction();
+            const _isNearComplete = !isLive && durationTicks > 0 && (this._isPlaybackEnded || rawPosition >= durationTicks * thresholdFraction);
             if (_isNearComplete) {
                 log.info(
                     `Overriding positionTicks with durationTicks (${durationTicks})` +
                     (this._isPlaybackEnded
                         ? ' due to natural end of playback / next item transition'
-                        : ' due to near-complete playback position (>= 80%)')
+                        : ` due to near-complete playback position (>= ${(thresholdFraction * 100).toFixed(0)}%)`)
                 );
                 rawPosition = durationTicks;
             }
@@ -4128,7 +4536,13 @@ class PlayerPage extends Page {
 
         // Capture session info before stopping (stop clears internal player state)
         const mediaSource = this._player?.getCurrentMediaSource?.();
-        const positionTicks = this._player?.getCurrentPositionTicks?.() || 0;
+        let positionTicks = this._player?.getCurrentPositionTicks?.() || 0;
+
+        // Preserve resume position if player never progressed past 0
+        if ((!positionTicks || positionTicks === 0) && typeof this._resumePosition === 'number' && this._resumePosition > 0) {
+            positionTicks = this._resumePosition;
+        }
+
         const durationTicks =
             this._player?.getDurationTicks?.() || mediaSource?.RunTimeTicks || this._item?.RunTimeTicks || 0;
 
@@ -4380,7 +4794,13 @@ class PlayerPage extends Page {
 
         // Capture session info BEFORE stopping (stop clears internal state)
         const mediaSource = this._player?.getCurrentMediaSource?.();
-        const positionTicks = this._player?.getCurrentPositionTicks?.() || 0;
+        let positionTicks = this._player?.getCurrentPositionTicks?.() || 0;
+
+        // Preserve resume position if player never progressed past 0
+        if ((!positionTicks || positionTicks === 0) && typeof this._resumePosition === 'number' && this._resumePosition > 0) {
+            positionTicks = this._resumePosition;
+        }
+
         const durationTicks =
             this._player?.getDurationTicks?.() || mediaSource?.RunTimeTicks || this._item?.RunTimeTicks || 0;
 
@@ -4523,19 +4943,19 @@ class PlayerPage extends Page {
             // (not replaced) by App.js, and we want to go BACK to that originating page exactly where
             // we left off — not synthesize a Details page the user never visited. So we call router.back().
             //
-            // Standard web exception:
-            // If we are on standard web (non-Tizen and non-webOS), we always want to just go back
-            // to the existing details page rather than replacing history and recreating a new DetailsPage/Guide instance.
-            // fromSlideshow / fromBrowse: the player was PUSHED on top of the originating page,
-            // so a simple back() pop restores that page exactly where it was.
-            // fromGuide: same — App.js now pushes the player instead of replacing /livetv,
-            // which means /livetv is still in history with its saved tab/EPG state intact.
-            // On web: always back() to let the browser handle history natively.
+            // Web and Android Mobile exception:
+            // On standard web and Android mobile platforms, the Details page was preserved in history
+            // rather than replaced, so router.back() cleanly pops the player off the navigation stack.
+            //
+            // Desktop and TV platforms (Tizen, webOS, Android TV):
+            // On desktop and TV platforms, player entry replaced the Details page in history.
+            // Therefore, on exit we replace-navigate back to the targetPath with isBack: true.
+            const isWebOrMobile = platformInfo.isWeb || (platformInfo.isAndroid && !platformInfo.isAndroidTv);
             if (
                 this.params.fromSlideshow === 'true' ||
                 this.params.fromBrowse === 'true' ||
                 this.params.fromGuide === 'true' ||
-                platformInfo.isWeb
+                isWebOrMobile
             ) {
                 router.back();
             } else {
@@ -4741,6 +5161,20 @@ class PlayerPage extends Page {
         this._backgroundPrepared = false;
         log.info('destroy() called');
 
+        // Defensive safety net: if destroy is invoked directly without _stopAndExit having run
+        // (e.g. emergency external route discard), report stopped to server with synchronous XHR
+        if (!this._isExiting && this._hasReportedStart && this._item) {
+            try {
+                const mediaSource = this._cachedMediaSource || this._player?.getCurrentMediaSource?.();
+                const positionTicks = this._player?.getCurrentPositionTicks?.() || this._resumePosition || 0;
+                const durationTicks =
+                    this._player?.getDurationTicks?.() || mediaSource?.RunTimeTicks || this._item?.RunTimeTicks || 0;
+                this._reportPlaybackStopped(mediaSource, positionTicks, true, durationTicks);
+            } catch (err) {
+                log.warn('Defensive stop report on destroy failed:', err);
+            }
+        }
+
         // Cancel any pending auto-recovery timers
         this._cancelAutoRecovery();
 
@@ -4765,7 +5199,6 @@ class PlayerPage extends Page {
 
         // Remove network offline/online listeners
         if (this._onNetworkOffline) {
-            eventBus.off('websocket:disconnected', this._onNetworkOffline);
             window.removeEventListener('offline', this._onNetworkOffline);
             this._onNetworkOffline = null;
         }
@@ -4852,6 +5285,14 @@ class PlayerPage extends Page {
         document.body.classList.remove('player-active', 'lyrics-active');
         document.documentElement.classList.remove('player-active');
 
+        // Maintain immersive fullscreen mode across all views
+        if (platformInfo.isAndroid) {
+            androidAdapter.setFullscreen(true);
+        }
+
+        // Restore natural screen auto-rotation upon exiting the video player
+        androidAdapter.setOrientation('auto');
+
         // Restore global clock visibility when leaving playback
         globalClock.setVisibility(true);
 
@@ -4902,8 +5343,9 @@ class PlayerPage extends Page {
                 // Cache for OSD init sync and playback start sync
                 this._currentLiveTvProgram = program;
 
+                // Update OSD title/logo with program metadata without triggering a track transition
                 if (this._osd) {
-                    this._osd.updateItem(program);
+                    this._osd.setMetadata(program);
                 }
             }
         } catch (err) {
