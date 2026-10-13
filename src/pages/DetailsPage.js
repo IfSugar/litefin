@@ -1071,16 +1071,11 @@ class DetailsPage extends Page {
                     const virtualRow = this._virtualRows ? this._virtualRows[sectionId] : null;
 
                     if (virtualRow) {
-                        const index = virtualRow.items.findIndex(
-                            (i) => i.Id === targetId || i.Id?.toString() === targetId
-                        );
-                        if (index !== -1) {
-                            this.setActiveSection(sectionId, false);
-                            const node = virtualRow.focusByIndex(index);
-                            if (node) {
-                                focusManager.focusElement(node, { instantScroll: true });
-                                restoredFocus = true;
-                            }
+                        this.setActiveSection(sectionId, false);
+                        const node = virtualRow.ensureItemRendered(targetId);
+                        if (node) {
+                            focusManager.focusElement(node, { instantScroll: true });
+                            restoredFocus = true;
                         }
                     } else {
                         const sectionConfig = focusManager.getSectionConfig(sectionId);

@@ -2035,17 +2035,26 @@ class HomePage extends Page {
                 // Try the specific row first (faster lookup)
                 if (targetRowId) {
                     const rowEntry = this._rowRegistry.get(targetRowId);
-                    if (rowEntry) {
-                        savedCard = Array.from(rowEntry.sectionEl.querySelectorAll('.media-card')).find(
-                            (card) =>
-                                String(card.dataset.itemId || '')
-                                    .replace(/-/g, '')
-                                    .toLowerCase() === targetId
-                        );
+                    if (rowEntry && rowEntry.virtualRow) {
+                        savedCard = rowEntry.virtualRow.ensureItemRendered(targetId);
                     }
                 }
 
-                // Fall back to a global search
+                // Fall back to a search across all registered virtual rows
+                if (!savedCard) {
+                    for (const [rowId, rowEntry] of this._rowRegistry.entries()) {
+                        if (rowEntry.virtualRow) {
+                            const node = rowEntry.virtualRow.ensureItemRendered(targetId);
+                            if (node) {
+                                savedCard = node;
+                                targetRowId = rowId;
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                // Fall back to a global DOM query for non-virtual cards
                 if (!savedCard) {
                     savedCard = Array.from(container.querySelectorAll('.media-card')).find(
                         (card) =>
@@ -2066,20 +2075,12 @@ class HomePage extends Page {
                 } else if (targetRowId) {
                     // Card was virtualized out — restore via index lookup
                     const rowEntry = this._rowRegistry.get(targetRowId);
-                    if (rowEntry) {
-                        const itemIndex = rowEntry.virtualRow.items.findIndex(
-                            (item) =>
-                                String(item.Id || '')
-                                    .replace(/-/g, '')
-                                    .toLowerCase() === targetId
-                        );
-                        if (itemIndex !== -1) {
-                            const node = rowEntry.virtualRow.focusByIndex(itemIndex);
-                            if (node) {
-                                this.setActiveSection(`home-row-${targetRowId}`, false);
-                                focusManager.focusElement(node, { instantScroll: true });
-                                restoredFocus = true;
-                            }
+                    if (rowEntry && rowEntry.virtualRow) {
+                        const node = rowEntry.virtualRow.ensureItemRendered(targetId);
+                        if (node) {
+                            this.setActiveSection(`home-row-${targetRowId}`, false);
+                            focusManager.focusElement(node, { instantScroll: true });
+                            restoredFocus = true;
                         }
                     }
                 }

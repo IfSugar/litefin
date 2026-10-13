@@ -643,6 +643,12 @@ class LibraryPage extends Page {
                     // card is populated rather than blank.
                     const itemIndex = this._ensureGridWindowEncompassesItem(targetId);
 
+                    // For horizontal media rows (Suggestions / Upcoming), ensure target item and forward buffer are rendered
+                    const virtualTrack = sectionContainer ? sectionContainer.querySelector('.row-items-track') : null;
+                    if (virtualTrack && virtualTrack.__virtualRow) {
+                        virtualTrack.__virtualRow.ensureItemRendered(targetId);
+                    }
+
                     // =========================================================================
                     // TWO-PHASE LAYOUT FLUSH (TIZEN / WEBKIT DOM SETTLE)
                     // =========================================================================
@@ -843,6 +849,14 @@ class LibraryPage extends Page {
             }
             if (targetId && (pending.focusSectionName === 'library-grid' || !pending.focusSectionName)) {
                 this._ensureGridWindowEncompassesItem(targetId, pending.focusElementIndex);
+            } else if (targetId && pending.focusSectionName) {
+                // Check if target section is a horizontal virtual row
+                const sectionConfig = focusManager.getSectionConfig(pending.focusSectionName);
+                const sectionContainer = sectionConfig ? sectionConfig.container : this.el;
+                const virtualTrack = sectionContainer ? sectionContainer.querySelector('.row-items-track') : null;
+                if (virtualTrack && virtualTrack.__virtualRow) {
+                    virtualTrack.__virtualRow.ensureItemRendered(targetId);
+                }
             }
 
             this.restoreScrollFocusWhenReady();
