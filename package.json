@@ -24,7 +24,7 @@
         "lint:fix": "eslint src/ --fix",
         "format": "prettier --write src/",
         "format:check": "prettier --check src/",
-        "clean": "rimraf dist/ *.wgt *.ipk *.exe *.msi *.deb *.AppImage *.dmg *.apk *.aab src-tauri/target/",
+        "clean": "rimraf dist/ *.wgt *.ipk *.exe *.msi *.deb *.AppImage *.rpm *.dmg *.apk *.aab src-tauri/target/",
         "clean:stale": "node scripts/move-tauri-artifacts.js --clean-only",
         "package": "gulp buildPackage",
         "sync:version": "gulp syncVersion",
