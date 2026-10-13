@@ -346,6 +346,7 @@
     "SelectAudioNormalizationHelp": "Track gain adjusts each track to play at the same loudness. Album gain preserves the dynamic range of an album.",
     "SelectVersion": "Select Version",
     "Series": "TV Shows",
+    "SeriesYearToPresent": "{0} - Present",
     "Settings": "Settings",
     "ShowLess": "Show less",
     "ShowMediaSourceCounts": "Show Version Counts",
