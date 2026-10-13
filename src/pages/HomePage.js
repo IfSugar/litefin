@@ -467,13 +467,16 @@ class HomePage extends Page {
                         // 1. If a specific collection or playlist ID is chosen, fetch directly from it
                         if (settingVal !== 'auto' && settingVal !== 'top-rated') {
                             let items = null;
+
                             try {
+                                // Attempt fetching playlist items first; suppress unauthorized eviction if inaccessible
                                 const plRes = await api
-                                    .getPlaylistItems(settingVal, { Limit: homeRowLimit })
+                                    .getPlaylistItems(settingVal, { Limit: homeRowLimit }, { suppressUnauthorized: true, warnOnError: true })
                                     .catch(() => null);
                                 items = plRes?.Items;
                             } catch (_) {}
 
+                            // If not a playlist or empty, query as collection/folder BoxSet
                             if (!items || items.length === 0) {
                                 let boxRes = await api
                                     .getItems({
@@ -482,10 +485,11 @@ class HomePage extends Page {
                                         IncludeItemTypes: type,
                                         Fields: 'PrimaryImageAspectRatio,CanFilter,UserData',
                                         Recursive: true
-                                    })
+                                    }, { suppressUnauthorized: true, warnOnError: true })
                                     .catch(() => null);
                                 items = boxRes?.Items;
 
+                                // Fallback without item type restriction if initial query was empty
                                 if (!items || items.length === 0) {
                                     boxRes = await api
                                         .getItems({
@@ -493,12 +497,13 @@ class HomePage extends Page {
                                             Limit: homeRowLimit,
                                             Fields: 'PrimaryImageAspectRatio,CanFilter,UserData',
                                             Recursive: true
-                                        })
+                                        }, { suppressUnauthorized: true, warnOnError: true })
                                         .catch(() => null);
                                     items = boxRes?.Items;
                                 }
                             }
 
+                            // If items were retrieved from the specified collection, return them
                             if (items && items.length > 0) {
                                 return items;
                             }
@@ -533,13 +538,15 @@ class HomePage extends Page {
 
                                 let items = null;
                                 if (smartCollection.Type === 'Playlist') {
+                                    // Query smart playlist items with unauthorized suppression
                                     const plRes = await api
                                         .getPlaylistItems(smartCollection.Id, {
                                             Limit: homeRowLimit
-                                        })
+                                        }, { suppressUnauthorized: true, warnOnError: true })
                                         .catch(() => null);
                                     items = plRes?.Items;
                                 } else {
+                                    // Query collection items with unauthorized suppression
                                     let boxRes = await api
                                         .getItems({
                                             ParentId: smartCollection.Id,
@@ -547,10 +554,11 @@ class HomePage extends Page {
                                             IncludeItemTypes: type,
                                             Fields: 'PrimaryImageAspectRatio,CanFilter,UserData',
                                             Recursive: true
-                                        })
+                                        }, { suppressUnauthorized: true, warnOnError: true })
                                         .catch(() => null);
                                     items = boxRes?.Items;
 
+                                    // Secondary query without type filter if initially empty
                                     if (!items || items.length === 0) {
                                         boxRes = await api
                                             .getItems({
@@ -558,7 +566,7 @@ class HomePage extends Page {
                                                 Limit: homeRowLimit,
                                                 Fields: 'PrimaryImageAspectRatio,CanFilter,UserData',
                                                 Recursive: true
-                                            })
+                                            }, { suppressUnauthorized: true, warnOnError: true })
                                             .catch(() => null);
                                         items = boxRes?.Items;
                                     }
@@ -637,11 +645,16 @@ class HomePage extends Page {
                 fetchFn: async () => {
                     try {
                         let items = null;
+
                         try {
-                            const plRes = await api.getPlaylistItems(col.id, { Limit: homeRowLimit }).catch(() => null);
+                            // Query custom playlist items safely
+                            const plRes = await api
+                                .getPlaylistItems(col.id, { Limit: homeRowLimit }, { suppressUnauthorized: true, warnOnError: true })
+                                .catch(() => null);
                             items = plRes?.Items;
                         } catch (_) {}
 
+                        // If not a playlist, query as a collection/library container
                         if (!items || items.length === 0) {
                             const boxRes = await api
                                 .getItems({
@@ -650,10 +663,11 @@ class HomePage extends Page {
                                     IncludeItemTypes: 'Movie,Series',
                                     Fields: 'PrimaryImageAspectRatio,CanFilter,UserData',
                                     Recursive: true
-                                })
+                                }, { suppressUnauthorized: true, warnOnError: true })
                                 .catch(() => null);
                             items = boxRes?.Items;
 
+                            // Secondary fallback query without type filters
                             if (!items || items.length === 0) {
                                 const fallbackRes = await api
                                     .getItems({
@@ -661,7 +675,7 @@ class HomePage extends Page {
                                         Limit: homeRowLimit,
                                         Fields: 'PrimaryImageAspectRatio,CanFilter,UserData',
                                         Recursive: true
-                                    })
+                                    }, { suppressUnauthorized: true, warnOnError: true })
                                     .catch(() => null);
                                 items = fallbackRes?.Items;
                             }

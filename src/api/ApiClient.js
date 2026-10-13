@@ -663,15 +663,28 @@ export class ApiClient {
                     endpoint.includes('/Users/AuthenticateByName') ||
                     endpoint.includes('/Users/AuthenticateWithQuickConnect');
 
+                // Inspect parameters and endpoints for container, playlist, or library targets.
+                // In Jellyfin, querying a container that the authenticated user lacks access to
+                // returns a 401 or 403 status code for that specific resource. This indicates a
+                // resource permission denial, NOT that the user's active session token has expired.
+                const isResourceAccessDenied =
+                    Boolean(options.params?.ParentId) ||
+                    Boolean(options.params?.parentId) ||
+                    endpoint.includes('ParentId=') ||
+                    endpoint.includes('parentId=') ||
+                    endpoint.startsWith('/Playlists/');
+
                 // Session expiration should only fire if:
                 // 1. Not explicitly suppressed by the caller (e.g. probe or login attempt)
                 // 2. Not marked as a silent operation
                 // 3. Not an authentication credential endpoint
-                // 4. An active session token was actually transmitted with the request
+                // 4. Not a resource-level container or playlist access denial
+                // 5. An active session token was actually transmitted with the request
                 const shouldEmitUnauthorized =
                     !options.suppressUnauthorized &&
                     !options.silent &&
                     !isAuthEndpoint &&
+                    !isResourceAccessDenied &&
                     Boolean(this._accessToken);
 
                 // Broadcast session invalidation only when an active token was rejected
@@ -904,8 +917,11 @@ export class ApiClient {
 
     /**
      * Get items from library
+     * @param {Object} [params={}] - Jellyfin /Items query parameters
+     * @param {Object} [options={}] - Network and error handling options
      */
-    async getItems(params = {}) {
+    async getItems(params = {}, options = {}) {
+        // Standard baseline parameters for item queries
         const defaults = {
             UserId: this._userId,
             SortBy: 'SortName',
@@ -918,7 +934,16 @@ export class ApiClient {
             Limit: 100
         };
 
-        return this.get('/Items', { ...defaults, ...params });
+        // When querying with a specific ParentId (e.g. collection, boxset, playlist, folder),
+        // permission denials (401/403) from the server should not invalidate the user's active session.
+        const requestOptions = {
+            ...(params && (params.ParentId || params.parentId)
+                ? { suppressUnauthorized: true, warnOnError: true }
+                : {}),
+            ...options
+        };
+
+        return this.get('/Items', { ...defaults, ...params }, requestOptions);
     }
 
     /**
@@ -938,11 +963,15 @@ export class ApiClient {
     /**
      * Get latest items in a library
      * Uses configurable user limit preference (defaults to 12 items)
+     * @param {string} parentId - Library or collection folder ID
+     * @param {Object} [params={}] - Additional query options
+     * @param {Object} [options={}] - Network and error handling options
      */
-    async getLatestItems(parentId, params = {}) {
+    async getLatestItems(parentId, params = {}, options = {}) {
         // Read user's custom homepage row limit from storage, defaulting to 12 items
         const defaultLimit = parseInt(storage.getItem('pref:homeRowsLimit') || 12, 10);
 
+        // Core fields and parameters for row presentation
         const defaults = {
             // Default item count per library row configured via user settings
             Limit: defaultLimit,
@@ -953,14 +982,21 @@ export class ApiClient {
             ParentId: parentId
         };
 
+        // Suppress unauthorized logout if parent library is restricted
+        const requestOptions = {
+            suppressUnauthorized: true,
+            warnOnError: true,
+            ...options
+        };
+
         /*
          * JF12+ canonical: GET /Items/Latest?userId=...
          * Legacy (pre-12):  GET /Users/{userId}/Items/Latest
          */
         if (this.isJF12Plus()) {
-            return this.get('/Items/Latest', { UserId: this._userId, ...defaults, ...params });
+            return this.get('/Items/Latest', { UserId: this._userId, ...defaults, ...params }, requestOptions);
         }
-        return this.get(`/Users/${this._userId}/Items/Latest`, { ...defaults, ...params });
+        return this.get(`/Users/${this._userId}/Items/Latest`, { ...defaults, ...params }, requestOptions);
     }
 
     /**
@@ -1267,14 +1303,15 @@ export class ApiClient {
      *
      * @param {string} itemId - The Jellyfin item GUID
      * @param {Object} [params] - Additional query parameters
+     * @param {Object} [options] - Network request options
      */
-    async getItem(itemId, params = {}) {
+    async getItem(itemId, params = {}, options = {}) {
         if (this.isJF12Plus()) {
             // New JF12 form — userId is a query param on the non-user route
-            return this.get(`/Items/${itemId}`, { userId: this._userId, ...params });
+            return this.get(`/Items/${itemId}`, { userId: this._userId, ...params }, options);
         }
         // Legacy path for JF 10.10 / 10.11
-        return this.get(`/Users/${this._userId}/Items/${itemId}`, params);
+        return this.get(`/Users/${this._userId}/Items/${itemId}`, params, options);
     }
 
     /**
@@ -1368,15 +1405,23 @@ export class ApiClient {
      *
      * @param {string} playlistId - Playlist container item ID
      * @param {Object} [params]   - Extra query params (e.g. Limit, Fields)
+     * @param {Object} [options]  - Request options
      * @returns {Promise<Object>} Standard paginated Items response { Items, TotalRecordCount }
      */
-    async getPlaylistItems(playlistId, params = {}) {
+    async getPlaylistItems(playlistId, params = {}, options = {}) {
+        // Protect callers against playlist-level permission denials causing global session eviction
+        const requestOptions = {
+            suppressUnauthorized: true,
+            warnOnError: true,
+            ...options
+        };
+
         return this.get(`/Playlists/${playlistId}/Items`, {
             UserId: this._userId,
             Fields: 'UserData,RunTimeTicks',
             EnableImageTypes: 'Primary,Backdrop,Thumb',
             ...params
-        });
+        }, requestOptions);
     }
 
     /**
