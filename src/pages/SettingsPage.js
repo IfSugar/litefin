@@ -28,6 +28,7 @@ import { pluginManager } from '../plugins/PluginManager.js';
 import { platformInfo } from '../utils/PlatformInfo.js';
 import { homeLayoutManager } from '../utils/HomeLayoutManager.js';
 import { sidebarLayoutManager } from '../utils/SidebarLayoutManager.js';
+import { AUDIO_FALLBACK_SLOTS, isAudioFallbackSelect } from '../utils/AudioFallbackConfig.js';
 import { eventBus } from '../core/EventBus.js';
 import { versionChecker } from '../utils/VersionChecker.js';
 import { settingsIcons, setIconStyle, getSupportedStyles } from '../utils/Icons.js';
@@ -3685,14 +3686,12 @@ class SettingsPage extends Page {
                 <div class="setting-item">
                     <div class="setting-label">
                         <span class="setting-name" data-i18n="LabelAudioLanguagePreference">${i18n.t('LabelAudioLanguagePreference')}</span>
-                        <span class="setting-description" data-i18n="PreferredAudioLanguageDescription">${i18n.t('PreferredAudioLanguageDescription')}</span>
+                        <span class="setting-description" data-i18n="AudioLanguageFallbackDescription">${i18n.t('AudioLanguageFallbackDescription')}</span>
                     </div>
                     <div class="setting-control">
-                        ${this._renderDropdown(
-                'audio-lang-select',
-                [{ value: 'Default', label: i18n.t('Default') }, ...this.prefLanguages],
-                storage.getItem('pref:audioLang') || 'Default'
-            )}
+                        <button class="setting-action-btn audio-fallback-select-btn" id="audio-fallback-languages-btn" tabindex="0" data-focusable="true">
+                            <span class="btn-label">${this._getAudioPreferencesSummaryLabel()}</span>
+                        </button>
                     </div>
                 </div>
 
@@ -9667,6 +9666,20 @@ class SettingsPage extends Page {
             });
         }
 
+        // =====================================================================
+        // Fallback Audio Languages Multi-Slot Modal Trigger
+        // =====================================================================
+        // Opens the unified modal containing the 3-slot priority tab switcher
+        // at the top for selecting fallbacks 1, 2, and 3 under a single setting.
+        const btnAudioFallbacks = this.$('#audio-fallback-languages-btn');
+        if (btnAudioFallbacks) {
+            btnAudioFallbacks.addEventListener('click', async (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                await this._openAudioFallbackModal();
+            });
+        }
+
         // Keep loading style button label in sync
         eventBus.on('loaderStyle:changed', ({ style }) => {
             const triggerLabel = this.$('#loader-style-btn-label');
@@ -9980,6 +9993,7 @@ class SettingsPage extends Page {
         // Check if this dropdown is a language selection menu
         const isLanguageSelect = selectId === 'app-language-select' ||
             selectId === 'audio-lang-select' ||
+            isAudioFallbackSelect(selectId) ||
             selectId === 'subtitle-lang-select' ||
             (title && (title.toLowerCase().includes('language') || title.toLowerCase().includes('idioma') || title.toLowerCase().includes('langue') || title.toLowerCase().includes('sprache')));
 
@@ -10252,6 +10266,7 @@ class SettingsPage extends Page {
 
         // Unregister modal focus
         focusManager.unregister('modal-filter-pills');
+        focusManager.unregister('modal-slot-pills');
         focusManager.unregister('modal-options');
         focusManager.unregister('modal-loader-options');
         focusManager.unregister('modal-color-grid');
@@ -10268,6 +10283,454 @@ class SettingsPage extends Page {
 
         this._prevFocus = null;
         this._prevSection = null;
+    }
+
+    /**
+     * Get a human-readable summary of configured fallback audio languages.
+     * Delegates to the unified preferences summary helper.
+     * @returns {string} Summary string formatted for the settings dropdown trigger
+     */
+    _getAudioFallbackSummaryLabel() {
+        return this._getAudioPreferencesSummaryLabel();
+    }
+
+    /**
+     * Get a human-readable summary of preferred and fallback audio languages.
+     * Formats configured audio priorities (e.g. "Japanese • 1: English")
+     * or defaults to "Default" when no custom preferences are specified.
+     * @returns {string} Formatted summary string for the settings trigger button
+     */
+    _getAudioPreferencesSummaryLabel() {
+        // Retrieve preferred audio language setting
+        const rawPref = storage.getItem('pref:audioLang');
+        const prefVal = (!rawPref || rawPref === 'Default') ? 'Default' : rawPref;
+        let prefLabel = i18n.t('Default') || 'Default';
+
+        // Match localized label for preferred language if available
+        if (prefVal !== 'Default') {
+            const match = (this.prefLanguages || []).find((o) => String(o.value) === String(prefVal));
+            prefLabel = match ? match.label : prefVal;
+        }
+
+        // Collect configured fallback slots
+        const fallbackParts = [];
+        for (const priority of AUDIO_FALLBACK_SLOTS) {
+            const raw = storage.getItem(`pref:audioLangFallback${priority}`);
+            if (raw && raw !== 'Default' && raw !== 'none') {
+                const match = (this.prefLanguages || []).find((o) => String(o.value) === String(raw));
+                const name = match ? match.label : raw;
+                fallbackParts.push(`${priority}: ${name}`);
+            }
+        }
+
+        // Return combined summary string
+        if (fallbackParts.length > 0) {
+            return `${prefLabel} • ${fallbackParts.join(' • ')}`;
+        }
+        return prefLabel;
+    }
+
+    /**
+     * Open the unified preferred and fallback audio languages configuration modal.
+     * Renders a 2-tier tab bar:
+     * - Tier 1 (Filter): 2 tabs for Favorites and All Languages
+     * - Tier 2 (Priority Slot): 4 tabs for Preferred Language, Fallback 1, Fallback 2, Fallback 3
+     * Allows selecting languages per slot with remote D-pad Left/Right navigation across slots.
+     */
+    async _openAudioFallbackModal() {
+        const overlay = this.$('#modal-overlay');
+        if (!overlay) return;
+
+        // Ensure cultures are loaded from server before displaying language options
+        if (!cachedCultures || !this.prefLanguages || this.prefLanguages.length <= 1) {
+            try {
+                const cultures = await api.getCultures();
+                if (cultures && Array.isArray(cultures)) {
+                    languageManager.registerCultures(cultures);
+                    cachedCultures = cultures
+                        .map((c) => ({
+                            value: c.ThreeLetterISOLanguageName || c.Name,
+                            label: i18n.ensureBiDi(c.DisplayName),
+                            ThreeLetterISOLanguageName: c.ThreeLetterISOLanguageName,
+                            TwoLetterISOLanguageName: c.TwoLetterISOLanguageName,
+                            DisplayName: c.DisplayName
+                        }))
+                        .sort((a, b) => a.label.localeCompare(b.label));
+                    this.prefLanguages = cachedCultures;
+                }
+            } catch (err) {
+                log.error('Failed to load cultures for audio language modal:', err);
+            }
+        }
+
+        // Store focus context for restoration upon closing
+        this._prevFocus = focusManager.getFocused();
+        this._prevSection = focusManager.getActiveSection();
+
+        // 4 priority slots: 'pref' (preferred), '1', '2', '3' (fallbacks)
+        const SLOTS = ['pref', '1', '2', '3'];
+        let activeSlot = 'pref';
+
+        // Filter state: default to 'favorites' if favorites exist, otherwise 'all'
+        let activeFilter = languageManager.hasFavorites() ? 'favorites' : 'all';
+
+        // Clean list of server cultures (excluding sentinel keys)
+        const validLanguages = (this.prefLanguages || []).filter(
+            (o) => o.value !== 'Default' && o.value !== 'none'
+        );
+
+        // Helper: retrieve human-readable display label, short code, and value for a given slot
+        const getSlotValueAndLabel = (slot) => {
+            if (slot === 'pref') {
+                const raw = storage.getItem('pref:audioLang');
+                const val = (!raw || raw === 'Default') ? 'Default' : raw;
+                if (val === 'Default') {
+                    return {
+                        value: 'Default',
+                        label: i18n.t('Default') || 'Default',
+                        shortLabel: i18n.t('Default') || 'Default'
+                    };
+                }
+                const match = validLanguages.find((o) => String(o.value) === String(val));
+                const fullLabel = match ? match.label : val;
+                // Extract 2-letter ISO language code (e.g., 'en', 'ar') for ultra-compact tab headers
+                const twoLetter = match?.TwoLetterISOLanguageName || languageManager.normalizeLanguage(val)?.twoLetter;
+                const shortCode = (twoLetter || match?.ThreeLetterISOLanguageName || val).toLowerCase();
+                return { value: val, label: fullLabel, shortLabel: shortCode };
+            } else {
+                const raw = storage.getItem(`pref:audioLangFallback${slot}`);
+                const val = (!raw || raw === 'Default' || raw === 'none') ? 'none' : raw;
+                if (val === 'none') {
+                    return {
+                        value: 'none',
+                        label: i18n.t('None') || 'None',
+                        shortLabel: i18n.t('None') || 'None'
+                    };
+                }
+                const match = validLanguages.find((o) => String(o.value) === String(val));
+                const fullLabel = match ? match.label : val;
+                // Extract 2-letter ISO language code (e.g., 'en', 'ar') for ultra-compact tab headers
+                const twoLetter = match?.TwoLetterISOLanguageName || languageManager.normalizeLanguage(val)?.twoLetter;
+                const shortCode = (twoLetter || match?.ThreeLetterISOLanguageName || val).toLowerCase();
+                return { value: val, label: fullLabel, shortLabel: shortCode };
+            }
+        };
+
+        const renderModal = (focusTarget = 'options') => {
+            // Read active slot's current setting
+            const currentSlotInfo = getSlotValueAndLabel(activeSlot);
+            const currentSlotVal = currentSlotInfo.value;
+
+            // Slot special top option ('Default' for pref, 'None' for fallbacks)
+            const specialOption = activeSlot === 'pref'
+                ? { value: 'Default', label: i18n.t('Default') || 'Default' }
+                : { value: 'none', label: i18n.t('None') || 'None' };
+
+            // Languages filtered according to active filter tab
+            const filteredLanguages = activeFilter === 'favorites'
+                ? languageManager.filterOptions(validLanguages)
+                : validLanguages;
+
+            // Full options list for the active slot
+            const slotOptions = [specialOption, ...filteredLanguages];
+
+            // Counts for filter pills
+            const favoritesCount = validLanguages.filter((o) => languageManager.isFavorite(o)).length;
+            const allCount = validLanguages.length;
+
+            // Tier 1: 2 Filter Tabs (Favorites vs All Languages)
+            const filterPillsHtml = `
+                <div class="modal-filter-pills has-slot-subrow" id="modal-lang-filter-pills">
+                    <button class="modal-filter-pill ${activeFilter === 'favorites' ? 'active' : ''}" 
+                            data-filter="favorites" 
+                            tabindex="0">
+                        ★ ${i18n.t('FavoritesOnly') || 'Favorites'} (${favoritesCount})
+                    </button>
+                    <button class="modal-filter-pill ${activeFilter === 'all' ? 'active' : ''}" 
+                            data-filter="all" 
+                            tabindex="0">
+                        ${i18n.t('AllLanguages') || 'All Languages'} (${allCount})
+                    </button>
+                </div>
+            `;
+
+            // Tier 2: 4 Slot Tabs (Preferred, Fallback 1, Fallback 2, Fallback 3)
+            const slotPillsHtml = `
+                <div class="modal-slot-pills" id="modal-audio-slot-pills">
+                    ${SLOTS.map((slot) => {
+                        const isActive = slot === activeSlot;
+                        const info = getSlotValueAndLabel(slot);
+
+                        // Concise tab title prefix: "Preferred" or "Fallback 1", "Fallback 2", etc.
+                        const displayTitle = slot === 'pref'
+                            ? (i18n.t('Preferred') || 'Preferred')
+                            : `${i18n.t('Fallback') || 'Fallback'} ${slot}`;
+
+                        return `
+                            <button class="modal-filter-pill modal-slot-pill ${isActive ? 'active' : ''}" 
+                                    data-slot="${slot}" 
+                                    tabindex="0"
+                                    title="${displayTitle}: ${escapeHtml(info.label)}">
+                                <span class="slot-pill-title">${displayTitle}:</span>
+                                <span class="slot-pill-val">${escapeHtml(info.shortLabel)}</span>
+                            </button>
+                        `;
+                    }).join('')}
+                </div>
+            `;
+
+            // Tier 3: Language Options List
+            const optionsHtml = slotOptions.map((opt) => {
+                const isSelected = String(opt.value) === String(currentSlotVal);
+                const valStr = String(opt.value).toLowerCase();
+                const isSpecial = valStr === 'none' || valStr === 'default' || valStr === 'auto' || valStr === '-1';
+
+                let starBtnHtml = '';
+                if (!isSpecial) {
+                    const isFav = languageManager.isFavorite(opt);
+                    starBtnHtml = `
+                        <span class="modal-star-btn ${isFav ? 'active' : ''}" 
+                              data-value="${opt.value}" 
+                              title="Toggle Favorite" 
+                              role="button" 
+                              aria-label="Toggle Favorite">
+                            ${isFav ? '★' : '☆'}
+                        </span>
+                    `;
+                }
+
+                return `
+                    <button class="modal-option-btn ${isSelected ? 'selected' : ''}" 
+                            data-value="${opt.value}" 
+                            tabindex="0">
+                        <span class="modal-option-label">${escapeHtml(i18n.ensureBiDi(opt.label))}</span>
+                        ${starBtnHtml}
+                    </button>
+                `;
+            }).join('');
+
+            // Assemble Modal Overlay Markup
+            overlay.innerHTML = `
+                <div class="settings-modal" role="dialog" aria-modal="true">
+                    <div class="modal-header">
+                        <h2>${i18n.t('LabelAudioLanguagePreference') || 'Preferred audio language'}</h2>
+                    </div>
+                    ${filterPillsHtml}
+                    ${slotPillsHtml}
+                    <div class="modal-options">
+                        ${optionsHtml}
+                    </div>
+                    <div class="modal-actions">
+                        <button class="modal-action-btn primary" id="btn-modal-done" tabindex="0" data-i18n="Done">${i18n.t('Done') || 'Done'}</button>
+                    </div>
+                </div>
+            `;
+
+            // Wire option clicks
+            overlay.querySelectorAll('.modal-option-btn').forEach((btn) => {
+                btn.addEventListener('click', (e) => {
+                    // Check if star favorite button was clicked
+                    if (e.target.closest('.modal-star-btn')) {
+                        e.stopPropagation();
+                        const starBtn = e.target.closest('.modal-star-btn');
+                        const val = starBtn.dataset.value;
+                        const matchedOpt = validLanguages.find((o) => String(o.value) === String(val)) || val;
+                        const isNowFav = languageManager.toggleFavorite(matchedOpt);
+
+                        if (activeFilter === 'all') {
+                            // Update star in-place without rebuilding options
+                            starBtn.classList.toggle('active', isNowFav);
+                            starBtn.textContent = isNowFav ? '★' : '☆';
+                            // Update Favorites count pill in Row 1
+                            const favPill = overlay.querySelector('.modal-filter-pill[data-filter="favorites"]');
+                            if (favPill) {
+                                const newCount = validLanguages.filter((o) => languageManager.isFavorite(o)).length;
+                                favPill.textContent = `★ ${i18n.t('FavoritesOnly') || 'Favorites'} (${newCount})`;
+                            }
+                        } else {
+                            // In favorites view, removing favorite removes option, preserve focus
+                            const currentIdx = Array.from(overlay.querySelectorAll('.modal-option-btn')).indexOf(btn);
+                            renderModal('options');
+                            const remaining = overlay.querySelectorAll('.modal-option-btn');
+                            if (remaining.length > 0) {
+                                const targetIdx = Math.min(currentIdx, remaining.length - 1);
+                                focusManager.setActiveSection('modal-options');
+                                focusManager.focusElement(remaining[targetIdx]);
+                            }
+                        }
+                        return;
+                    }
+
+                    e.stopPropagation();
+                    const chosenValue = btn.dataset.value;
+
+                    // Persist selection according to active slot
+                    if (activeSlot === 'pref') {
+                        storage.setItem('pref:audioLang', chosenValue);
+                    } else {
+                        storage.setItem(`pref:audioLangFallback${activeSlot}`, chosenValue);
+                    }
+
+                    // Update Settings page summary trigger button label
+                    const triggerBtn = this.$('#audio-fallback-languages-btn .btn-label');
+                    if (triggerBtn) {
+                        triggerBtn.innerText = this._getAudioPreferencesSummaryLabel();
+                    }
+
+                    // Re-render modal to refresh active tab text and selection checkmark
+                    renderModal('options');
+                });
+            });
+
+            // Wire Tier 1 Filter Pill Clicks (Favorites vs All)
+            overlay.querySelectorAll('#modal-lang-filter-pills .modal-filter-pill').forEach((pill) => {
+                pill.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const targetFilter = pill.dataset.filter;
+                    if (targetFilter && targetFilter !== activeFilter) {
+                        activeFilter = targetFilter;
+                        renderModal('filter-pills');
+                    }
+                });
+            });
+
+            // Wire Tier 2 Slot Pill Clicks (Preferred, 1, 2, 3)
+            overlay.querySelectorAll('#modal-audio-slot-pills .modal-slot-pill').forEach((pill) => {
+                pill.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const targetSlot = pill.dataset.slot;
+                    if (targetSlot && targetSlot !== activeSlot) {
+                        activeSlot = targetSlot;
+                        renderModal('slot-pills');
+                    }
+                });
+            });
+
+            // Wire Done button
+            overlay.querySelector('#btn-modal-done')?.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this._closeSelectionModal();
+            });
+
+            // Backdrop dismiss
+            overlay.onclick = (e) => {
+                if (e.target === overlay) {
+                    e.stopPropagation();
+                    this._closeSelectionModal();
+                }
+            };
+
+            // Helper to navigate between slots via Left/Right keys
+            const switchSlot = (direction, focusTarget) => {
+                const isRtl = document.documentElement.getAttribute('dir') === 'rtl';
+                const currentIndex = SLOTS.indexOf(activeSlot);
+                const delta = direction === 'left' ? (isRtl ? 1 : -1) : (isRtl ? -1 : 1);
+                const nextIndex = currentIndex + delta;
+                if (nextIndex >= 0 && nextIndex < SLOTS.length) {
+                    activeSlot = SLOTS[nextIndex];
+                    renderModal(focusTarget);
+                    return true;
+                }
+                return false;
+            };
+
+            // Register Focus Section 1: Tier 1 Filter Pills (Favorites vs All)
+            this.registerFocusSection('modal-filter-pills', overlay.querySelector('#modal-lang-filter-pills'), {
+                orientation: 'horizontal',
+                leaveDown: 'modal-slot-pills',
+                onMove: (direction) => {
+                    const isRtl = document.documentElement.getAttribute('dir') === 'rtl';
+                    if (direction === 'left') {
+                        const targetFilter = isRtl ? 'all' : 'favorites';
+                        if (activeFilter !== targetFilter) {
+                            activeFilter = targetFilter;
+                            renderModal('filter-pills');
+                            return true;
+                        }
+                    } else if (direction === 'right') {
+                        const targetFilter = isRtl ? 'favorites' : 'all';
+                        if (activeFilter !== targetFilter) {
+                            activeFilter = targetFilter;
+                            renderModal('filter-pills');
+                            return true;
+                        }
+                    }
+                    return false;
+                }
+            });
+
+            // Register Focus Section 2: Tier 2 Slot Pills (Preferred, 1, 2, 3)
+            this.registerFocusSection('modal-slot-pills', overlay.querySelector('#modal-audio-slot-pills'), {
+                orientation: 'horizontal',
+                leaveUp: 'modal-filter-pills',
+                leaveDown: 'modal-options',
+                onMove: (direction) => {
+                    if (direction === 'left' || direction === 'right') {
+                        return switchSlot(direction, 'slot-pills');
+                    }
+                    return false;
+                }
+            });
+
+            // Register Focus Section 3: Tier 3 Options List with Left/Right slot switching
+            this.registerFocusSection('modal-options', overlay.querySelector('.modal-options'), {
+                orientation: 'vertical',
+                leaveUp: 'modal-slot-pills',
+                leaveDown: 'modal-actions',
+                enterTo: 'last-focused',
+                onMove: (direction) => {
+                    if (direction === 'left' || direction === 'right') {
+                        return switchSlot(direction, 'options');
+                    }
+                    return false;
+                }
+            });
+
+            // Register Focus Section 4: Modal Actions (Done Button)
+            this.registerFocusSection('modal-actions', overlay.querySelector('.modal-actions'), {
+                orientation: 'horizontal',
+                leaveUp: 'modal-options'
+            });
+
+            // Apply focus according to target
+            if (focusTarget === 'filter-pills') {
+                focusManager.setActiveSection('modal-filter-pills');
+                setTimeout(() => {
+                    const activePill = overlay.querySelector(`#modal-lang-filter-pills .modal-filter-pill[data-filter="${activeFilter}"]`);
+                    if (activePill) focusManager.focusElement(activePill);
+                }, 40);
+            } else if (focusTarget === 'slot-pills') {
+                focusManager.setActiveSection('modal-slot-pills');
+                setTimeout(() => {
+                    const activePill = overlay.querySelector(`#modal-audio-slot-pills .modal-slot-pill[data-slot="${activeSlot}"]`);
+                    if (activePill) focusManager.focusElement(activePill);
+                }, 40);
+            } else if (focusTarget === 'actions') {
+                focusManager.setActiveSection('modal-actions');
+                setTimeout(() => {
+                    const doneBtn = overlay.querySelector('#btn-modal-done');
+                    if (doneBtn) focusManager.focusElement(doneBtn);
+                }, 40);
+            } else {
+                focusManager.setActiveSection('modal-options');
+                setTimeout(() => {
+                    const selected = overlay.querySelector('.modal-option-btn.selected') || overlay.querySelector('.modal-option-btn');
+                    if (selected) {
+                        focusManager.focusElement(selected);
+                        if (typeof selected.scrollIntoView === 'function') {
+                            selected.scrollIntoView({ block: 'nearest' });
+                        }
+                    }
+                }, 40);
+            }
+        };
+
+        // Show Overlay
+        overlay.classList.add('visible');
+        overlay.setAttribute('aria-hidden', 'false');
+
+        // Initial render focusing the options list
+        renderModal('options');
     }
 
     /**
@@ -10947,6 +11410,9 @@ class SettingsPage extends Page {
             'max-bitrate-select': { key: 'maxBitrateInternet', type: 'player' },
             'trailer-playback-select': { key: 'trailerPlaybackMode', type: 'player' },
             'audio-lang-select': { key: 'pref:audioLang', type: 'local' },
+            'audio-fallback-lang-1-select': { key: 'pref:audioLangFallback1', type: 'local' },
+            'audio-fallback-lang-2-select': { key: 'pref:audioLangFallback2', type: 'local' },
+            'audio-fallback-lang-3-select': { key: 'pref:audioLangFallback3', type: 'local' },
             'subtitle-lang-select': { key: 'pref:subtitleLang', type: 'local' },
             'skip-forward-select': { key: 'skipForwardLength', type: 'player' },
             'skip-back-select': { key: 'skipBackLength', type: 'player' },
