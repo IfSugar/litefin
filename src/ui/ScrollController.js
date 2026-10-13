@@ -891,6 +891,52 @@ class ScrollController {
             }
         }
 
+        // ====================================================================
+        // DETAILS PAGE RICH METADATA TABLE SCROLL GROUNDING
+        // ====================================================================
+        // The rich metadata table sits directly beneath the hero split (.details-main-split).
+        // On TV displays, both the hero action buttons and the rich metadata table are
+        // designed to be viewed together in the upper section of the page.
+        //
+        // Previously, generic vertical scrolling treated the metadata table as an
+        // arbitrary tall container and attempted to bottom-align it, triggering a 150-300px
+        // smooth scroll down when entering metadata and a smooth scroll up when returning
+        // to action buttons. On low-end ARM TV hardware, this violent bouncing between
+        // adjacent elements forced heavy GPU raster invalidations on every keypress.
+        //
+        // By aligning the rich metadata table with the hero viewport (targetScroll = 0),
+        // navigation between hero actions and rich metadata remains stationary, fluid,
+        // and 100% instant with zero scroll hitching.
+        // ====================================================================
+        const isRichMeta =
+            element.id === 'rich-meta' ||
+            element.id === 'rich-meta-container' ||
+            element.classList.contains('details-rich-meta') ||
+            Boolean(element.closest('#rich-meta, .details-rich-meta, #rich-meta-container'));
+
+        if (isRichMeta && pageContent && pageContent.querySelector('.details-main-split')) {
+            const currentScroll = this.getVerticalScroll(pageContent);
+            const viewHeight = pageContent.clientHeight;
+            const scrollDelta = Math.abs(currentScroll);
+
+            // If already browsing near the top of the details page, stay grounded at 0
+            if (currentScroll < 350) {
+                if (currentScroll > 0) {
+                    this.smoothScrollTo(pageContent, 0, options.instantScroll ? 0 : SCROLL_DURATION_VERTICAL);
+                }
+            } else {
+                // If entering rich metadata from deep rows below (e.g. episodes or seasons),
+                // smoothly glide back to the top to reveal the hero and metadata table together
+                const snapEnabled = storage.getItem('pref:snapLargeScrolls') === 'true';
+                const forceInstant = snapEnabled && scrollDelta > viewHeight * LARGE_SCROLL_SNAP_FRACTION;
+                this.smoothScrollTo(pageContent, 0, options.instantScroll || forceInstant ? 0 : SCROLL_DURATION_VERTICAL);
+            }
+
+            // Grounding complete — bypass row-based and generic scroll-into-view
+            useRowScroll = false;
+            activePageContent = null;
+        }
+
         // ----------------------------------------------------------------
         // Row-based vertical scrolling — ALWAYS ALIGN TO TOP
         // On every focus change, we target the ideal top-aligned position

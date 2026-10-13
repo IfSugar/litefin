@@ -2404,24 +2404,28 @@ class SettingsPage extends Page {
                 'rich-metadata-select',
                 [
                     { value: 'all', label: i18n.t('OptionRichMetadataAll') || 'Show Full Rich Metadata' },
+                    // Option to hide tags and directors while showing genres, studios, and writers
                     {
                         value: 'genres-studios-writers',
                         label:
-                            i18n.t('OptionRichMetadataGenresStudiosWriters') ||
-                            'Show Genres, Studios & Writers'
+                            i18n.t('OptionRichMetadataHideTagsOnly') ||
+                            'Hide Tags Only'
                     },
+                    // Option to hide tags and studios while showing genres and writers
                     {
                         value: 'genres-writers',
-                        label: i18n.t('OptionRichMetadataGenresWriters') || 'Show Genres & Writers'
+                        label: i18n.t('OptionRichMetadataHideTagsAndStudios') || 'Hide Tags and Studios'
                     },
+                    // Option to display genres alone and suppress other metadata sections
                     {
                         value: 'genres-only',
-                        label: i18n.t('OptionRichMetadataGenresOnly') || 'Show Only Genres'
+                        label: i18n.t('OptionRichMetadataShowGenresOnly') || 'Show Genres Only'
                     },
+                    // Option to hide all rich metadata completely
                     { value: 'none', label: i18n.t('OptionRichMetadataNone') || 'Hide All' }
                 ],
                 storage.getItem('pref:richMetadataStyle') ||
-                (storage.getItem('pref:hideRichMetadata') === 'true' ? 'none' : 'all')
+                (storage.getItem('pref:hideRichMetadata') === 'true' ? 'none' : 'genres-studios-writers')
             )}
                     </div>
                 </div>
