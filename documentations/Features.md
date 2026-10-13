@@ -145,7 +145,7 @@ The player includes 23 modular interactive overlays managed by `OSDController.js
 - **Local Intros**:
   - Pre-roll cinema trailers and custom intro video sequences executed before main media playback.
 - **Server Plugin Ecosystem ([Jellyfin](https://github.com/MoazSalem/litefin-plugin) / [Emby](https://github.com/MoazSalem/litefin-plugin-emby))**:
-  - Server-side counterpart proxying Seerr requests, caching TMDB streaming provider catalogs, and serving the Litefin Web Client plugin (`Litefin.Client.Plugin`).
+  - Server-side counterpart proxying Seerr requests, caching TMDB streaming provider catalogs, and serving the Litefin Client plugin (`Litefin.Client.Plugin`).
 
 ---
 

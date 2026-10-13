@@ -147,7 +147,7 @@ Extends your server with features that require elevated or backend network acces
 - **Where to Watch (Streaming Availability)**: Queries TMDB streaming provider catalogs (Netflix, Prime, Disney+, etc.) grouped by subscription and rental.
 - **MDBList Ratings Aggregation**: Enriches media items with multi-source ratings (Rotten Tomatoes, IMDb, Metacritic, Trakt, Letterboxd).
 
-### 2. Litefin Web Client Plugin (`Litefin.Client.Plugin`)
+### 2. Litefin Client Plugin (`Litefin.Client.Plugin`)
 Embeds Litefin directly inside your Jellyfin server web interface:
 - **Repository Manifest**: `https://github.com/MoazSalem/litefin/releases/latest/download/litefin-plugin-manifest.json`
 - **Manual Sideloading**: Drop `Litefin.Client.Plugin.dll` and `manifest.json` into `/plugins/Litefin_Client/`.
