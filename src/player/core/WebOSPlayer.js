@@ -208,6 +208,20 @@ export class WebOSPlayer {
             document.body.appendChild(this.container);
         }
 
+        /*
+         * ====================================================================
+         * Container Letterbox Background Normalization
+         * ====================================================================
+         * WebOSPlayer fits the hardware-associated <video> element layout box
+         * to match the stream's exact aspect ratio in _fitVideoBox().
+         * Because document-level player-active transparency rules make the body
+         * and app wrappers transparent, the container itself must have an opaque
+         * solid black background to ensure pillarbox and letterbox borders render
+         * in deep black rather than showing through to the underlying canvas.
+         * ====================================================================
+         */
+        this.container.style.backgroundColor = '#000000';
+
         this.container.appendChild(video);
         this._videoElement = video;
 
@@ -2861,6 +2875,13 @@ export class WebOSPlayer {
                 this._videoElement.parentNode.removeChild(this._videoElement);
             }
             this._videoElement = null;
+        }
+
+        // ---------------------------------------------------------------------
+        // Reset container background presentation override
+        // ---------------------------------------------------------------------
+        if (this.container) {
+            this.container.style.backgroundColor = '';
         }
     }
 }
