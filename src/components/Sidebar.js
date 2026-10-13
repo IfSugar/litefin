@@ -700,35 +700,20 @@ class Sidebar extends Component {
                 const hasFocus = !!focusedItem;
 
                 // ---------------------------------------------------------------------
-                // RAIL SCROLLING & SUB-LIBRARIES ISOLATION
+                // SIDEBAR CONTENT SCROLL ANCHORING & OVERFLOW HANDLING
                 // ---------------------------------------------------------------------
-                // Only allow scrolling the sidebar container when 'showCollapsedLibraryIcons'
-                // is active and focus is directly on a rail item. In normal mode, or when
-                // navigating within #sidebar-sub-libraries (accordion or floating popover),
-                // the sidebar container must NEVER scroll or push upward.
+                // When sidebar content fits comfortably within the visible viewport height
+                // without overflowing, ensure scrollTop remains strictly anchored to 0.
+                // When content overflows (e.g. extensive library lists or compact displays),
+                // ScrollController manages smooth focus-driven scrolling across D-pad
+                // navigation events on TV hardware without manual scrollTop clobbering.
                 // ---------------------------------------------------------------------
-                const showLibIcons = storage.getItem('pref:showCollapsedLibraryIcons') === 'true' ||
-                    this.el.classList.contains('show-lib-icons-collapsed');
                 const scrollContainer = this.el.querySelector('.sidebar-content');
 
-                if (scrollContainer && !showLibIcons) {
-                    // In normal mode, guarantee sidebar content stays anchored to top
+                if (scrollContainer && scrollContainer.scrollHeight <= scrollContainer.clientHeight) {
+                    // Container does not overflow viewport; keep safely anchored to top
                     if (scrollContainer.scrollTop !== 0) {
                         scrollContainer.scrollTop = 0;
-                    }
-                } else if (focusedItem && showLibIcons && !focusedItem.closest('#sidebar-sub-libraries')) {
-                    // Ensure the focused item inside the collapsed rail is visible
-                    if (scrollContainer && scrollContainer.contains(focusedItem)) {
-                        const containerHeight = scrollContainer.clientHeight;
-                        const itemTop = focusedItem.offsetTop;
-                        const itemHeight = focusedItem.offsetHeight || 72;
-                        const currentScroll = scrollContainer.scrollTop;
-
-                        if (itemTop < currentScroll) {
-                            scrollContainer.scrollTop = itemTop;
-                        } else if (itemTop + itemHeight > currentScroll + containerHeight) {
-                            scrollContainer.scrollTop = itemTop + itemHeight - containerHeight;
-                        }
                     }
                 }
 
@@ -1200,9 +1185,10 @@ class Sidebar extends Component {
             subLibs.removeAttribute('hidden');
             subLibs.style.display = 'flex';
 
-            // Guarantee sidebar-content is never scrolled in normal mode
+            // Guarantee sidebar-content remains anchored to top only when not overflowing
             const scrollContainer = this.el.querySelector('.sidebar-content');
-            if (scrollContainer && scrollContainer.scrollTop !== 0) {
+            if (scrollContainer && scrollContainer.scrollHeight <= scrollContainer.clientHeight && scrollContainer.scrollTop !== 0) {
+                // Content fits within viewport, reset any accidental offset
                 scrollContainer.scrollTop = 0;
             }
 

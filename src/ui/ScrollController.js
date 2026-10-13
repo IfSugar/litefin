@@ -649,23 +649,20 @@ class ScrollController {
         }
 
         // ---------------------------------------------------------------------
-        // 2. COLLAPSED SIDEBAR RAIL WITH LIBRARY ICONS
+        // 2. SIDEBAR CONTENT SCROLL CONTAINER
         // ---------------------------------------------------------------------
-        // When the user has enabled 'pref:showCollapsedLibraryIcons', all individual
-        // libraries are promoted to direct rail shortcuts. Because the collapsed rail
-        // may exceed screen height, we enable vertical smooth scrolling on the rail.
-        // In normal mode (without this pref), the sidebar rail items fit on screen
-        // and .sidebar-content must never scroll.
+        // On Smart TV platforms like Tizen, native browser scrolling during focus
+        // changes is disabled to prevent layout jitter. When the sidebar items
+        // overflow the screen viewport height (e.g. many custom libraries, plugin
+        // shortcuts, or low display heights), ScrollController must manage vertical
+        // scrolling directly. Returning .sidebar-content ensures focus-driven smooth
+        // scrolling works reliably across all sidebar layout configurations.
+        // Elements within #sidebar-sub-libraries were already intercepted above.
         // ---------------------------------------------------------------------
-        const sidebar = element.closest('.sidebar');
-        const showCollapsedLibIcons = storage.getItem('pref:showCollapsedLibraryIcons') === 'true' ||
-            (sidebar && sidebar.classList.contains('show-lib-icons-collapsed'));
-
-        if (showCollapsedLibIcons) {
-            const sidebarContent = element.closest('.sidebar-content');
-            if (sidebarContent) {
-                return sidebarContent;
-            }
+        const sidebarContent = element.closest('.sidebar-content');
+        if (sidebarContent) {
+            // Deliver the sidebar container reference so scroll calculations execute
+            return sidebarContent;
         }
 
         // ---------------------------------------------------------------------
