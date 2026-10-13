@@ -668,10 +668,13 @@ class ScrollController {
         // ---------------------------------------------------------------------
         // 3. GENERIC SCROLLABLE CONTAINERS
         // ---------------------------------------------------------------------
-        // Check for specific scrollable containers used in modals/filters/login grid
+        // Inspect known scrollable container structures used in modals, filter
+        // dialogs, settings, user grids, and media info overlays.
+        // Including .filter-sidebar ensures vertical category navigation in the
+        // library filter modal scrolls smoothly on TV platforms and keyboard nav.
         // ---------------------------------------------------------------------
         const container = element.closest(
-            '.users-grid, .modal-options, .modal-body, .filter-main, .page-content, .settings-sidebar, .sidebar-libraries-wrapper, .media-info-scrollable, .identify-results-list'
+            '.users-grid, .modal-options, .modal-body, .filter-main, .filter-sidebar, .page-content, .settings-sidebar, .sidebar-libraries-wrapper, .media-info-scrollable, .identify-results-list'
         );
 
         return container;
@@ -1270,11 +1273,17 @@ class ScrollController {
                     }
                 }
 
-                // Comfort margins for top and bottom visibility.
-                // For the sidebar rail, 24px top and 32px bottom margin provides optimal viewing room
-                // and prevents items from colliding with rounded capsule curves on TV displays.
-                // For the floating sub-libraries popover, 12px padding keeps items comfortably within the popup.
-                const isSidebar = activePageContent.classList.contains('sidebar-content');
+                // -------------------------------------------------------------
+                // VIEWPORT COMFORT MARGINS
+                // -------------------------------------------------------------
+                // For navigation sidebars (.sidebar-content, .filter-sidebar),
+                // 24px top and 32px bottom margins provide optimal breathing room
+                // and keep focused buttons comfortably visible away from container edges.
+                // For the floating sub-libraries popover, 12px padding keeps items
+                // within the popup window bounds. Generic containers use 100px.
+                // -------------------------------------------------------------
+                const isSidebar = activePageContent.classList.contains('sidebar-content') ||
+                    activePageContent.classList.contains('filter-sidebar');
                 const isSubLibs = activePageContent.id === 'sidebar-sub-libraries';
                 const topMargin = isSidebar ? 24 : (isSubLibs ? 12 : GENERIC_SCROLL_MARGIN);
                 let bottomMargin = isSidebar ? 32 : (isSubLibs ? 12 : GENERIC_SCROLL_MARGIN);

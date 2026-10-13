@@ -1601,6 +1601,8 @@ html[data-layout-tier="ultra-legacy"][data-alpha-picker-position="right"] .alpha
     display: flex;
     flex-direction: column;
     overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
     padding: 20px 0;
 }
 
@@ -1678,12 +1680,14 @@ html[data-layout-tier="ultra-legacy"][data-alpha-picker-position="right"] .alpha
 }
 
 /* Scrollbar styling for modal lists */
+.filter-sidebar::-webkit-scrollbar,
 .filter-main::-webkit-scrollbar,
 .sort-column .modal-options::-webkit-scrollbar {
     display: block;
     width: 6px;
 }
 
+.filter-sidebar::-webkit-scrollbar-thumb,
 .filter-main::-webkit-scrollbar-thumb,
 .sort-column .modal-options::-webkit-scrollbar-thumb {
     background: rgba(255, 255, 255, 0.2);
