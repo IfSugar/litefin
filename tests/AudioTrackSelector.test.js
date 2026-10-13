@@ -548,5 +548,30 @@ test('C4: explicit targetLang with no matching track falls through to default be
     assert.strictEqual(best.Index, 0, 'Explicit miss must fall back to the container default, not global prefs');
 });
 
+test('C5: unconfigured fallback slots (none or Default) are cleanly bypassed in priority chain', () => {
+    // Primary preferred is absent (fra). Slot 1 is unconfigured ('none'), Slot 2 has a match ('eng').
+    // The resolver must seamlessly bypass unconfigured/none slots and advance to the next valid fallback.
+    const { resolveBestAudioStream } = setup(
+        { preferDirectPlayAudio: true },
+        {},
+        { 'pref:audioLang': 'fra', 'pref:audioLangFallback1': 'none', 'pref:audioLangFallback2': 'eng' }
+    );
+
+    const mediaSource = {
+        Id: 'ms-fallback-5',
+        DefaultAudioStreamIndex: 0,
+        MediaStreams: [
+            { Index: 0, Type: 'Audio', Codec: 'ac3', Channels: 6, Language: 'spa', IsDefault: true },
+            { Index: 1, Type: 'Audio', Codec: 'aac', Channels: 2, Language: 'eng', IsDefault: false }
+        ]
+    };
+
+    const best = resolveBestAudioStream(mediaSource);
+    assert.ok(best, 'Best audio stream should be resolved');
+    // Slot 1 ('none') must be ignored; Slot 2 ('eng') matches track Index 1
+    assert.strictEqual(best.Language, 'eng', 'Should skip unconfigured none slot and resolve next valid fallback (eng)');
+    assert.strictEqual(best.Index, 1, 'Should select correct track from the active fallback slot');
+});
+
 
 

@@ -2075,6 +2075,43 @@ html[data-layout-quirks="c26"] .media-fallback {
     border-bottom: 1px solid rgba(255, 255, 255, 0.1);
 }
 
+.modal-filter-pills.has-slot-subrow {
+    border-bottom: none;
+    padding-bottom: 6px;
+}
+
+/* Audio Language Multi-Slot Sub-Tabs (Preferred, Fallback 1, 2, 3) */
+.modal-slot-pills {
+    display: flex;
+    gap: 8px;
+    padding: 6px 24px 12px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.modal-slot-pill {
+    padding: 8px 10px;
+    font-size: 0.92rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    min-width: 0;
+}
+
+.modal-slot-pill .slot-pill-title {
+    font-weight: 700;
+    opacity: 0.9;
+    flex-shrink: 0;
+    white-space: nowrap;
+}
+
+.modal-slot-pill .slot-pill-val {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+}
+
 /* Individual Filter Pill Button */
 .modal-filter-pill {
     flex: 1;
@@ -2088,6 +2125,9 @@ html[data-layout-quirks="c26"] .media-fallback {
     cursor: pointer;
     text-align: center;
     outline: none;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     transition: transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1), background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
 }
 

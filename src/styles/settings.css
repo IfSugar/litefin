@@ -235,17 +235,23 @@ html[data-layout-tier="ultra-legacy"] .settings-menu-btn .menu-icon {
     gap: 16px;
 }
 
+/*
+ * Fallback priority index badge (1, 2, 3...)
+ * Uses the solid theme accent background paired with the dynamic contrast
+ * content variable (--jf-accent-content-color) to ensure guaranteed legibility
+ * across all light and dark theme configurations.
+ */
 .fallback-priority-index {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 40px;
-    height: 40px;
+    width: 38px;
+    height: 38px;
     flex-shrink: 0;
     border-radius: var(--jf-border-radius);
-    background-color: rgba(var(--jf-accent-rgb), 0.25);
-    color: var(--jf-text-on-accent, #ffffff);
-    font-size: 1.4rem;
+    background-color: var(--jf-accent);
+    color: var(--jf-accent-content-color, #ffffff);
+    font-size: 1.3rem;
     font-weight: 700;
 }
 
@@ -327,7 +333,8 @@ html[data-layout-tier="ultra-legacy"] .settings-menu-btn .menu-icon {
 /* Select Buttons (Modal Triggers) */
 .select-btn,
 .theme-color-select-btn,
-.loader-style-select-btn {
+.loader-style-select-btn,
+.audio-fallback-select-btn {
     padding: 12px 24px;
     font-size: 1.1rem;
     background: var(--jf-action-btn-bg, rgba(40, 40, 40, 0.8));
@@ -357,7 +364,9 @@ html[data-layout-tier="ultra-legacy"] .settings-menu-btn .menu-icon {
 .theme-color-select-btn:focus,
 .theme-color-select-btn.focused,
 .loader-style-select-btn:focus,
-.loader-style-select-btn.focused {
+.loader-style-select-btn.focused,
+.audio-fallback-select-btn:focus,
+.audio-fallback-select-btn.focused {
     background: var(--jf-btn-primary-focus-bg) !important;
     color: var(--jf-btn-primary-focus-color) !important;
     border: 2px solid var(--jf-btn-primary-focus-border) !important;
@@ -367,13 +376,15 @@ html[data-layout-tier="ultra-legacy"] .settings-menu-btn .menu-icon {
 
 .select-btn:hover,
 .theme-color-select-btn:hover,
-.loader-style-select-btn:hover {
+.loader-style-select-btn:hover,
+.audio-fallback-select-btn:hover {
     border: 2px solid var(--jf-btn-primary-hover-border)!important;
     transform: scale(1.02);
     will-change: transform;
 }
 
-.select-btn .btn-label {
+.select-btn .btn-label,
+.audio-fallback-select-btn .btn-label {
     font-weight: 500;
 }
 

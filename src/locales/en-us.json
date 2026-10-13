@@ -143,6 +143,8 @@
     "LabelAudioLanguagePreference": "Preferred audio language",
     "LabelAudioLanguageFallback": "Fallback audio language",
     "LabelAudioLanguageFallbackGroup": "Fallback audio languages",
+    "Fallback": "Fallback",
+    "Preferred": "Preferred",
     "LabelAudioSampleRate": "Audio sample rate",
     "LabelBitrate": "Bitrate",
     "LabelCorruptedFrames": "Corrupted frames",
