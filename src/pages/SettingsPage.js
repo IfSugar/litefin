@@ -10427,7 +10427,14 @@ class SettingsPage extends Page {
                 : { value: 'none', label: i18n.t('None') || 'None' };
 
             // Languages filtered according to active filter tab
-            const filteredLanguages = activeFilter === 'favorites'
+            // Dynamically verify if any languages are in favorites
+            const hasFavorites = languageManager.hasFavorites();
+            if (!hasFavorites && activeFilter === 'favorites') {
+                activeFilter = 'all';
+            }
+
+            // Languages filtered according to active filter tab
+            const filteredLanguages = (hasFavorites && activeFilter === 'favorites')
                 ? languageManager.filterOptions(validLanguages)
                 : validLanguages;
 
@@ -10438,21 +10445,24 @@ class SettingsPage extends Page {
             const favoritesCount = validLanguages.filter((o) => languageManager.isFavorite(o)).length;
             const allCount = validLanguages.length;
 
-            // Tier 1: 2 Filter Tabs (Favorites vs All Languages)
-            const filterPillsHtml = `
-                <div class="modal-filter-pills has-slot-subrow" id="modal-lang-filter-pills">
-                    <button class="modal-filter-pill ${activeFilter === 'favorites' ? 'active' : ''}" 
-                            data-filter="favorites" 
-                            tabindex="0">
-                        ★ ${i18n.t('FavoritesOnly') || 'Favorites'} (${favoritesCount})
-                    </button>
-                    <button class="modal-filter-pill ${activeFilter === 'all' ? 'active' : ''}" 
-                            data-filter="all" 
-                            tabindex="0">
-                        ${i18n.t('AllLanguages') || 'All Languages'} (${allCount})
-                    </button>
-                </div>
-            `;
+            // Tier 1: 2 Filter Tabs (Favorites vs All Languages) — only rendered if favorites exist
+            let filterPillsHtml = '';
+            if (hasFavorites) {
+                filterPillsHtml = `
+                    <div class="modal-filter-pills has-slot-subrow" id="modal-lang-filter-pills">
+                        <button class="modal-filter-pill ${activeFilter === 'favorites' ? 'active' : ''}" 
+                                data-filter="favorites" 
+                                tabindex="0">
+                            ★ ${i18n.t('FavoritesOnly') || 'Favorites'} (${favoritesCount})
+                        </button>
+                        <button class="modal-filter-pill ${activeFilter === 'all' ? 'active' : ''}" 
+                                data-filter="all" 
+                                tabindex="0">
+                            ${i18n.t('AllLanguages') || 'All Languages'} (${allCount})
+                        </button>
+                    </div>
+                `;
+            }
 
             // Tier 2: 4 Slot Tabs (Preferred, Fallback 1, Fallback 2, Fallback 3)
             const slotPillsHtml = `
@@ -10536,12 +10546,19 @@ class SettingsPage extends Page {
                         const val = starBtn.dataset.value;
                         const matchedOpt = validLanguages.find((o) => String(o.value) === String(val)) || val;
                         const isNowFav = languageManager.toggleFavorite(matchedOpt);
+                        const currentHasFavorites = languageManager.hasFavorites();
+
+                        // If favorites presence changed (empty vs non-empty), re-render modal to toggle tabs
+                        if (currentHasFavorites !== hasFavorites) {
+                            renderModal('options');
+                            return;
+                        }
 
                         if (activeFilter === 'all') {
                             // Update star in-place without rebuilding options
                             starBtn.classList.toggle('active', isNowFav);
                             starBtn.textContent = isNowFav ? '★' : '☆';
-                            // Update Favorites count pill in Row 1
+                            // Update Favorites count pill in Row 1 if present
                             const favPill = overlay.querySelector('.modal-filter-pill[data-filter="favorites"]');
                             if (favPill) {
                                 const newCount = validLanguages.filter((o) => languageManager.isFavorite(o)).length;
@@ -10634,35 +10651,39 @@ class SettingsPage extends Page {
                 return false;
             };
 
-            // Register Focus Section 1: Tier 1 Filter Pills (Favorites vs All)
-            this.registerFocusSection('modal-filter-pills', overlay.querySelector('#modal-lang-filter-pills'), {
-                orientation: 'horizontal',
-                leaveDown: 'modal-slot-pills',
-                onMove: (direction) => {
-                    const isRtl = document.documentElement.getAttribute('dir') === 'rtl';
-                    if (direction === 'left') {
-                        const targetFilter = isRtl ? 'all' : 'favorites';
-                        if (activeFilter !== targetFilter) {
-                            activeFilter = targetFilter;
-                            renderModal('filter-pills');
-                            return true;
+            // Register Focus Section 1: Tier 1 Filter Pills (Favorites vs All) only if rendered
+            if (hasFavorites && overlay.querySelector('#modal-lang-filter-pills')) {
+                this.registerFocusSection('modal-filter-pills', overlay.querySelector('#modal-lang-filter-pills'), {
+                    orientation: 'horizontal',
+                    leaveDown: 'modal-slot-pills',
+                    onMove: (direction) => {
+                        const isRtl = document.documentElement.getAttribute('dir') === 'rtl';
+                        if (direction === 'left') {
+                            const targetFilter = isRtl ? 'all' : 'favorites';
+                            if (activeFilter !== targetFilter) {
+                                activeFilter = targetFilter;
+                                renderModal('filter-pills');
+                                return true;
+                            }
+                        } else if (direction === 'right') {
+                            const targetFilter = isRtl ? 'favorites' : 'all';
+                            if (activeFilter !== targetFilter) {
+                                activeFilter = targetFilter;
+                                renderModal('filter-pills');
+                                return true;
+                            }
                         }
-                    } else if (direction === 'right') {
-                        const targetFilter = isRtl ? 'favorites' : 'all';
-                        if (activeFilter !== targetFilter) {
-                            activeFilter = targetFilter;
-                            renderModal('filter-pills');
-                            return true;
-                        }
+                        return false;
                     }
-                    return false;
-                }
-            });
+                });
+            } else {
+                focusManager.unregister('modal-filter-pills');
+            }
 
             // Register Focus Section 2: Tier 2 Slot Pills (Preferred, 1, 2, 3)
             this.registerFocusSection('modal-slot-pills', overlay.querySelector('#modal-audio-slot-pills'), {
                 orientation: 'horizontal',
-                leaveUp: 'modal-filter-pills',
+                leaveUp: hasFavorites ? 'modal-filter-pills' : null,
                 leaveDown: 'modal-options',
                 onMove: (direction) => {
                     if (direction === 'left' || direction === 'right') {
@@ -10693,13 +10714,13 @@ class SettingsPage extends Page {
             });
 
             // Apply focus according to target
-            if (focusTarget === 'filter-pills') {
+            if (focusTarget === 'filter-pills' && hasFavorites) {
                 focusManager.setActiveSection('modal-filter-pills');
                 setTimeout(() => {
                     const activePill = overlay.querySelector(`#modal-lang-filter-pills .modal-filter-pill[data-filter="${activeFilter}"]`);
                     if (activePill) focusManager.focusElement(activePill);
                 }, 40);
-            } else if (focusTarget === 'slot-pills') {
+            } else if (focusTarget === 'slot-pills' || (focusTarget === 'filter-pills' && !hasFavorites)) {
                 focusManager.setActiveSection('modal-slot-pills');
                 setTimeout(() => {
                     const activePill = overlay.querySelector(`#modal-audio-slot-pills .modal-slot-pill[data-slot="${activeSlot}"]`);
