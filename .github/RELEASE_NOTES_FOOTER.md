@@ -1,7 +1,21 @@
+
 ---
+
+## 🌐 Web & Server Plugins
+
+Extend Litefin with enhanced features (Seerr discovery, Where to Watch streaming availability, MDBList ratings) and access Litefin directly inside your web browser:
+
+#### 🔌 Server Plugins (Features & Integrations)
+
+- **[Litefin Plugin for Jellyfin](https://github.com/MoazSalem/litefin-plugin)**: Required on Jellyfin server for Seerr integration, per-season requests, and TMDB streaming availability.
+- **[Litefin Plugin for Emby](https://github.com/MoazSalem/litefin-plugin-emby)**: Companion plugin for Emby server setups.
+
+---
+
 ## 📦 Which Version Should I Choose?
 
 Litefin is available across Smart TVs, Android devices, Desktop environments, and as a Jellyfin Web plugin. Pick the build matching your hardware below:
+
 ---
 
 ### 📺 Smart TVs (Samsung Tizen & LG webOS)
@@ -49,11 +63,11 @@ Native desktop builds powered by Tauri v2 with low resource usage and hardware-a
 
 ---
 
-### 🌐 Web & Server Plugin (Jellyfin Web)
+### 🌐 Litefin Client Plugin (Web Client in Browser)
 
 Integrates Litefin Client directly into the official Jellyfin web client, giving you the Litefin experience in any browser.
 
-#### Option 1: Via Repository Manifest (Recommended)
+##### Option 1: Via Repository Manifest (Recommended)
 
 1. Copy this manifest repository URL:
     ```text
@@ -63,9 +77,9 @@ Integrates Litefin Client directly into the official Jellyfin web client, giving
 3. Click **Add (+)**, enter a name (e.g. `Litefin Plugins`), and paste the URL.
 4. Switch to the **Catalog** tab, locate **Litefin Client Plugin** under **General**, and click **Install**.
 5. Restart your Jellyfin Server.
-6. After the server restarts, the Litefin Client will be available for use in your browser via `http://<Jellyfin-IP>:<Jellyfin-Port>/litefin`.
+6. After restart, Litefin Client is available in your browser at `http://<Jellyfin-IP>:<Jellyfin-Port>/litefin`.
 
-#### Option 2: Manual Installation
+##### Option 2: Manual Installation
 
 1. Download the `Litefin.Client.Plugin_*.zip` archive from the Releases page (or compile from source).
 2. Extract the archive (specifically `Litefin.Client.Plugin.dll` and `manifest.json`) into your server's plugin folder:
