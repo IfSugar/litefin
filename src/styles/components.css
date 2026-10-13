@@ -1767,25 +1767,46 @@ html[data-litefin-touch] .settings-modal .modal-option-btn {
    Phase 2: Remote Trailer Fullscreen OSD
    ============================================================================ */
 .trailer-player-overlay {
+    /* Fixed viewport overlay stretching edge to edge across all scaling tiers */
     position: fixed;
     top: 0;
     left: 0;
-    width: 100vw;
-    height: 100vh;
+    right: 0;
+    bottom: 0;
+    /* Use 100% instead of 100vw/100vh so that CSS zoom respects layout coordinates */
+    width: 100%;
+    height: 100%;
     background: #000;
     z-index: 99999;
 }
 
+/* Container for the trailer embed providing boundary clipping */
 .trailer-iframe-container {
     position: absolute;
     top: 0;
     left: 0;
     width: 100%;
     height: 100%;
-    z-index: 1; /* Behind OSD */
+    /* Keep embed positioned underneath our custom native player OSD */
+    z-index: 1;
+    /* Hard overflow clipping to trim away overscanned external player title bars */
+    overflow: hidden;
 }
 
-/* Trailer iframe & host container overrides to ensure 100% full-viewport sizing */
+/*
+ * ============================================================================
+ * Remote Trailer Iframe & Host Container Sizing and Isolation
+ * ============================================================================
+ * YouTube's embed player displays a title header bar and watermark links by
+ * default and whenever pointer activity is detected.
+ *
+ * 1. pointer-events: none completely isolates the iframe from mouse and magic
+ *    remote hover, ensuring YouTube never activates its internal hover chrome.
+ * 2. transform: scale(1.15) applies a slight hardware-accelerated overscan
+ *    that pushes YouTube's top title bar and bottom watermark completely outside
+ *    the visible viewport boundary without impacting playback performance.
+ * ============================================================================
+ */
 .trailer-iframe-container #yt-player-host,
 .trailer-iframe-container iframe {
     position: absolute;
@@ -1797,9 +1818,25 @@ html[data-litefin-touch] .settings-modal .modal-option-btn {
     border: none;
     margin: 0;
     padding: 0;
+    /* Disallow direct pointer interaction to prevent YouTube hover UI triggers */
+    pointer-events: none;
+    /* Hardware accelerated GPU scale to crop top title bar and bottom logo */
+    transform: scale(1.15);
+    transform-origin: center center;
 }
 
-/* Make sure the OSD overlays the iframe correctly */
+/*
+ * Fallback mode override:
+ * When the iframe API handshake cannot be established, fallback mode relies
+ * on native controls. Restore default pointer events and 1:1 scaling.
+ */
+.trailer-iframe-container.trailer-fallback-mode #yt-player-host,
+.trailer-iframe-container.trailer-fallback-mode iframe {
+    pointer-events: auto;
+    transform: none;
+}
+
+/* Make sure the custom OSD overlays the iframe correctly */
 .trailer-osd {
     z-index: 10;
 }
