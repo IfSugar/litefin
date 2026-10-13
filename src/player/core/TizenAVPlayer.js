@@ -369,21 +369,23 @@ export class TizenAVPlayer {
                     const left = Math.round(cLeft + (cw - w) / 2);
                     const top = Math.round(cTop + (ch - h) / 2);
 
-                    // Push oversized coordinates to hardware video plane to clip outer overflow
+                    // Push oversized coordinates to hardware video plane to clip outer overflow.
+                    // We use PLAYER_DISPLAY_MODE_LETTER_BOX so the underlying hardware rasterizer
+                    // preserves the native DAR / PAR without stretching the video picture.
                     this._avplay.setDisplayRect(left, top, w, h);
-                    this._avplay.setDisplayMethod('PLAYER_DISPLAY_MODE_FULL_SCREEN');
+                    this._avplay.setDisplayMethod('PLAYER_DISPLAY_MODE_LETTER_BOX');
                     log.info('Applied display geometry (zoom):', { left, top, width: w, height: h, vw, vh, scale });
                     return;
                 }
 
-                // If stream metadata is still pending, temporarily fill the screen
+                // If stream metadata is still pending, temporarily default to full screen letterbox
                 this._avplay.setDisplayRect(
                     Math.round(cLeft),
                     Math.round(cTop),
                     Math.round(cw),
                     Math.round(ch)
                 );
-                this._avplay.setDisplayMethod('PLAYER_DISPLAY_MODE_FULL_SCREEN');
+                this._avplay.setDisplayMethod('PLAYER_DISPLAY_MODE_LETTER_BOX');
                 return;
             }
 
@@ -435,8 +437,24 @@ export class TizenAVPlayer {
      * @param {string} mode - 'auto' | 'zoom' | 'stretch' | 'video_aspect_ratio'
      */
     setAspectRatio(mode) {
-        // Track the current aspect ratio mode locally for OSD sync
-        this._aspectRatio = mode || 'auto';
+        const targetMode = mode || 'auto';
+
+        // --------------------------------------------------------------------
+        // Reset Aspect Ratio Before Applying Zoom
+        // --------------------------------------------------------------------
+        // If previous aspect ratio was 'stretch' (or any non-default mode),
+        // AVPlay's hardware scaler retains the FULL_SCREEN stretch transform.
+        // We reset the display method and rect to 'auto' (LETTER_BOX) first,
+        // ensuring the hardware pipeline clears the stretch deformation
+        // before our calculated zoom boundaries are applied.
+        if (targetMode === 'zoom') {
+            log.info('TizenAVPlayer: Resetting aspect ratio to auto prior to applying zoom');
+            this._aspectRatio = 'auto';
+            this._applyDisplayGeometry();
+        }
+
+        // Track and commit the target aspect ratio mode
+        this._aspectRatio = targetMode;
         this._applyDisplayGeometry();
     }
 

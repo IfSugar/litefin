@@ -155,6 +155,24 @@ test('WebOSPlayer: Computes explicit layout bounding box geometry for auto, zoom
     assert.strictEqual(mockStyle.height, '1080px');
     assert.strictEqual(mockStyle.left, '-336px');
     assert.strictEqual(mockStyle.top, '0px');
+
+    // ------------------------------------------------------------------------
+    // Case 4: Transition from Stretch directly to Zoom
+    // ------------------------------------------------------------------------
+    // When previous mode was 'stretch', setting 'zoom' resets to auto first,
+    // ensuring right and bottom constraints from stretch are cleared.
+    player.setAspectRatio('stretch');
+    assert.strictEqual(mockStyle.right, '0px');
+    assert.strictEqual(mockStyle.bottom, '0px');
+
+    player.setAspectRatio('zoom');
+    assert.strictEqual(player.getAspectRatio(), 'zoom');
+    assert.strictEqual(mockStyle.width, '2592px');
+    assert.strictEqual(mockStyle.height, '1080px');
+    assert.strictEqual(mockStyle.left, '-336px');
+    assert.strictEqual(mockStyle.top, '0px');
+    assert.strictEqual(mockStyle.right, '');
+    assert.strictEqual(mockStyle.bottom, '');
 });
 
 test('TizenAVPlayer: Computes explicit display rect geometry for auto, zoom, stretch, and video_aspect_ratio modes', async () => {
@@ -173,12 +191,14 @@ test('TizenAVPlayer: Computes explicit display rect geometry for auto, zoom, str
     // Mock webapis.avplay hardware interface
     let lastRect = null;
     let lastMethod = null;
+    const methodCalls = [];
     const mockAvplay = {
         setDisplayRect: (x, y, w, h) => {
             lastRect = { x, y, width: w, height: h };
         },
         setDisplayMethod: (method) => {
             lastMethod = method;
+            methodCalls.push(method);
         },
         getCurrentStreamInfo: () => [
             {
@@ -232,5 +252,18 @@ test('TizenAVPlayer: Computes explicit display rect geometry for auto, zoom, str
     player.setAspectRatio('zoom');
     assert.strictEqual(player.getAspectRatio(), 'zoom');
     assert.deepStrictEqual(lastRect, { x: -336, y: 0, width: 2592, height: 1080 });
-    assert.strictEqual(lastMethod, 'PLAYER_DISPLAY_MODE_FULL_SCREEN');
+    assert.strictEqual(lastMethod, 'PLAYER_DISPLAY_MODE_LETTER_BOX');
+
+    // ------------------------------------------------------------------------
+    // Case 5: Transition from Stretch directly to Zoom
+    // ------------------------------------------------------------------------
+    // When previous mode was 'stretch', setting 'zoom' resets to 'auto' first
+    // (clearing FULL_SCREEN stretch deformation) before applying the zoom crop.
+    player.setAspectRatio('stretch');
+    methodCalls.length = 0;
+    player.setAspectRatio('zoom');
+    assert.strictEqual(player.getAspectRatio(), 'zoom');
+    assert.deepStrictEqual(methodCalls, ['PLAYER_DISPLAY_MODE_LETTER_BOX', 'PLAYER_DISPLAY_MODE_LETTER_BOX']);
+    assert.deepStrictEqual(lastRect, { x: -336, y: 0, width: 2592, height: 1080 });
+    assert.strictEqual(lastMethod, 'PLAYER_DISPLAY_MODE_LETTER_BOX');
 });
