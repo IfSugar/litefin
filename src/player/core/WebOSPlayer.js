@@ -201,6 +201,13 @@ export class WebOSPlayer {
         video.preload = 'metadata';
         video.volume = MediaHelper.getSavedVolume();
 
+        // ------------------------------------------------------------------
+        // Start visually hidden: prevent any stale frame cached in the GPU
+        // surface from flashing when a new playback session initializes.
+        // ------------------------------------------------------------------
+        video.style.opacity = '0';
+        video.style.visibility = 'hidden';
+
         // Ensure the container exists before we try to append
         if (!this.container) {
             this.container = document.createElement('div');
@@ -738,9 +745,19 @@ export class WebOSPlayer {
                 reject(reason);
             };
 
+            // Calculate target resume position in seconds
+            const resumeSeconds = (options.playerStartPositionTicks || 0) / 10000000;
+
             const startPlayback = () => {
-                // Restore visual presentation once Hls.js is ready to render playback
-                this._restoreVideoAfterResume(video);
+                // -----------------------------------------------------------------
+                // Visual presentation restoration:
+                // Only restore immediately if playing from timestamp 0 (not resuming).
+                // On resume (resumeSeconds > 0), maintain suppression until _onPlaying
+                // confirms that the decoder has actively landed on the target frame.
+                // -----------------------------------------------------------------
+                if (!resumeSeconds || resumeSeconds <= 0) {
+                    this._restoreVideoAfterResume(video);
+                }
                 const playPromise = video.play();
                 if (playPromise !== undefined && typeof playPromise.then === 'function') {
                     playPromise
@@ -750,9 +767,6 @@ export class WebOSPlayer {
                     resolveOnce();
                 }
             };
-
-            // Calculate target resume position in seconds
-            const resumeSeconds = (options.playerStartPositionTicks || 0) / 10000000;
 
             // -----------------------------------------------------------------
             // Buffer-Readiness Gate with Resume Stabilization:
@@ -1083,6 +1097,19 @@ export class WebOSPlayer {
 
         log.info('WebOSPlayer: Applying robust resume seek to', time, 's');
 
+        // --------------------------------------------------------------------
+        // Suppress video visibility and mute audio during the retry loop.
+        // Prevents leaking visible playback or audio if the playhead snapped
+        // back to 0:00 while the decoder processes the re-seek.
+        // --------------------------------------------------------------------
+        if (video) {
+            this._suppressVideoForResume(video);
+            if (!video.muted) {
+                video.muted = true;
+                this._resumeAudioSuppressed = true;
+            }
+        }
+
         const attempt = () => {
             if (this._cancelRobustResume) {
                 this._robustSeekPending = false;
@@ -1102,11 +1129,9 @@ export class WebOSPlayer {
             //
             // We use a 15-second acceptance window to safely cover standard
             // 24fps 240/250-frame GOP keyframe intervals (~10.4s) on hardware TV
-            // decoders plus ~3s of forward playback advancement during the wait.
+            // decoders plus forward playback advancement during the wait.
             //
-            // Acceptance conditions:
-            //   1. Playhead landed within 15s drift of target, OR
-            //   2. Playhead has advanced past (target - 15s) playing forward.
+            // Guard against false positives at 0:00 when target is small (< 15s).
             // ----------------------------------------------------------------
             setTimeout(() => {
                 if (this._cancelRobustResume) return;
@@ -1114,7 +1139,8 @@ export class WebOSPlayer {
                 // Measure how far currentTime landed from our requested target.
                 const currentPos = video.currentTime || 0;
                 const drift = Math.abs(currentPos - time);
-                const isNearTarget = drift < 15 || currentPos >= (time - 15);
+                const isStuckAtZero = time >= 3 && currentPos < 0.5;
+                const isNearTarget = !isStuckAtZero && (drift < 15 || (currentPos >= time && currentPos <= time + 15));
 
                 if (isNearTarget) {
                     // Within 15s of target or playing forward — seek landed on a valid keyframe boundary.
@@ -1131,6 +1157,15 @@ export class WebOSPlayer {
                     log.warn(`WebOSPlayer: Seek failed after ${maxRetries} retries (final drift: ${drift.toFixed(2)}s from target ${time}s)`);
                     this._robustSeekPending = false;
                     this._robustSeekTarget = null;
+
+                    // Unmute and restore video presentation if retries exhausted
+                    if (this._resumeAudioSuppressed && video) {
+                        this._resumeAudioSuppressed = false;
+                        this.setMuted(false);
+                    }
+                    if (this._resumeVideoSuppressed && video) {
+                        this._restoreVideoAfterResume(video);
+                    }
 
                     // ---------------------------------------------------------
                     // SEAMLESS HLS.JS FALLBACK ON NATIVE HLS SEEK FAILURE:
@@ -1192,11 +1227,11 @@ export class WebOSPlayer {
              try {
                  const currentPos = video.currentTime || 0;
                  const drift = Math.abs(currentPos - resumeSeconds);
-                 // Ensure currentPos is genuinely advanced (> 0.5s) to avoid false positive when at 0:00
-                 if (currentPos > 0.5 && (drift < 15 || currentPos >= (resumeSeconds - 15))) {
+                 const isStuckAtZero = resumeSeconds >= 3 && currentPos < 0.5;
+                 const isNearTarget = !isStuckAtZero && (drift < 15 || (currentPos >= resumeSeconds && currentPos <= resumeSeconds + 15));
+                 if (isNearTarget) {
                      log.info('WebOSPlayer: Media fragment already positioned the playhead — skipping explicit seek.');
-                     // Media fragment landed natively at resume point; reveal video surface
-                     this._restoreVideoAfterResume(video);
+                     // Defer unhiding video element until _onPlaying confirms active presentation
                      this._doPlayWithResume(video, options, resolve, reject);
                      return;
                  }
@@ -1220,9 +1255,9 @@ export class WebOSPlayer {
                  if (seekTimeout) clearTimeout(seekTimeout);
                  seekCompleted = true;
                  log.debug('WebOSPlayer: Explicit seek completed');
-                 // The native seek completed and the actual target resume frame is decoded;
-                 // safely restore video element visibility before kicking playback.
-                 this._restoreVideoAfterResume(video);
+                 // The DOM 'seeked' event signals command acceptance, but the hardware decoder
+                 // has not yet painted the target frame texture. We keep video suppressed
+                 // until _onPlaying confirms active playback at the target position.
                  this._doPlayWithResume(video, options, resolve, reject);
              };
 
@@ -1235,14 +1270,12 @@ export class WebOSPlayer {
                  log.error('WebOSPlayer: Setting currentTime threw during resume seek', e);
              }
 
-             // Shorter safety net: 3s is sufficient on most devices and avoids
+             // Shorter safety net: 3.5s is sufficient on most devices and avoids
              // long UI freezes when the media fragment already worked.
              seekTimeout = setTimeout(() => {
                  video.removeEventListener('seeked', onSeeked);
                  if (!seekCompleted) {
-                     log.warn('WebOSPlayer: Explicit seek timed out (3s) — starting playback from current position');
-                     // Ensure video visibility is restored even if seek timed out
-                     this._restoreVideoAfterResume(video);
+                     log.warn('WebOSPlayer: Explicit seek timed out (3.5s) — starting playback from current position');
                      this._doPlayWithResume(video, options, resolve, reject);
                  }
              }, 3500);
@@ -1318,7 +1351,6 @@ export class WebOSPlayer {
      * @param {HTMLVideoElement} [video] - The HTML5 video element (optional, defaults to _videoElement)
      */
     _restoreVideoAfterResume(video) {
-        if (!this._resumeVideoSuppressed) return;
         this._resumeVideoSuppressed = false;
         const targetVideo = video || this._videoElement;
         if (targetVideo) {
@@ -1407,9 +1439,13 @@ export class WebOSPlayer {
 
         this._resumeAudioSuppressed = false;
 
-        // Restore video element presentation if stopped while resume was in flight
-        if (this._resumeVideoSuppressed && video) {
-            this._restoreVideoAfterResume(video);
+        // --------------------------------------------------------------------
+        // Keep the stopped video element visually suppressed so any decoded frame
+        // lingering in the hardware buffer is not shown before the next session.
+        // --------------------------------------------------------------------
+        if (video) {
+            video.style.opacity = '0';
+            video.style.visibility = 'hidden';
         }
         this._resumeVideoSuppressed = false;
 
@@ -2457,16 +2493,15 @@ export class WebOSPlayer {
             const target = this._robustSeekTarget;
             const current = this.getCurrentTime();
             const drift   = Math.abs(current - target);
-            const isNearTarget = drift < 15 || current >= (target - 15);
 
             // ----------------------------------------------------------------
-            // Drift gate: use a 15-second window to accommodate standard 24fps
-            // 240/250-frame GOP keyframe distances on TV hardware decoders.
-            //
-            // If the video is within 15s of target or playing forward, accept.
-            // Only escalate to _seekWithRetry when the playhead is genuinely
-            // stuck (e.g. video stuck at 0s when target was 420s).
+            // Drift gate: ensure the playhead has genuinely landed near target.
+            // Accommodate standard 24fps GOP keyframe distances (~10.4s) while
+            // guarding against false positives at 0:00 when target is small (< 15s).
             // ----------------------------------------------------------------
+            const isStuckAtZero = target >= 3 && current < 0.5;
+            const isNearTarget = !isStuckAtZero && (drift < 15 || (current >= target && current <= target + 15));
+
             if (!isNearTarget) {
                 log.info(`WebOSPlayer: Detected position drift (current: ${current.toFixed(2)}s, expected: ${target}s, drift: ${drift.toFixed(2)}s) — applying robust seek`);
                 this._seekWithRetry(target);
@@ -2488,10 +2523,8 @@ export class WebOSPlayer {
             this.setMuted(false);
         }
 
-        // Resume is confirmed safe. Ensure video element presentation is fully restored.
-        if (this._resumeVideoSuppressed) {
-            this._restoreVideoAfterResume(this._videoElement);
-        }
+        // Playhead is confirmed at target. Restore video presentation smoothly.
+        this._restoreVideoAfterResume(this._videoElement);
 
         if (!this._started) {
             this._started = true;
