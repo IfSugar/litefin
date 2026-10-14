@@ -547,8 +547,10 @@ export function buildJellyfinProfile(options = {}) {
     const forceFmp4Hls = enableFmp4Hls && PlayerSettings.get('forceFmp4HlsContainer');
     const primaryHlsContainer = forceFmp4Hls ? 'mp4' : 'ts';
 
+    const transAudioProfileCodecs = BaseProfile.getTranscodeAudioCodecs(transAudioCodecsArr);
+
     // 1. Primary HLS video transcoding profile (one for each codec in transAudioCodecsArr)
-    for (const audioCodec of transAudioCodecsArr) {
+    for (const audioCodec of transAudioProfileCodecs) {
         transcodingProfiles.push({
             Container: primaryHlsContainer,
             Type: 'Video',
@@ -572,7 +574,7 @@ export function buildJellyfinProfile(options = {}) {
     // If primary was TS, push fMP4 (mp4) secondary so modern web codecs (AV1, VP9)
     // can still be played via HLS direct stream when requested.
     if (!forceFmp4Hls) {
-        for (const audioCodec of transAudioCodecsArr) {
+        for (const audioCodec of transAudioProfileCodecs) {
             transcodingProfiles.push({
                 Container: 'mp4',
                 Type: 'Video',
@@ -589,7 +591,7 @@ export function buildJellyfinProfile(options = {}) {
         }
     } else {
         // If fMP4 was primary, keep MPEG-TS as secondary fallback
-        for (const audioCodec of transAudioCodecsArr) {
+        for (const audioCodec of transAudioProfileCodecs) {
             transcodingProfiles.push({
                 Container: 'ts',
                 Type: 'Video',

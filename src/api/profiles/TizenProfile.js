@@ -736,8 +736,10 @@ export function buildJellyfinProfile(options = {}) {
             ? PlayerSettings.get('html5SegmentLength') || 2
             : PlayerSettings.get('tizenSegmentLength') || 6);
 
+    const transAudioProfileCodecs = BaseProfile.getTranscodeAudioCodecs(transAudioCodecsArr);
+
     // 1. Primary HLS video transcoding profile (one for each codec in transAudioCodecsArr)
-    for (const audioCodec of transAudioCodecsArr) {
+    for (const audioCodec of transAudioProfileCodecs) {
         transcodingProfiles.push({
             /*
              * Primary HLS video transcoding profile.
@@ -835,7 +837,7 @@ export function buildJellyfinProfile(options = {}) {
     // If forceFmp4Hls is true, the primary profile above is already mp4, so
     // there is nothing extra to push here — avoid a duplicate.
     if (supportsFmp4Hls && !forceFmp4Hls) {
-        for (const audioCodec of transAudioCodecsArr) {
+        for (const audioCodec of transAudioProfileCodecs) {
             transcodingProfiles.push({
                 Container: 'mp4',
                 Type: 'Video',
