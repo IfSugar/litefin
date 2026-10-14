@@ -789,6 +789,7 @@
     "Framerate": "Framerate",
     "fromJellyfin": "from Jellyfin",
     "FullScreen": "Full Screen",
+    "ExitFullScreen": "Exit Full Screen",
     "GamePlatform": "Platform",
     "Genres": "Genres",
     "GhostMode": "Ghost Mode",

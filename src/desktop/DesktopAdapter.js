@@ -98,6 +98,13 @@ class DesktopAdapter {
         document.addEventListener('mousedown', () => this.reportInput(), { passive: true });
         document.addEventListener('wheel', () => this.reportInput(), { passive: true });
 
+        // Synchronize HTML5 fullscreen changes with desktop runtime state
+        document.addEventListener('fullscreenchange', () => {
+            const isFs = !!(document.fullscreenElement || document.webkitFullscreenElement);
+            this._isFullscreen = isFs;
+            eventBus.emit('window:fullscreen', isFs);
+        });
+
         // Query desktop platform device identity
         this._loadDeviceInfo();
 
@@ -379,6 +386,7 @@ class DesktopAdapter {
                     try {
                         const newState = await window.__TAURI_INTERNALS__.invoke('toggle_fullscreen');
                         log.info(`Tauri fullscreen toggled via native command: ${newState}`);
+                        this._isFullscreen = newState;
                         eventBus.emit('window:fullscreen', newState);
                         return newState;
                     } catch (_) {
@@ -388,6 +396,7 @@ class DesktopAdapter {
                         const nextState = !isFullscreen;
                         await window.__TAURI_INTERNALS__.invoke('plugin:window|set_fullscreen', { label, value: nextState });
                         log.info(`Tauri fullscreen toggled via window plugin: ${nextState}`);
+                        this._isFullscreen = nextState;
                         eventBus.emit('window:fullscreen', nextState);
                         return nextState;
                     }
@@ -395,6 +404,7 @@ class DesktopAdapter {
                     try {
                         const newState = await window.__TAURI__.core.invoke('toggle_fullscreen');
                         log.info(`Tauri fullscreen toggled via core invoke: ${newState}`);
+                        this._isFullscreen = newState;
                         eventBus.emit('window:fullscreen', newState);
                         return newState;
                     } catch (_) {
@@ -403,6 +413,7 @@ class DesktopAdapter {
                         const nextState = !isFullscreen;
                         await window.__TAURI__.core.invoke('plugin:window|set_fullscreen', { label, value: nextState });
                         log.info(`Tauri fullscreen toggled via core window plugin: ${nextState}`);
+                        this._isFullscreen = nextState;
                         eventBus.emit('window:fullscreen', nextState);
                         return nextState;
                     }
@@ -421,6 +432,7 @@ class DesktopAdapter {
                     } else if (document.webkitExitFullscreen) {
                         await document.webkitExitFullscreen();
                     }
+                    this._isFullscreen = false;
                     eventBus.emit('window:fullscreen', false);
                     return false;
                 } else {
@@ -430,6 +442,7 @@ class DesktopAdapter {
                     } else if (docEl.webkitRequestFullscreen) {
                         await docEl.webkitRequestFullscreen();
                     }
+                    this._isFullscreen = true;
                     eventBus.emit('window:fullscreen', true);
                     return true;
                 }
@@ -439,6 +452,25 @@ class DesktopAdapter {
         }
 
         return false;
+    }
+
+    /**
+     * ========================================================================
+     * Fullscreen State Inspection
+     * ========================================================================
+     * Determines whether the desktop window is currently presented in
+     * fullscreen mode, checking DOM fullscreen elements and internal Tauri state.
+     * ========================================================================
+     * @returns {boolean} True if in fullscreen mode, false otherwise.
+     */
+    isFullscreen() {
+        // Query active document fullscreen elements across browser engines
+        if (typeof document !== 'undefined' && (document.fullscreenElement || document.webkitFullscreenElement)) {
+            return true;
+        }
+
+        // Return internal tracked state for native Tauri shell windows
+        return !!this._isFullscreen;
     }
 
     /**

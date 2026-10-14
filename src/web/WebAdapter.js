@@ -98,6 +98,12 @@ class WebAdapter {
         document.addEventListener('touchstart', () => this.reportInput(), { passive: true });
         document.addEventListener('wheel', () => this.reportInput(), { passive: true });
 
+        // Synchronize HTML5 fullscreen changes with web client state
+        document.addEventListener('fullscreenchange', () => {
+            const isFs = !!(document.fullscreenElement || document.webkitFullscreenElement);
+            eventBus.emit('window:fullscreen', isFs);
+        });
+
         // Query browser platform device identity
         this._loadDeviceInfo();
 
@@ -393,6 +399,23 @@ class WebAdapter {
             }
         } catch (err) {
             log.warn('Web HTML5 fullscreen toggle failed:', err);
+        }
+
+        return false;
+    }
+
+    /**
+     * ========================================================================
+     * Fullscreen State Inspection
+     * ========================================================================
+     * Determines whether the web browser viewport is currently in fullscreen mode.
+     * ========================================================================
+     * @returns {boolean} True if in fullscreen mode, false otherwise.
+     */
+    isFullscreen() {
+        // Query active document fullscreen elements across browser engines
+        if (typeof document !== 'undefined') {
+            return !!(document.fullscreenElement || document.webkitFullscreenElement);
         }
 
         return false;
