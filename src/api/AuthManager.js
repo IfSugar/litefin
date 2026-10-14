@@ -586,10 +586,20 @@ class AuthManager {
 
     /**
      * Get list of public users from the server.
+     * Ensures an Array is always returned to prevent rendering errors.
+     *
      * @returns {Promise<Array>} Public users array
      */
     async getPublicUsers() {
-        return api.getPublicUsers();
+        // =====================================================================
+        // Public User Retrieval
+        // =====================================================================
+        // Query the ApiClient for publicly displayed users. If the server
+        // returns an invalid or non-array payload, return an empty array to
+        // keep profile selection and login screens from crashing.
+        // =====================================================================
+        const users = await api.getPublicUsers();
+        return Array.isArray(users) ? users : [];
     }
 
     /**

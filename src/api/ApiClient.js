@@ -504,13 +504,34 @@ export class ApiClient {
                 return null;
             }
 
-            // Parse response based on content type
+            // -----------------------------------------------------------------
+            // Dynamic Response Body Parsing
+            // -----------------------------------------------------------------
+            // Inspect the response Content-Type header to decide the parsing strategy.
+            // Jellyfin and Emby endpoints primarily return JSON payloads, but certain
+            // reverse proxies (Nginx, Traefik, Caddy, Cloudflare) or specialized setups
+            // may omit the header or advertise 'text/plain' or 'text/json' instead of
+            // 'application/json'. We handle both standard JSON headers and fallback to
+            // parsing raw text if it looks like a valid JSON object or array.
+            // -----------------------------------------------------------------
             const contentType = response.headers.get('content-type');
             let body;
-            if (contentType && contentType.includes('application/json')) {
+            if (contentType && (contentType.includes('application/json') || contentType.includes('text/json'))) {
                 body = await response.json();
             } else {
                 body = await response.text();
+                // If the response body was read as raw text, check if it contains
+                // a serialized JSON array or object and parse it accordingly.
+                if (typeof body === 'string' && body.length > 0) {
+                    const trimmed = body.trim();
+                    if ((trimmed.startsWith('{') && trimmed.endsWith('}')) || (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
+                        try {
+                            body = JSON.parse(trimmed);
+                        } catch {
+                            // If parsing fails, preserve raw string text without throwing
+                        }
+                    }
+                }
             }
 
             // Cache ETag for GET requests so subsequent calls can use
@@ -768,10 +789,48 @@ export class ApiClient {
 
     /**
      * Get list of public users (for login screen)
-     * Returns users with HasPassword field
+     * Returns users with HasPassword field.
+     * Ensures an Array is always returned even if the response is wrapped
+     * inside a query container (e.g. Items / Users) or returned as serialized text.
+     *
+     * @returns {Promise<Array>} Public users array
      */
     async getPublicUsers() {
-        return this.get('Users/Public');
+        // =====================================================================
+        // Fetch Public Users Endpoint
+        // =====================================================================
+        // Query the Jellyfin/Emby public users route which lists accounts
+        // configured to display on visual login selection screens.
+        // =====================================================================
+        const result = await this.get('Users/Public');
+
+        // Direct array response (standard Jellyfin & Emby behavior)
+        if (Array.isArray(result)) {
+            return result;
+        }
+
+        // Response wrapped inside standard container objects (e.g. Items or Users)
+        if (result && Array.isArray(result.Items)) {
+            return result.Items;
+        }
+        if (result && Array.isArray(result.Users)) {
+            return result.Users;
+        }
+
+        // Safety fallback: if the body was returned as a JSON string, attempt to parse
+        if (typeof result === 'string') {
+            try {
+                const parsed = JSON.parse(result);
+                if (Array.isArray(parsed)) return parsed;
+                if (parsed && Array.isArray(parsed.Items)) return parsed.Items;
+                if (parsed && Array.isArray(parsed.Users)) return parsed.Users;
+            } catch {
+                // Ignore parsing errors for non-JSON strings (e.g. HTML error pages)
+            }
+        }
+
+        // Always return an array to prevent downstream .map() or .length errors
+        return [];
     }
 
     // ========================================================================
