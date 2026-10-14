@@ -13,6 +13,7 @@ import { MediaHelper } from './MediaHelper.js';
 import { logger } from '../../utils/Logger.js';
 import { PlayerSettings } from '../../utils/PlayerSettings.js';
 import { getDeviceCapabilities } from '../../api/DeviceProfile.js';
+import { platformInfo } from '../../utils/PlatformInfo.js';
 
 const log = logger.create('HtmlVideoPlayer');
 
@@ -226,13 +227,14 @@ export class HtmlVideoPlayer {
 
         // ====================================================================
         // Temporarily Mute Audio When Resuming Playback:
-        // When resuming media from a non-zero start timestamp, HTML5 video decoders
-        // (and HLS.js pipeline initializations) may decode the first audio frames
-        // from timestamp 0:00 for a split second before the seek completes or before
-        // the target HLS segment is buffered.
+        // When resuming media from a non-zero start timestamp on webOS, the media
+        // pipeline may decode the first audio frames from timestamp 0:00 for a split
+        // second before the seek completes or before the target HLS segment is buffered.
         // If the stream is resuming and not already user-muted, temporarily mute
-        // the video element to prevent this audio burst leak. Audio is safely
-        // unmuted once the playback reaches the 'playing' state.
+        // the video element there to prevent this audio burst leak. Audio is safely
+        // unmuted once the playback reaches the 'playing' state. Other platforms do not
+        // need it, and on WebKitGTK/WPE 2.54.0 a muted video that is hidden when loading
+        // starts fails to play (https://bugs.webkit.org/show_bug.cgi?id=327551).
         // ====================================================================
         const isLive = options.item?.Type === 'TvChannel' || options.mediaSource?.LiveStreamId;
         const resumeSeconds = isLive ? 0 : (options.playerStartPositionTicks || 0) / 10000000;
@@ -241,11 +243,11 @@ export class HtmlVideoPlayer {
         // When resuming playback from a non-zero position, HTML5 video decoders
         // (and HLS.js pipeline initializations) decode the initial keyframe at
         // timestamp 0:00 for a few frames before the seek to resumeSeconds takes effect.
-        // Mute audio and suppress visual presentation until the target GOP keyframe
+        // Mute audio (webOS, see above) and suppress visual presentation until the target GOP keyframe
         // is reached, preventing the random 0:00 frame and audio burst from leaking.
         // ====================================================================
         if (resumeSeconds > 0) {
-            if (!video.muted) {
+            if (platformInfo.isWebOS && !video.muted) {
                 video.muted = true;
                 this._resumeAudioSuppressed = true;
             }
