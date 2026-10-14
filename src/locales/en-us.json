@@ -817,6 +817,8 @@
     "HeaderUpNext": "Up Next",
     "HeaderWhoIsWatching": "Who's watching?",
     "HeroCarousel": "Hero Carousel",
+    "HeroCarouselBlurhashFill": "BlurHash Color Fill",
+    "HeroCarouselBlurhashFillDescription": "Fill the rest of the hero carousel background with ambient colors extracted from the artwork BlurHash.",
     "HeroCarouselCompact": "Compact Mode",
     "HeroCarouselCompactDescription": "Reduces the height of the hero section to improve scroll performance.",
     "HeroCarouselCount": "Carousel Item Count",

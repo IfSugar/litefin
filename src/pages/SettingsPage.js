@@ -3051,6 +3051,19 @@ class SettingsPage extends Page {
                     </div>
                 </div>
 
+                <div class="setting-item" id="hero-carousel-blurhash-fill-item" style="display: ${storage.getItem('pref:heroCarousel') !== 'false' && (storage.getItem('pref:heroCarouselStyle') || 'immersive') === 'immersive-performance' ? '' : 'none'}">
+                    <div class="setting-label">
+                        <span class="setting-name" data-i18n="HeroCarouselBlurhashFill">${i18n.t('HeroCarouselBlurhashFill') || 'BlurHash Color Fill'}</span>
+                        <span class="setting-description" data-i18n="HeroCarouselBlurhashFillDescription">${i18n.t('HeroCarouselBlurhashFillDescription') || 'Fill the rest of the hero carousel background with ambient colors extracted from the artwork BlurHash.'}</span>
+                    </div>
+                    <div class="setting-control">
+                         <button class="toggle-switch ${storage.getItem('pref:heroCarouselBlurhashFill') !== 'false' ? 'active' : ''}" 
+                                 id="toggle-hero-carousel-blurhash-fill" 
+                                 tabindex="0">
+                        </button>
+                    </div>
+                </div>
+
                 <div class="setting-item" id="hero-carousel-indicator-style-item" style="display: ${storage.getItem('pref:heroCarousel') !== 'false' ? '' : 'none'}">
                     <div class="setting-label">
                         <span class="setting-name" data-i18n="HeroCarouselIndicatorStyle">${i18n.t('HeroCarouselIndicatorStyle') || 'Indicator Style'}</span>
@@ -8744,6 +8757,7 @@ class SettingsPage extends Page {
                 const compactItem = this.$('#hero-carousel-compact-item');
                 const styleItem = this.$('#hero-carousel-style-item');
                 const zoomItem = this.$('#hero-carousel-zoom-item');
+                const blurhashFillItem = this.$('#hero-carousel-blurhash-fill-item');
                 const heroQualityItem = this.$('#hero-image-quality-item');
                 const indicatorStyleItem = this.$('#hero-carousel-indicator-style-item');
                 const indicatorAnimItem = this.$('#hero-carousel-indicator-animation-item');
@@ -8752,14 +8766,16 @@ class SettingsPage extends Page {
                 const mdbItem = this.$('#hero-carousel-mdb-item');
                 const ignoreWatchedItem = this.$('#hero-carousel-ignore-watched-item');
 
-                // Read current indicator style to determine if animation toggle is applicable
+                // Read current indicator and carousel styles to determine sub-setting visibility
                 const indicatorStyle = storage.getItem('pref:heroCarouselIndicatorStyle') || 'dots';
+                const currentCarouselStyle = storage.getItem('pref:heroCarouselStyle') || 'immersive';
 
                 // Apply transitions/display toggles based on the master toggle value.
                 if (textTitleItem) textTitleItem.style.display = newValue ? '' : 'none';
                 if (compactItem) compactItem.style.display = newValue ? '' : 'none';
                 if (styleItem) styleItem.style.display = newValue ? '' : 'none';
                 if (zoomItem) zoomItem.style.display = newValue ? '' : 'none';
+                if (blurhashFillItem) blurhashFillItem.style.display = newValue && currentCarouselStyle === 'immersive-performance' ? '' : 'none';
                 if (heroQualityItem) heroQualityItem.style.display = newValue ? '' : 'none';
                 if (indicatorStyleItem) indicatorStyleItem.style.display = newValue ? '' : 'none';
                 if (indicatorAnimItem) indicatorAnimItem.style.display = newValue && indicatorStyle === 'progress' ? '' : 'none';
@@ -9071,6 +9087,28 @@ class SettingsPage extends Page {
                 storage.setItem('pref:heroCarouselZoom', newValue.toString());
                 heroCarouselZoomBtn.classList.toggle('active', newValue);
                 log.info(`Hero Carousel Zoom Effect set to: ${newValue}`);
+            });
+        }
+
+        // =====================================================================
+        // HERO CAROUSEL: BLURHASH AMBIENT COLOR FILL TOGGLE
+        // =====================================================================
+        // Toggles ambient background color filling behind the hero artwork using
+        // low-frequency color coefficients decoded from the item's BlurHash.
+        // Exclusive to the Immersive (Performance) carousel style.
+        const heroCarouselBlurhashFillBtn = this.$('#toggle-hero-carousel-blurhash-fill');
+        if (heroCarouselBlurhashFillBtn) {
+            heroCarouselBlurhashFillBtn.addEventListener('click', () => {
+                // Determine whether blurhash color filling is currently enabled (default: true)
+                const isEnabled = storage.getItem('pref:heroCarouselBlurhashFill') !== 'false';
+                const newValue = !isEnabled;
+
+                // Save updated preference key into local storage
+                storage.setItem('pref:heroCarouselBlurhashFill', newValue.toString());
+
+                // Update visual toggle switch state
+                heroCarouselBlurhashFillBtn.classList.toggle('active', newValue);
+                log.info(`Hero Carousel BlurHash Color Fill set to: ${newValue}`);
             });
         }
 
@@ -11823,6 +11861,13 @@ class SettingsPage extends Page {
                               and persists the selected opacity to local storage.
                             */
                             layoutManager.setHeroVignette(newValue);
+                        } else if (id === 'hero-carousel-style-select') {
+                            // Update BlurHash fill setting visibility (exclusive to immersive-performance)
+                            const isHeroEnabled = storage.getItem('pref:heroCarousel') !== 'false';
+                            const blurhashFillItem = this.$('#hero-carousel-blurhash-fill-item');
+                            if (blurhashFillItem) {
+                                blurhashFillItem.style.display = isHeroEnabled && newValue === 'immersive-performance' ? '' : 'none';
+                            }
                         } else if (id === 'sidebar-mode-select') {
                             storage.setItem('pref:sidebarMode', newValue);
                             document.body.classList.toggle('sidebar-mode-hidden', newValue === 'hidden');

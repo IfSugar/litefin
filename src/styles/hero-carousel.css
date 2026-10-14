@@ -1024,9 +1024,11 @@
 }
 
 /*
- * Circular Gradient Feathering for Non-Ambient Themes:
+ * Rectangular Edge Feathering for Non-Ambient Themes:
  * In solid-color themes, blends the artwork smoothly into var(--jf-background)
- * using an elliptical radial gradient overlay executed entirely on the GPU.
+ * using dual perpendicular linear gradients on ::after. This creates a clean
+ * rectangular fade (vertical fade on the left, horizontal fade on the bottom)
+ * executed purely in the GPU fragment shader without software rasterization.
  */
 .hero-carousel-container.immersive-performance .hero-backdrop::after {
     content: '';
@@ -1034,70 +1036,141 @@
     inset: 0;
     pointer-events: none;
     z-index: 1;
-    background: radial-gradient(
-        ellipse 90% 95% at 70% 30%,
-        transparent 0%,
-        transparent 32%,
-        rgba(0, 0, 0, 0.4) 52%,
-        var(--jf-background) 75%,
-        var(--jf-background) 100%
-    );
+    background:
+        linear-gradient(to right, var(--jf-background) 0%, rgba(0, 0, 0, 0.6) 12%, transparent 32%),
+        linear-gradient(to top, var(--jf-background) 0%, rgba(0, 0, 0, 0.6) 10%, transparent 28%);
 }
 
 [dir="rtl"] .hero-carousel-container.immersive-performance .hero-backdrop::after {
-    background: radial-gradient(
-        ellipse 90% 85% at 25% 20%,
-        transparent 0%,
-        transparent 32%,
-        rgba(0, 0, 0, 0.4) 52%,
-        var(--jf-background) 75%,
-        var(--jf-background) 100%
-    );
+    background:
+        linear-gradient(to left, var(--jf-background) 0%, rgba(0, 0, 0, 0.6) 12%, transparent 32%),
+        linear-gradient(to top, var(--jf-background) 0%, rgba(0, 0, 0, 0.6) 10%, transparent 28%);
 }
 
 /*
- * Circular Gradient Alpha Mask for Ambient Glow Theme:
+ * Rectangular Edge Alpha Mask for Ambient Glow Theme:
  * In Ambient Glow mode, true alpha transparency on .hero-backdrop is essential
  * so the dynamic colorful ambient mesh on <body> bleeds through cleanly.
- * We apply a radial gradient mask to feather the artwork in a circular shape.
+ * We apply intersecting linear gradient masks for a smooth rectangular fade.
  */
 [data-theme-mode="ambient"] .hero-carousel-container.immersive-performance .hero-backdrop {
-    -webkit-mask-image: radial-gradient(
-        ellipse 90% 95% at 70% 30%,
-        black 0%,
-        black 32%,
-        rgba(0, 0, 0, 0.45) 55%,
-        transparent 75%
-    );
-    mask-image: radial-gradient(
-        ellipse 90% 95% at 70% 30%,
-        black 0%,
-        black 32%,
-        rgba(0, 0, 0, 0.45) 55%,
-        transparent 75%
-    );
+    -webkit-mask-image:
+        linear-gradient(to right, transparent 0%, rgba(0, 0, 0, 0.15) 10%, rgba(0, 0, 0, 0.7) 22%, black 32%),
+        linear-gradient(to top, transparent 0%, rgba(0, 0, 0, 0.2) 8%, rgba(0, 0, 0, 0.75) 18%, black 28%);
+    mask-image:
+        linear-gradient(to right, transparent 0%, rgba(0, 0, 0, 0.15) 10%, rgba(0, 0, 0, 0.7) 22%, black 32%),
+        linear-gradient(to top, transparent 0%, rgba(0, 0, 0, 0.2) 8%, rgba(0, 0, 0, 0.75) 18%, black 28%);
+    -webkit-mask-composite: source-in;
+    mask-composite: intersect;
 }
 
 [dir="rtl"][data-theme-mode="ambient"] .hero-carousel-container.immersive-performance .hero-backdrop,
 [data-theme-mode="ambient"] [dir="rtl"] .hero-carousel-container.immersive-performance .hero-backdrop {
-    -webkit-mask-image: radial-gradient(
-        ellipse 90% 85% at 25% 20%,
-        black 0%,
-        black 32%,
-        rgba(0, 0, 0, 0.45) 55%,
-        transparent 75%
-    );
-    mask-image: radial-gradient(
-        ellipse 90% 85% at 25% 20%,
-        black 0%,
-        black 32%,
-        rgba(0, 0, 0, 0.45) 55%,
-        transparent 75%
-    );
+    -webkit-mask-image:
+        linear-gradient(to left, transparent 0%, rgba(0, 0, 0, 0.15) 10%, rgba(0, 0, 0, 0.7) 22%, black 32%),
+        linear-gradient(to top, transparent 0%, rgba(0, 0, 0, 0.2) 8%, rgba(0, 0, 0, 0.75) 18%, black 28%);
+    mask-image:
+        linear-gradient(to left, transparent 0%, rgba(0, 0, 0, 0.15) 10%, rgba(0, 0, 0, 0.7) 22%, black 32%),
+        linear-gradient(to top, transparent 0%, rgba(0, 0, 0, 0.2) 8%, rgba(0, 0, 0, 0.75) 18%, black 28%);
+    -webkit-mask-composite: source-in;
+    mask-composite: intersect;
 }
 
 /* Eliminate redundant overlay in ambient glow mode when mask is active */
 [data-theme-mode="ambient"] .hero-carousel-container.immersive-performance .hero-backdrop::after {
+    display: none !important;
+}
+
+/* 
+ * ============================================================================
+ * BlurHash Ambient Color Fill
+ * ============================================================================
+ * Fills the remaining background area behind the hero artwork with low-frequency
+ * ambient colors decoded from the current item's BlurHash.
+ *
+ * Layers:
+ * - .hero-blurhash-fill-wrap: Container placed at z-index -2 (behind .hero-backdrop).
+ * - .hero-blurhash-fill-canvas: Stretched 32x18 low-resolution canvas magnified
+ *   using hardware-accelerated bilinear filtering and scale(1.06) to avoid edge bleed.
+ * - .hero-blurhash-fill-vignette: Horizontal contrast gradient on the text side
+ *   plus vertical bottom gradient transitioning smoothly into --jf-background.
+ * ============================================================================
+ */
+
+.hero-blurhash-fill-wrap {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    z-index: -2;
+    overflow: hidden;
+    pointer-events: none;
+    transform: translateZ(0);
+}
+
+.hero-blurhash-fill-canvas {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    transform: scale(1.06);
+    opacity: 0;
+    transition: opacity 600ms ease-out;
+    pointer-events: none;
+    image-rendering: auto;
+}
+
+.hero-blurhash-fill-vignette {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 1;
+    background:
+        linear-gradient(to top, var(--jf-background) 0%, var(--jf-background) 6%, rgba(0, 0, 0, 0.45) 24%, transparent 55%),
+        linear-gradient(to right, rgba(0, 0, 0, 0.8) 0%, rgba(0, 0, 0, 0.5) 35%, rgba(0, 0, 0, 0.15) 65%, transparent 100%);
+}
+
+[dir="rtl"] .hero-blurhash-fill-vignette {
+    background:
+        linear-gradient(to top, var(--jf-background) 0%, var(--jf-background) 6%, rgba(0, 0, 0, 0.45) 24%, transparent 55%),
+        linear-gradient(to left, rgba(0, 0, 0, 0.8) 0%, rgba(0, 0, 0, 0.5) 35%, rgba(0, 0, 0, 0.15) 65%, transparent 100%);
+}
+
+/* 
+ * Rectangular Feathering in Immersive Performance Mode:
+ * When blurhash fill is active, feather .hero-backdrop using dual perpendicular
+ * linear gradient masks (smooth vertical fade on the left, horizontal fade on the bottom)
+ * so the artwork seamlessly melts into the matching blurhash canvas underneath it.
+ * This replaces the oval shape with a cinematic rectangular transition while
+ * remaining 100% GPU-accelerated.
+ */
+.hero-carousel-container.with-blurhash-fill.immersive-performance .hero-backdrop {
+    -webkit-mask-image:
+        linear-gradient(to right, transparent 0%, rgba(0, 0, 0, 0.15) 10%, rgba(0, 0, 0, 0.7) 22%, black 32%),
+        linear-gradient(to top, transparent 0%, rgba(0, 0, 0, 0.2) 8%, rgba(0, 0, 0, 0.75) 18%, black 28%);
+    mask-image:
+        linear-gradient(to right, transparent 0%, rgba(0, 0, 0, 0.15) 10%, rgba(0, 0, 0, 0.7) 22%, black 32%),
+        linear-gradient(to top, transparent 0%, rgba(0, 0, 0, 0.2) 8%, rgba(0, 0, 0, 0.75) 18%, black 28%);
+    -webkit-mask-composite: source-in;
+    mask-composite: intersect;
+}
+
+[dir="rtl"] .hero-carousel-container.with-blurhash-fill.immersive-performance .hero-backdrop,
+.hero-carousel-container.with-blurhash-fill.immersive-performance [dir="rtl"] .hero-backdrop {
+    -webkit-mask-image:
+        linear-gradient(to left, transparent 0%, rgba(0, 0, 0, 0.15) 10%, rgba(0, 0, 0, 0.7) 22%, black 32%),
+        linear-gradient(to top, transparent 0%, rgba(0, 0, 0, 0.2) 8%, rgba(0, 0, 0, 0.75) 18%, black 28%);
+    mask-image:
+        linear-gradient(to left, transparent 0%, rgba(0, 0, 0, 0.15) 10%, rgba(0, 0, 0, 0.7) 22%, black 32%),
+        linear-gradient(to top, transparent 0%, rgba(0, 0, 0, 0.2) 8%, rgba(0, 0, 0, 0.75) 18%, black 28%);
+    -webkit-mask-composite: source-in;
+    mask-composite: intersect;
+}
+
+.hero-carousel-container.with-blurhash-fill.immersive-performance .hero-backdrop::after {
     display: none !important;
 }
 
