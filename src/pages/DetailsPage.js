@@ -66,6 +66,15 @@ class DetailsPage extends Page {
         this._similar = null;
         this._seerrRecommendations = null;
 
+        // ====================================================================
+        // Backdrop Image Cache Preservation
+        // ====================================================================
+        // Cache the exact backdrop URL loaded during _loadImages to guarantee
+        // an instant browser cache hit and 100% parameter parity when launching
+        // playback or trailers into PlayerPage.
+        // ====================================================================
+        this._backdropUrl = null;
+
         // Track/Version selection state
         this._selectedMediaSourceId = null;
         this._selectedAudioIndex = undefined;
@@ -1417,12 +1426,19 @@ class DetailsPage extends Page {
             posterContainer.innerHTML = CardRenderer.getFallbackHtml(item, isLandscape);
         }
 
-        // Backdrop (Fire and forget, via Manager)
+        // ====================================================================
+        // Backdrop Presentation & Transition Sync
+        // ====================================================================
+        // Resolve backdrop URL using user's configured details quality profile.
+        // Store on instance so playback transitions can reuse the identical URL,
+        // avoiding duplicate server re-encodes and cache misses.
+        // ====================================================================
         const params = imageService.getParams('details-backdrop');
         const backdropUrl = BackdropManager.getBackdropUrl(item, {
             maxWidth: params.maxWidth,
             quality: params.quality
         });
+        this._backdropUrl = backdropUrl;
 
         // Resolve Backdrop BlurHash
         let backdropBlurHash = '';
@@ -5113,11 +5129,21 @@ class DetailsPage extends Page {
             itemToPlay.contextId = this._item.Id;
         }
 
-        // FORCE HIGH QUALITY for Player transition (must match _loadImages params)
-        const backdropUrl = BackdropManager.getBackdropUrl(this._item, {
-            maxWidth: 3840,
-            quality: 90
-        });
+        // ====================================================================
+        // Player Transition Backdrop Reuse
+        // ====================================================================
+        // Reuse the exact cached backdrop URL rendered in _loadImages() to
+        // ensure an immediate browser cache hit without forcing the server to
+        // perform on-the-fly 4K bilinear upscaling or lossy recompression.
+        // Falls back to imageService details-backdrop settings if called early.
+        // ====================================================================
+        const backdropParams = imageService.getParams('details-backdrop');
+        const backdropUrl =
+            this._backdropUrl ||
+            BackdropManager.getBackdropUrl(this._item, {
+                maxWidth: backdropParams.maxWidth,
+                quality: backdropParams.quality
+            });
 
         eventBus.emit('player:play', {
             item: itemToPlay,
@@ -6593,11 +6619,19 @@ class DetailsPage extends Page {
 
             log.info(`Playing local trailer "${trailerItem.Name}" (${trailerItem.Id})`);
 
-            // Reuse the backdrop from the parent item for a smooth visual transition
-            const backdropUrl = BackdropManager.getBackdropUrl(this._item, {
-                maxWidth: 3840,
-                quality: 90
-            });
+            // ================================================================
+            // Local Trailer Backdrop Alignment
+            // ================================================================
+            // Match the exact _loadImages parameters and pre-cached image URL
+            // so the loading screen seamlessly displays the parent background.
+            // ================================================================
+            const backdropParams = imageService.getParams('details-backdrop');
+            const backdropUrl =
+                this._backdropUrl ||
+                BackdropManager.getBackdropUrl(this._item, {
+                    maxWidth: backdropParams.maxWidth,
+                    quality: backdropParams.quality
+                });
 
             // Emit the standard player:play event — same path as normal item playback.
             // No resume position, no audio/subtitle override.
@@ -6670,10 +6704,18 @@ class DetailsPage extends Page {
 
             log.info(`[AutoChain] Playing local trailer "${trailerItem.Name}" (${trailerItem.Id}), remote will follow`);
 
-            const backdropUrl = BackdropManager.getBackdropUrl(this._item, {
-                maxWidth: 3840,
-                quality: 90
-            });
+            // ================================================================
+            // Auto-Chain Trailer Backdrop Alignment
+            // ================================================================
+            // Ensure identical parameters to _loadImages for instant cache hit.
+            // ================================================================
+            const backdropParams = imageService.getParams('details-backdrop');
+            const backdropUrl =
+                this._backdropUrl ||
+                BackdropManager.getBackdropUrl(this._item, {
+                    maxWidth: backdropParams.maxWidth,
+                    quality: backdropParams.quality
+                });
 
             // ----------------------------------------------------------------
             // Write the chain intent to persistent in-memory state BEFORE
@@ -6971,6 +7013,9 @@ class DetailsPage extends Page {
             this._favBtn.destroy();
             this._favBtn = null;
         }
+
+        // Release cached backdrop URL reference
+        this._backdropUrl = null;
 
         if (this._isRichMetaActive) {
             this._deactivateRichMeta();

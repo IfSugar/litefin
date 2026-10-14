@@ -39,6 +39,7 @@ import { osdIcons } from '../utils/Icons.js';
 import { sanitizeSubtitleText } from '../utils/Utils.js';
 import { prewarmManager } from '../player/core/PrewarmManager.js';
 import BackdropManager from '../utils/BackdropManager.js';
+import { imageService } from '../utils/ImageService.js';
 
 const log = logger.create('Player');
 
@@ -338,7 +339,18 @@ class PlayerPage extends Page {
 
             // If initial backdrop wasn't pre-cached in state, attempt fallback resolution from item metadata
             if (!this._loadingBackdrop && this.el?.classList.contains('loading')) {
-                const itemBackdropUrl = BackdropManager.getBackdropUrl(itemResult, { maxWidth: 1920 });
+                // =============================================================
+                // Dynamic Backdrop Loading Quality Resolution
+                // =============================================================
+                // Rather than hardcoding 1920 with missing quality (which causes
+                // blurry/pixelated artifacts on 4K displays and ignores user prefs),
+                // query imageService for full-screen details-backdrop parameters.
+                // =============================================================
+                const backdropParams = imageService.getParams('details-backdrop');
+                const itemBackdropUrl = BackdropManager.getBackdropUrl(itemResult, {
+                    maxWidth: backdropParams.maxWidth,
+                    quality: backdropParams.quality
+                });
                 if (itemBackdropUrl) {
                     this._applyLoadingBackdrop(itemBackdropUrl);
                 }
