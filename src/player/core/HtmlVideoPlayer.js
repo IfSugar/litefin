@@ -107,6 +107,9 @@ export class HtmlVideoPlayer {
 
         // Startup verification watchdog timer for HLS playback initiation
         this._hlsStartTimeout = null;
+
+        // Media element error that HLS.js is recovering from (one recovery per HLS.js session)
+        this._hlsRecoveringError = null;
     }
 
     // ========================================================================
@@ -388,6 +391,7 @@ export class HtmlVideoPlayer {
     _playWithHlsJs(video, options) {
         return new Promise((resolve, reject) => {
             log.info('Using HLS.js for playback');
+            this._hlsRecoveringError = null;
 
             // -------------------------------------------------------------------------
             // HLS.js Buffer Configuration & Stall Prevention
@@ -460,6 +464,12 @@ export class HtmlVideoPlayer {
                                 this._scheduleUnmuteOnInteraction(video);
                                 resolveOnce();
                             }
+                        } else if (this._hlsPlayer === hls && this._leaveErrorToHls(video)) {
+                            // Start again once HLS.js has reset the MediaSource and buffered; fail
+                            // with the original error if that does not happen.
+                            bufferReady = false;
+                            appendedSegmentsCount = 0;
+                            initialBufferTimer = setTimeout(() => rejectOnce(err), 10000);
                         } else {
                             rejectOnce(err);
                         }
@@ -1742,6 +1752,26 @@ export class HtmlVideoPlayer {
         this.onEvent({ type: 'ended' });
     }
 
+    /**
+     * HLS.js owns the MediaSource and resets it after a media element error (it reports
+     * mediaSourceRequiresReset), so leave the first such failure of an HLS.js session to it.
+     * HLS.js clears its retry count on every successful append, so it never gives up on a failure
+     * that recurs after appending; a second failure is therefore reported as usual.
+     * @private
+     * @param {HTMLVideoElement} video
+     * @returns {boolean} True if HLS.js is left to recover from video.error
+     */
+    _leaveErrorToHls(video) {
+        const error = video?.error;
+        if (!this._hlsPlayer || !error) return false;
+        // The 'error' event and the rejected play() report the same failure
+        if (error === this._hlsRecoveringError) return true;
+        if (this._hlsRecoveringError) return false;
+        this._hlsRecoveringError = error;
+        log.warn(`HtmlVideoPlayer: Media error ${error.code} during HLS.js playback — leaving recovery to HLS.js`);
+        return true;
+    }
+
     /** @private */
     _onError(e) {
         const video = e.target;
@@ -1764,14 +1794,26 @@ export class HtmlVideoPlayer {
         }
 
         const isNetworkError = formatted.code === 2 || /network|connection|pipeline_error_network/i.test(formatted.message);
+        const reportError = () => {
+            this.onEvent({
+                type: 'error',
+                data: {
+                    ...formatted,
+                    isNetworkError
+                }
+            });
+        };
 
-        this.onEvent({
-            type: 'error',
-            data: {
-                ...formatted,
-                isNetworkError
-            }
-        });
+        if (this._leaveErrorToHls(video)) {
+            // Report it after all if HLS.js has not reset the MediaSource within 10s
+            const error = video.error;
+            setTimeout(() => {
+                if (video.error === error) reportError();
+            }, 10000);
+            return;
+        }
+
+        reportError();
     }
 
     /** @private */
