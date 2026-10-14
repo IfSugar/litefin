@@ -299,6 +299,8 @@ class PlayerPage extends Page {
             // Enter immersive fullscreen mode during video playback on mobile
             if (platformInfo.isAndroid) {
                 androidAdapter.setFullscreen(true);
+                // Prevent Android system screensaver / display sleep during active playback
+                androidAdapter.setKeepScreenOn(true);
             }
 
             // Automatically switch mobile viewport to landscape orientation for video playback
@@ -5300,6 +5302,8 @@ class PlayerPage extends Page {
         // Maintain immersive fullscreen mode across all views
         if (platformInfo.isAndroid) {
             androidAdapter.setFullscreen(true);
+            // Release keep-screen-on wake lock upon exiting player view
+            androidAdapter.setKeepScreenOn(false);
         }
 
         // Restore natural screen auto-rotation upon exiting the video player

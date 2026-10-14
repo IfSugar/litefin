@@ -164,9 +164,11 @@ class ExoPlayerPlugin(private val activity: Activity) : Plugin(activity) {
 
         if (playbackState == Player.STATE_READY && newPlayer.playWhenReady) {
           MainActivity.instance?.showVideoSurface()
+          MainActivity.instance?.setKeepScreenOn(true)
           startProgressHeartbeat()
         } else if (playbackState == Player.STATE_ENDED || playbackState == Player.STATE_IDLE) {
           stopProgressHeartbeat()
+          MainActivity.instance?.setKeepScreenOn(false)
           MainActivity.instance?.hideVideoSurface()
         }
       }
@@ -174,6 +176,7 @@ class ExoPlayerPlugin(private val activity: Activity) : Plugin(activity) {
       override fun onRenderedFirstFrame() {
         // Guarantee video surface is revealed the instant the first decoded frame is ready
         MainActivity.instance?.showVideoSurface()
+        MainActivity.instance?.setKeepScreenOn(true)
         dispatchNativeEvent("exoplayer://first-frame", JSObject())
       }
 
@@ -186,9 +189,13 @@ class ExoPlayerPlugin(private val activity: Activity) : Plugin(activity) {
 
         if (isPlaying) {
           MainActivity.instance?.showVideoSurface()
+          MainActivity.instance?.setKeepScreenOn(true)
           startProgressHeartbeat()
         } else {
           stopProgressHeartbeat()
+          // When playback pauses or halts, release screen wake lock so screensaver
+          // or sleep can eventually engage to protect TV panels during long pauses
+          MainActivity.instance?.setKeepScreenOn(false)
         }
       }
 
@@ -287,6 +294,8 @@ class ExoPlayerPlugin(private val activity: Activity) : Plugin(activity) {
 
       override fun onPlayerError(error: PlaybackException) {
         stopProgressHeartbeat()
+        // Release keep-screen-on flag upon playback errors
+        MainActivity.instance?.setKeepScreenOn(false)
         // Log detailed stack trace to Android Logcat for native troubleshooting
         android.util.Log.e("ExoPlayerPlugin", "ExoPlayer playback error: ${error.errorCodeName} (${error.errorCode}): ${error.message}", error)
 
@@ -386,6 +395,7 @@ class ExoPlayerPlugin(private val activity: Activity) : Plugin(activity) {
         // onRenderedFirstFrame() or onPlaybackStateChanged(STATE_READY) fire.
         exo.playWhenReady = true
         exo.play()
+        MainActivity.instance?.setKeepScreenOn(true)
         invoke.resolve()
       } catch (e: Exception) {
         invoke.reject("Failed to start playback: ${e.message}")
@@ -415,6 +425,7 @@ class ExoPlayerPlugin(private val activity: Activity) : Plugin(activity) {
       try {
         player?.pause()
         stopProgressHeartbeat()
+        MainActivity.instance?.setKeepScreenOn(false)
         invoke.resolve()
       } catch (e: Exception) {
         invoke.reject("Failed to pause playback: ${e.message}")
@@ -586,6 +597,7 @@ class ExoPlayerPlugin(private val activity: Activity) : Plugin(activity) {
       try {
         stopProgressHeartbeat()
         player?.stop()
+        MainActivity.instance?.setKeepScreenOn(false)
         MainActivity.instance?.hideVideoSurface()
         invoke.resolve()
       } catch (e: Exception) {
@@ -606,6 +618,7 @@ class ExoPlayerPlugin(private val activity: Activity) : Plugin(activity) {
         player = null
         trackSelector = null
         pendingAudioTrackIndex = null
+        MainActivity.instance?.setKeepScreenOn(false)
         MainActivity.instance?.hideVideoSurface()
         MainActivity.instance?.resetTextureView()
         invoke.resolve()
@@ -722,6 +735,7 @@ class ExoPlayerPlugin(private val activity: Activity) : Plugin(activity) {
       activity.runOnUiThread {
         val exo = ensurePlayer()
         MainActivity.instance?.showVideoSurface()
+        MainActivity.instance?.setKeepScreenOn(true)
         exo.playWhenReady = true
         exo.play()
         startProgressHeartbeat()
@@ -740,6 +754,7 @@ class ExoPlayerPlugin(private val activity: Activity) : Plugin(activity) {
       activity.runOnUiThread {
         player?.pause()
         stopProgressHeartbeat()
+        MainActivity.instance?.setKeepScreenOn(false)
       }
     }
 
@@ -777,6 +792,7 @@ class ExoPlayerPlugin(private val activity: Activity) : Plugin(activity) {
       activity.runOnUiThread {
         stopProgressHeartbeat()
         player?.stop()
+        MainActivity.instance?.setKeepScreenOn(false)
         MainActivity.instance?.hideVideoSurface()
       }
     }
@@ -789,6 +805,7 @@ class ExoPlayerPlugin(private val activity: Activity) : Plugin(activity) {
         player = null
         trackSelector = null
         pendingAudioTrackIndex = null
+        MainActivity.instance?.setKeepScreenOn(false)
         MainActivity.instance?.hideVideoSurface()
         MainActivity.instance?.resetTextureView()
       }

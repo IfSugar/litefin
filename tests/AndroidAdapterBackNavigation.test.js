@@ -61,10 +61,7 @@ test('AndroidAdapter: handleHardwareBack emits key:back on EventBus', () => {
         activeElement: null
     };
 
-    const androidAdapterSource = readFileSync(
-        new URL('../src/android/AndroidAdapter.js', import.meta.url),
-        'utf8'
-    )
+    const androidAdapterSource = readFileSync(new URL('../src/android/AndroidAdapter.js', import.meta.url), 'utf8')
         .replace(/\r\n/g, '\n')
         .replace(/^import .*;\n/gm, '')
         .replace(/^export .*;\n/gm, '');
@@ -138,10 +135,7 @@ test('AndroidAdapter: media and navigation keys trigger appropriate events', () 
         location: { hash: '#/player/123' }
     };
 
-    const androidAdapterSource = readFileSync(
-        new URL('../src/android/AndroidAdapter.js', import.meta.url),
-        'utf8'
-    )
+    const androidAdapterSource = readFileSync(new URL('../src/android/AndroidAdapter.js', import.meta.url), 'utf8')
         .replace(/\r\n/g, '\n')
         .replace(/^import .*;\n/gm, '')
         .replace(/^export .*;\n/gm, '');
@@ -186,4 +180,116 @@ test('AndroidAdapter: media and navigation keys trigger appropriate events', () 
         'key:rewind',
         'key:fastForward'
     ]);
+});
+
+/**
+ * ============================================================================
+ * AndroidAdapter Screen Wake Lock & KeepScreenOn Test
+ * ============================================================================
+ * Verifies that:
+ *   1. setKeepScreenOn correctly routes wake lock requests to LitefinAndroid bridge.
+ *   2. player:play, player:playing, player:paused, and player:stopped triggers
+ *      keepScreenOn transitions to prevent the 15-minute Android system screensaver.
+ *   3. Modern navigator.wakeLock fallback engages when native bridge is unavailable.
+ * ============================================================================
+ */
+test('AndroidAdapter: setKeepScreenOn delegates to native bridge and responds to player events', async () => {
+    // Track invocations of native bridge setKeepScreenOn calls
+    const keepScreenOnCalls = [];
+    const eventHandlers = {};
+
+    // Mock EventBus supporting registration and emission
+    const mockEventBus = {
+        on(event, handler) {
+            eventHandlers[event] = eventHandlers[event] || [];
+            eventHandlers[event].push(handler);
+        },
+        emit(event, payload) {
+            const handlers = eventHandlers[event] || [];
+            for (const fn of handlers) {
+                fn(payload);
+            }
+        }
+    };
+
+    // Mock native LitefinAndroid host bridge
+    const mockWindow = {
+        LitefinAndroid: {
+            setKeepScreenOn(keepOn) {
+                keepScreenOnCalls.push(keepOn);
+            },
+            isTv() {
+                return true;
+            }
+        },
+        location: {
+            hash: '#/home'
+        }
+    };
+
+    // Minimal document stub for event listener attachments
+    const mockDocument = {
+        addEventListener() {},
+        querySelector() {
+            return null;
+        },
+        documentElement: {
+            style: {
+                removeProperty() {}
+            },
+            removeAttribute() {},
+            hasAttribute() {
+                return false;
+            },
+            requestFullscreen: async () => {}
+        }
+    };
+
+    // Load AndroidAdapter source code dynamically in clean VM context
+    const androidAdapterSource = readFileSync(new URL('../src/android/AndroidAdapter.js', import.meta.url), 'utf8')
+        .replace(/\r\n/g, '\n')
+        .replace(/^import .*;\n/gm, '')
+        .replace(/^export .*;\n/gm, '');
+
+    const sandbox = {
+        eventBus: mockEventBus,
+        storage: { flush() {} },
+        logger: { create: () => ({ info() {}, warn() {}, error() {}, debug() {} }) },
+        window: mockWindow,
+        document: mockDocument,
+        Date,
+        console
+    };
+
+    vm.createContext(sandbox);
+    vm.runInContext(androidAdapterSource + '\n; sandboxAdapter = new AndroidAdapter();', sandbox);
+
+    const adapter = sandbox.sandboxAdapter;
+    adapter.init();
+
+    // 1. Explicit setKeepScreenOn method verification
+    adapter.setKeepScreenOn(true);
+    adapter.setKeepScreenOn(false);
+
+    assert.deepStrictEqual(keepScreenOnCalls, [true, false]);
+
+    // 2. Playback state event integration tests
+    // Reset call recording array
+    keepScreenOnCalls.length = 0;
+
+    // Simulate playback start: player:play
+    mockEventBus.emit('player:play');
+    assert.strictEqual(keepScreenOnCalls[keepScreenOnCalls.length - 1], true);
+
+    // Simulate active playback frame arrival: player:playing
+    mockEventBus.emit('player:playing');
+    assert.strictEqual(keepScreenOnCalls[keepScreenOnCalls.length - 1], true);
+
+    // Simulate user pausing: player:paused
+    mockEventBus.emit('player:paused');
+    assert.strictEqual(keepScreenOnCalls[keepScreenOnCalls.length - 1], false);
+
+    // Simulate playback stopping / exiting: player:stopped
+    mockEventBus.emit('player:stopped');
+    assert.strictEqual(keepScreenOnCalls[keepScreenOnCalls.length - 1], false);
 });

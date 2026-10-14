@@ -11861,13 +11861,6 @@ class SettingsPage extends Page {
                               and persists the selected opacity to local storage.
                             */
                             layoutManager.setHeroVignette(newValue);
-                        } else if (id === 'hero-carousel-style-select') {
-                            // Update BlurHash fill setting visibility (exclusive to immersive-performance)
-                            const isHeroEnabled = storage.getItem('pref:heroCarousel') !== 'false';
-                            const blurhashFillItem = this.$('#hero-carousel-blurhash-fill-item');
-                            if (blurhashFillItem) {
-                                blurhashFillItem.style.display = isHeroEnabled && newValue === 'immersive-performance' ? '' : 'none';
-                            }
                         } else if (id === 'sidebar-mode-select') {
                             storage.setItem('pref:sidebarMode', newValue);
                             document.body.classList.toggle('sidebar-mode-hidden', newValue === 'hidden');
@@ -11927,6 +11920,15 @@ class SettingsPage extends Page {
                                 if (animToggleItem) {
                                     const isCarouselEnabled = storage.getItem('pref:heroCarousel') !== 'false';
                                     animToggleItem.style.display = isCarouselEnabled && newValue === 'progress' ? '' : 'none';
+                                }
+                            }
+
+                            // Cascade visibility for BlurHash fill toggle (exclusive to immersive-performance style)
+                            if (settingConfig.key === 'pref:heroCarouselStyle') {
+                                const blurhashFillItem = this.$('#hero-carousel-blurhash-fill-item');
+                                if (blurhashFillItem) {
+                                    const isCarouselEnabled = storage.getItem('pref:heroCarousel') !== 'false';
+                                    blurhashFillItem.style.display = isCarouselEnabled && newValue === 'immersive-performance' ? '' : 'none';
                                 }
                             }
 

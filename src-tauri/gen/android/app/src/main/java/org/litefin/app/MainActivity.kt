@@ -10,6 +10,7 @@ import android.view.KeyEvent
 import android.view.TextureView
 import android.view.View
 import android.view.ViewGroup
+import android.view.WindowManager
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
 import android.widget.FrameLayout
@@ -129,6 +130,8 @@ class MainActivity : TauriActivity() {
   }
 
   override fun onDestroy() {
+    // Release screen wake lock to avoid holding display flags when activity terminates
+    setKeepScreenOn(false)
     if (instance == this) {
       instance = null
     }
@@ -371,6 +374,8 @@ class MainActivity : TauriActivity() {
       // on the hardware TextureView to show through cleanly to the compositor
       rootContainer?.setBackgroundColor(Color.TRANSPARENT)
       window.setBackgroundDrawableResource(android.R.color.transparent)
+      // Prevent Android system screensaver / display sleep during active playback
+      setKeepScreenOn(true)
     }
   }
 
@@ -391,6 +396,46 @@ class MainActivity : TauriActivity() {
       // Restore solid pitch black backgrounds for standard navigation UI
       rootContainer?.setBackgroundColor(Color.BLACK)
       window.setBackgroundDrawableResource(android.R.color.black)
+      // Clear keep-screen-on flag once video plane is hidden
+      setKeepScreenOn(false)
+    }
+  }
+
+  /**
+   * ===========================================================================
+   * Screen Wake Lock / Keep-Awake Flag Management
+   * ===========================================================================
+   * Toggles Android OS WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON and the
+   * container's keepScreenOn property on the UI thread.
+   *
+   * By keeping the screen on at the window and view level during media playback,
+   * this prevents Android TV ambient mode, Daydream, and device sleep timeouts
+   * (typically 15 minutes of inactivity) from interrupting movie watching.
+   *
+   * @param keepOn When true, locks display awake. When false, restores system timers.
+   * ===========================================================================
+   */
+  fun setKeepScreenOn(keepOn: Boolean) {
+    runOnUiThread {
+      try {
+        // Guard against window manipulation if activity is already finishing
+        if (isFinishing || isDestroyed) {
+          return@runOnUiThread
+        }
+        if (keepOn) {
+          // Engage OS window flag keeping display illuminated without sleep/screensaver
+          window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+          // Dual guarantee: set view keepScreenOn flag on root container
+          rootContainer?.keepScreenOn = true
+        } else {
+          // Clear window flag allowing system screensaver and sleep timer to resume
+          window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+          // Clear view keepScreenOn flag on root layout
+          rootContainer?.keepScreenOn = false
+        }
+      } catch (e: Exception) {
+        android.util.Log.w("MainActivity", "Failed updating keepScreenOn flag: ${e.message}")
+      }
     }
   }
 
@@ -608,6 +653,21 @@ class MainActivity : TauriActivity() {
     @JavascriptInterface
     fun setFullscreen(fullscreen: Boolean) {
       this@MainActivity.setFullscreen(true)
+    }
+
+    /**
+     * =========================================================================
+     * Keep Screen Awake Bridge Interface
+     * =========================================================================
+     * Controls native screen wake lock to keep the display awake during video playback.
+     * Prevents the Android system screensaver (Ambient Mode, Daydream) from activating.
+     *
+     * @param keepOn True to prevent display sleep/screensaver, false to restore defaults.
+     * =========================================================================
+     */
+    @JavascriptInterface
+    fun setKeepScreenOn(keepOn: Boolean) {
+      this@MainActivity.setKeepScreenOn(keepOn)
     }
 
     /**

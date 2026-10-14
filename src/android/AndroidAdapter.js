@@ -72,6 +72,12 @@ class AndroidAdapter {
 
         // Tracks timestamp of last user interaction for screensaver
         this._lastInputTime = Date.now();
+
+        // Active Screen Wake Lock sentinel reference for browser WebViews
+        this._wakeLock = null;
+
+        // Tracks active media playback status for wake lock management
+        this._isPlaybackActive = false;
     }
 
     /**
@@ -109,6 +115,27 @@ class AndroidAdapter {
         document.addEventListener('mousemove', () => this.reportInput(), { passive: true });
         document.addEventListener('mousedown', () => this.reportInput(), { passive: true });
         document.addEventListener('touchstart', () => this.reportInput(), { passive: true });
+
+        // Synchronize display wake lock with active media playback states
+        // Prevents the Android system screensaver (Ambient Mode, Daydream) from activating
+        if (typeof eventBus !== 'undefined' && typeof eventBus?.on === 'function') {
+            eventBus.on('player:play', () => {
+                this._isPlaybackActive = true;
+                this.setKeepScreenOn(true);
+            });
+            eventBus.on('player:playing', () => {
+                this._isPlaybackActive = true;
+                this.setKeepScreenOn(true);
+            });
+            eventBus.on('player:paused', () => {
+                this._isPlaybackActive = false;
+                this.setKeepScreenOn(false);
+            });
+            eventBus.on('player:stopped', () => {
+                this._isPlaybackActive = false;
+                this.setKeepScreenOn(false);
+            });
+        }
 
         // Initialize native-feel touch scrolling for media rows
         if (typeof touchHorizontalScroller !== 'undefined' && touchHorizontalScroller?.init) {
@@ -155,6 +182,16 @@ class AndroidAdapter {
             document.addEventListener('visibilitychange', () => {
                 if (!document.hidden) {
                     this.setFullscreen(true);
+                    // Re-acquire wake lock if player was actively playing when resuming visibility
+                    if (this._isPlaybackActive) {
+                        this.setKeepScreenOn(true);
+                    }
+                } else {
+                    // Release web wake lock when tab or activity is concealed
+                    if (this._wakeLock) {
+                        this._wakeLock.release().catch(() => {});
+                        this._wakeLock = null;
+                    }
                 }
             }, { passive: true });
             // Browser gesture hook for user interaction
@@ -295,6 +332,56 @@ class AndroidAdapter {
             }
         } catch (e) {
             log.warn('Failed setting screen orientation in AndroidAdapter:', e);
+        }
+    }
+
+    /**
+     * ========================================================================
+     * Screen Wake Lock & Display Keep-Awake Management
+     * ========================================================================
+     * Prevents the Android system screensaver (Ambient Mode, Daydream) and display
+     * sleep timer from engaging while media playback is actively running.
+     * Dispatches instruction to native LitefinAndroid bridge with fallback
+     * to modern W3C Screen Wake Lock API for browser WebViews.
+     *
+     * @param {boolean} [keepOn=true] - Whether to keep display active
+     */
+    setKeepScreenOn(keepOn = true) {
+        log.debug(`Setting keepScreenOn to: ${keepOn}`);
+
+        try {
+            // Forward instruction to native LitefinAndroid bridge
+            if (typeof window !== 'undefined' && typeof window.LitefinAndroid?.setKeepScreenOn === 'function') {
+                window.LitefinAndroid.setKeepScreenOn(Boolean(keepOn));
+                return;
+            }
+
+            // Fallback to legacy AndroidBridge interface if present
+            if (typeof window !== 'undefined' && typeof window.AndroidBridge?.setKeepScreenOn === 'function') {
+                window.AndroidBridge.setKeepScreenOn(Boolean(keepOn));
+                return;
+            }
+
+            // Fallback to W3C Screen Wake Lock API for modern browser WebViews / PWAs
+            if (typeof navigator !== 'undefined' && 'wakeLock' in navigator) {
+                if (keepOn) {
+                    if (!this._wakeLock) {
+                        navigator.wakeLock.request('screen').then((lock) => {
+                            this._wakeLock = lock;
+                            lock.addEventListener('release', () => {
+                                this._wakeLock = null;
+                            });
+                        }).catch((err) => {
+                            log.debug('Screen Wake Lock request rejected:', err);
+                        });
+                    }
+                } else if (this._wakeLock) {
+                    this._wakeLock.release().catch(() => {});
+                    this._wakeLock = null;
+                }
+            }
+        } catch (e) {
+            log.warn('Failed setting keepScreenOn in AndroidAdapter:', e);
         }
     }
 
