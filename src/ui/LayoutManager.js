@@ -686,9 +686,15 @@ class LayoutManager {
              */
             const bg = this._lighterBackground ? tints.backgroundAlt : tints.background;
             const bgAlt = this._lighterBackground ? tints.background : tints.backgroundAlt;
+
+            /*
+             * Assign dedicated background tokens and explicitly bind --sidebar-bg
+             * so navigation and settings-sidebar surfaces cleanly reflect tinted tones.
+             */
             dynamicCss += `
             --jf-background: ${bg};
             --jf-background-alt: ${bgAlt};
+            --sidebar-bg: ${bgAlt};
             --jf-surface: ${tints.surface};
             --jf-card-bg: ${tints.cardBg};
             --jf-card-bg-hover: ${tints.cardBgHover};
@@ -702,9 +708,15 @@ class LayoutManager {
              */
             const bg = this._lighterBackground ? tints.backgroundAlt : tints.background;
             const bgAlt = this._lighterBackground ? tints.background : tints.backgroundAlt;
+
+            /*
+             * Bind --sidebar-bg directly to ${bgAlt} to guarantee that settings split-view
+             * and settings-mode navigation rails take on the calculated chromatic shade.
+             */
             dynamicCss += `
             --jf-background: ${bg};
             --jf-background-alt: ${bgAlt};
+            --sidebar-bg: ${bgAlt};
             --jf-surface: ${tints.surface};
             --jf-card-bg: ${tints.cardBg};
             --jf-card-bg-hover: ${tints.cardBgHover};
@@ -718,15 +730,21 @@ class LayoutManager {
             dynamicCss += `
             --jf-background: #0a0b0c;
             --jf-background-alt: #070809;
+            --sidebar-bg: transparent;
             --jf-surface: rgba(255, 255, 255, 0.035);
             --jf-card-bg: rgba(255, 255, 255, 0.045);
             --jf-card-bg-hover: rgba(255, 255, 255, 0.1);
             --jf-divider: rgba(255, 255, 255, 0.06);
             --jf-navbar-bg: rgba(7, 8, 9, 0.85);`;
         } else if (this._themeMode === THEME_MODES.BLACK) {
+            /*
+             * True Pitch Black canvas for OLED displays.
+             * Eliminates backlighting bleed while setting sidebar-bg to pure black.
+             */
             dynamicCss += `
             --jf-background: #000000;
             --jf-background-alt: #000000;
+            --sidebar-bg: #000000;
             --jf-surface: #0a0a0a;
             --jf-card-bg: #080808;
             --jf-card-bg-hover: #121212;
@@ -738,9 +756,14 @@ class LayoutManager {
              */
             const bg = this._lighterBackground ? '#151515' : '#101010';
             const bgAlt = this._lighterBackground ? '#101010' : '#151515';
+
+            /*
+             * Expose --sidebar-bg mapped to the secondary charcoal surface shade.
+             */
             dynamicCss += `
             --jf-background: ${bg};
             --jf-background-alt: ${bgAlt};
+            --sidebar-bg: ${bgAlt};
             --jf-surface: #1a1a1a;
             --jf-card-bg: #151515;
             --jf-card-bg-hover: #252525;
@@ -752,9 +775,14 @@ class LayoutManager {
              */
             const bg = this._lighterBackground ? '#f5f5f5' : '#fdfdfd';
             const bgAlt = this._lighterBackground ? '#fdfdfd' : '#f5f5f5';
+
+            /*
+             * Expose --sidebar-bg mapped to the softer light neutral background tone.
+             */
             dynamicCss += `
             --jf-background: ${bg};
             --jf-background-alt: ${bgAlt};
+            --sidebar-bg: ${bgAlt};
             --jf-surface: #ffffff;
             --jf-card-bg: #ffffff;
             --jf-card-bg-hover: #fcfcfc;

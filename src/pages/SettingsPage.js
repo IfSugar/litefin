@@ -2871,12 +2871,22 @@ class SettingsPage extends Page {
 
                     /*
                      * ==========================================================
-                     * Choice 3: Immersive Mode (New tvOS-Style Design)
+                     * Choice 3: Immersive Mode (Deep Overlap Design)
                      * ==========================================================
                      * A highly premium, deep full-screen background backdrop
                      * that extends visually beneath the first horizontal row.
                      */
-                    { value: 'immersive', label: i18n.t('StyleImmersive') || 'Immersive' }
+                    { value: 'immersive', label: i18n.t('StyleImmersive') || 'Immersive' },
+
+                    /*
+                     * ==========================================================
+                     * Choice 4: Immersive (Performance) Mode
+                     * ==========================================================
+                     * High-performance immersive variant rendering compact
+                     * right-aligned artwork with circular gradient feathering
+                     * for silky smooth scrolling on smart TV hardware.
+                     */
+                    { value: 'immersive-performance', label: i18n.t('StyleImmersivePerformance') || 'Immersive (Performance)' }
                 ],
                 // Default to 'immersive' style for the hero carousel selector
                 storage.getItem('pref:heroCarouselStyle') || 'immersive'

@@ -830,7 +830,8 @@
 }
 
 /* Tall Canvas Height for Immersive mode */
-.hero-carousel-container.immersive .hero-carousel {
+.hero-carousel-container.immersive .hero-carousel,
+.hero-carousel-container.immersive-performance .hero-carousel {
     /* 
      * Calibrated canvas height for the immersive background artwork.
      * Retains full artwork presence without warping across window height changes.
@@ -840,7 +841,8 @@
 }
 
 /* Compact Immersive Canvas Height */
-.hero-carousel-container.immersive.compact .hero-carousel {
+.hero-carousel-container.immersive.compact .hero-carousel,
+.hero-carousel-container.immersive-performance.compact .hero-carousel {
     /* 
      * In compact mode, maintains deep-overlap immersive canvas proportions.
      * Preserves stable geometry across variable display scaling factors.
@@ -850,7 +852,8 @@
 }
 
 /* Upward Section Overlap to place home-rows over the lower section of immersive backdrop */
-#home-hero-placeholder.style-immersive + .home-rows {
+#home-hero-placeholder.style-immersive + .home-rows,
+#home-hero-placeholder.style-immersive-performance + .home-rows {
     /* 
      * Pull content rows higher up over the backdrop image in standard mode.
      * Shifted up to the -450px range for an incredibly sleek, high-end overlap.
@@ -863,7 +866,8 @@
 }
 
 /* Upward Section Overlap for compact mode */
-#home-hero-placeholder.style-immersive.style-compact + .home-rows {
+#home-hero-placeholder.style-immersive.style-compact + .home-rows,
+#home-hero-placeholder.style-immersive-performance.style-compact + .home-rows {
     /* 
      * Compact layout inherits the deeply immersive standard.
      * Pulls the home-rows high (-550px) over the background for dense card visibility.
@@ -874,7 +878,8 @@
 }
 
 /* Elevated Text Content padding to push meta/description above the home-rows overlap */
-.hero-carousel-container.immersive .hero-item {
+.hero-carousel-container.immersive .hero-item,
+.hero-carousel-container.immersive-performance .hero-item {
     /* 
      * Elevate text content by 470px to match the -450px sibling overlap.
      * Keeps titles, ratings, and descriptions perfectly aligned above the row.
@@ -883,7 +888,8 @@
 }
 
 /* Elevated Text Content padding for compact immersive mode */
-.hero-carousel-container.immersive.compact .hero-item {
+.hero-carousel-container.immersive.compact .hero-item,
+.hero-carousel-container.immersive-performance.compact .hero-item {
     /* 
      * Pushes text up by 570px in compact mode to avoid occlusion 
      * from the deep -550px overlap.
@@ -904,7 +910,8 @@
  */
 
 /* Standard Immersive Size Tuning */
-.hero-carousel-container.immersive .hero-logo-container {
+.hero-carousel-container.immersive .hero-logo-container,
+.hero-carousel-container.immersive-performance .hero-logo-container {
     /* 
      * Sleek logo dimensions scaled down to give 20px of extra vertical relief.
      * Preserves visual presence while avoiding crowding on 1080p screens.
@@ -913,7 +920,8 @@
     margin-bottom: 16px;
 }
 
-.hero-carousel-container.immersive .hero-item-title {
+.hero-carousel-container.immersive .hero-item-title,
+.hero-carousel-container.immersive-performance .hero-item-title {
     /* 
      * Text title typography fallback (when logo assets are missing).
      * Scaled down from 4rem to 3.2rem (approx 51px) to prevent vertical bloat.
@@ -922,22 +930,27 @@
     margin-bottom: 12px;
 }
 
-.hero-carousel-container.immersive .hero-meta-row {
+.hero-carousel-container.immersive .hero-meta-row,
+.hero-carousel-container.immersive-performance .hero-meta-row {
     /* Tighten spatial gap between metadata badges and description text */
     margin-bottom: 16px;
 }
 
-.hero-carousel-container.immersive .hero-description {
+.hero-carousel-container.immersive .hero-description,
+.hero-carousel-container.immersive-performance .hero-description {
     /* 
-     * Outfit/Inter high-legibility standard text size (20px).
-     * Keeps synopsis perfectly clear while conserving critical screen real estate.
+     * High-legibility standard text size (20px).
+     * Keeps synopsis clear while conserving screen real estate.
+     * Restrict horizontal width to left 50% to prevent collision with right artwork.
      */
     font-size: 1.25rem;
     margin-bottom: 20px;
+    max-width: 70%;
 }
 
 /* Compact Immersive Size Tuning */
-.hero-carousel-container.immersive.compact .hero-logo-container {
+.hero-carousel-container.immersive.compact .hero-logo-container,
+.hero-carousel-container.immersive-performance.compact .hero-logo-container {
     /* 
      * Ultra-compact 80px height designed for extreme information density.
      */
@@ -945,18 +958,21 @@
     margin-bottom: 12px;
 }
 
-.hero-carousel-container.immersive.compact .hero-item-title {
+.hero-carousel-container.immersive.compact .hero-item-title,
+.hero-carousel-container.immersive-performance.compact .hero-item-title {
     /* Elegant, slim text title for the compact immersive configuration */
     font-size: 2.4rem;
     margin-bottom: 10px;
 }
 
-.hero-carousel-container.immersive.compact .hero-meta-row {
+.hero-carousel-container.immersive.compact .hero-meta-row,
+.hero-carousel-container.immersive-performance.compact .hero-meta-row {
     /* Minimum possible spacing to keep items perfectly clustered */
     margin-bottom: 12px;
 }
 
-.hero-carousel-container.immersive.compact .hero-description {
+.hero-carousel-container.immersive.compact .hero-description,
+.hero-carousel-container.immersive-performance.compact .hero-description {
     /* 
      * Sleek 18px body copy typography.
      * Clamp to 2 lines instead of 3 to save massive vertical space.
@@ -966,6 +982,123 @@
     -webkit-line-clamp: 2;
     line-clamp: 2;
     margin-bottom: 14px;
+    max-width: 70%;
+}
+
+/* 
+ * ============================================================================
+ * Immersive (Performance) Layout Overrides
+ * ============================================================================
+ * Provides high-speed TV scrolling by bounding the background texture canvas
+ * to the right side of the screen (~60% width), dramatically reducing
+ * GPU texture allocation and eliminating overdraw beneath the home row cards.
+ * Artwork is feathered with circular gradient masks for seamless visual flow.
+ * ============================================================================
+ */
+
+.hero-carousel-container.immersive-performance .hero-backdrop {
+    /* Position image on the right quadrant, spanning ~60% width */
+    position: absolute;
+    top: 0;
+    right: 0;
+    left: auto;
+    width: 60%;
+    height: 75%;
+    max-height: 750px;
+    background-size: cover;
+    background-position: center 15%;
+    background-repeat: no-repeat;
+    transform: translateZ(0);
+}
+
+[dir="rtl"] .hero-carousel-container.immersive-performance .hero-backdrop {
+    /* Mirror backdrop placement to the left quadrant in RTL layouts */
+    right: auto;
+    left: 0;
+}
+
+/* Suppress redundant full-screen linear gradient vignettes on .hero-item */
+.hero-carousel-container.immersive-performance .hero-item::before,
+.hero-carousel-container.immersive-performance .hero-item::after {
+    display: none !important;
+}
+
+/*
+ * Circular Gradient Feathering for Non-Ambient Themes:
+ * In solid-color themes, blends the artwork smoothly into var(--jf-background)
+ * using an elliptical radial gradient overlay executed entirely on the GPU.
+ */
+.hero-carousel-container.immersive-performance .hero-backdrop::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 1;
+    background: radial-gradient(
+        ellipse 90% 95% at 70% 30%,
+        transparent 0%,
+        transparent 32%,
+        rgba(0, 0, 0, 0.4) 52%,
+        var(--jf-background) 75%,
+        var(--jf-background) 100%
+    );
+}
+
+[dir="rtl"] .hero-carousel-container.immersive-performance .hero-backdrop::after {
+    background: radial-gradient(
+        ellipse 90% 85% at 25% 20%,
+        transparent 0%,
+        transparent 32%,
+        rgba(0, 0, 0, 0.4) 52%,
+        var(--jf-background) 75%,
+        var(--jf-background) 100%
+    );
+}
+
+/*
+ * Circular Gradient Alpha Mask for Ambient Glow Theme:
+ * In Ambient Glow mode, true alpha transparency on .hero-backdrop is essential
+ * so the dynamic colorful ambient mesh on <body> bleeds through cleanly.
+ * We apply a radial gradient mask to feather the artwork in a circular shape.
+ */
+[data-theme-mode="ambient"] .hero-carousel-container.immersive-performance .hero-backdrop {
+    -webkit-mask-image: radial-gradient(
+        ellipse 90% 95% at 70% 30%,
+        black 0%,
+        black 32%,
+        rgba(0, 0, 0, 0.45) 55%,
+        transparent 75%
+    );
+    mask-image: radial-gradient(
+        ellipse 90% 95% at 70% 30%,
+        black 0%,
+        black 32%,
+        rgba(0, 0, 0, 0.45) 55%,
+        transparent 75%
+    );
+}
+
+[dir="rtl"][data-theme-mode="ambient"] .hero-carousel-container.immersive-performance .hero-backdrop,
+[data-theme-mode="ambient"] [dir="rtl"] .hero-carousel-container.immersive-performance .hero-backdrop {
+    -webkit-mask-image: radial-gradient(
+        ellipse 90% 85% at 25% 20%,
+        black 0%,
+        black 32%,
+        rgba(0, 0, 0, 0.45) 55%,
+        transparent 75%
+    );
+    mask-image: radial-gradient(
+        ellipse 90% 85% at 25% 20%,
+        black 0%,
+        black 32%,
+        rgba(0, 0, 0, 0.45) 55%,
+        transparent 75%
+    );
+}
+
+/* Eliminate redundant overlay in ambient glow mode when mask is active */
+[data-theme-mode="ambient"] .hero-carousel-container.immersive-performance .hero-backdrop::after {
+    display: none !important;
 }
 
 
@@ -1086,14 +1219,17 @@
 
 /* Ensure the main container frames remain transparent */
 .hero-carousel-container.immersive,
+.hero-carousel-container.immersive-performance,
 .hero-carousel-container.semi-immersive,
 .hero-carousel-container.immersive .hero-carousel,
+.hero-carousel-container.immersive-performance .hero-carousel,
 .hero-carousel-container.semi-immersive .hero-carousel {
     background: transparent !important;
 }
 
 /* Elevate indicator dots to align perfectly with the elevated text */
-.hero-carousel-container.immersive .hero-indicators {
+.hero-carousel-container.immersive .hero-indicators,
+.hero-carousel-container.immersive-performance .hero-indicators {
     /* 
      * Align dot indicators with the baseline of the description paragraph for the -450px overlap.
      * Elevated to 430px to guarantee zero horizontal collision/overlapping with the side chevrons.
@@ -1102,7 +1238,8 @@
 }
 
 /* Elevate indicator dots for compact immersive mode */
-.hero-carousel-container.immersive.compact .hero-indicators {
+.hero-carousel-container.immersive.compact .hero-indicators,
+.hero-carousel-container.immersive-performance.compact .hero-indicators {
     /* 
      * Align dot indicators perfectly with the elevated text at the 570px boundary.
      * Elevated to 530px to clear navigation chevrons completely on lower viewport heights.
@@ -1120,7 +1257,8 @@
  */
 
 /* Elevate navigation arrows in standard immersive mode */
-.hero-carousel-container.immersive .hero-nav-arrows {
+.hero-carousel-container.immersive .hero-nav-arrows,
+.hero-carousel-container.immersive-performance .hero-nav-arrows {
     /* 
      * Shift standard mode arrows up to 30% viewport height.
      * Aligns perfectly with the visual center of the backdrop above the -450px row overlap.
@@ -1129,7 +1267,8 @@
 }
 
 /* Elevate navigation arrows for compact immersive mode */
-.hero-carousel-container.immersive.compact .hero-nav-arrows {
+.hero-carousel-container.immersive.compact .hero-nav-arrows,
+.hero-carousel-container.immersive-performance.compact .hero-nav-arrows {
     /* 
      * Shift compact mode arrows further up to 24% viewport height.
      * Centers arrows relative to the taller -550px bottom overlap.
@@ -1155,6 +1294,7 @@ body:not(.no-sidebar):not(.sidebar-mode-hidden) #home-content {
 
 /* 3. Expand the carousel container to the left edge of the screen */
 body:not(.no-sidebar):not(.sidebar-mode-hidden) .hero-carousel-container.immersive,
+body:not(.no-sidebar):not(.sidebar-mode-hidden) .hero-carousel-container.immersive-performance,
 body:not(.no-sidebar):not(.sidebar-mode-hidden) .hero-carousel-container.semi-immersive {
     margin-left: calc(-1 * var(--sidebar-width-collapsed, 100px)) !important;
     width: calc(100% + var(--sidebar-width-collapsed, 100px)) !important;
@@ -1162,12 +1302,14 @@ body:not(.no-sidebar):not(.sidebar-mode-hidden) .hero-carousel-container.semi-im
 
 /* 4. Position carousel content back to its original screen position */
 body:not(.no-sidebar):not(.sidebar-mode-hidden) .hero-carousel-container.immersive .hero-content,
+body:not(.no-sidebar):not(.sidebar-mode-hidden) .hero-carousel-container.immersive-performance .hero-content,
 body:not(.no-sidebar):not(.sidebar-mode-hidden) .hero-carousel-container.semi-immersive .hero-content {
     margin-left: var(--sidebar-width-collapsed, 100px) !important;
 }
 
 /* 5. Center navigation arrows relative to the visible screen width */
 body:not(.no-sidebar):not(.sidebar-mode-hidden) .hero-carousel-container.immersive .hero-nav-arrows,
+body:not(.no-sidebar):not(.sidebar-mode-hidden) .hero-carousel-container.immersive-performance .hero-nav-arrows,
 body:not(.no-sidebar):not(.sidebar-mode-hidden) .hero-carousel-container.semi-immersive .hero-nav-arrows {
     padding-left: calc(8px + var(--sidebar-width-collapsed, 100px)) !important;
 }
@@ -1189,6 +1331,7 @@ body:not(.no-sidebar):not(.sidebar-mode-hidden) .hero-carousel-container.semi-im
 }
 
 [dir="rtl"] body:not(.no-sidebar):not(.sidebar-mode-hidden) .hero-carousel-container.immersive,
+[dir="rtl"] body:not(.no-sidebar):not(.sidebar-mode-hidden) .hero-carousel-container.immersive-performance,
 [dir="rtl"] body:not(.no-sidebar):not(.sidebar-mode-hidden) .hero-carousel-container.semi-immersive {
     margin-right: calc(-1 * var(--sidebar-width-collapsed, 100px)) !important;
     margin-left: 0 !important;
@@ -1196,12 +1339,14 @@ body:not(.no-sidebar):not(.sidebar-mode-hidden) .hero-carousel-container.semi-im
 }
 
 [dir="rtl"] body:not(.no-sidebar):not(.sidebar-mode-hidden) .hero-carousel-container.immersive .hero-content,
+[dir="rtl"] body:not(.no-sidebar):not(.sidebar-mode-hidden) .hero-carousel-container.immersive-performance .hero-content,
 [dir="rtl"] body:not(.no-sidebar):not(.sidebar-mode-hidden) .hero-carousel-container.semi-immersive .hero-content {
     margin-right: var(--sidebar-width-collapsed, 100px) !important;
     margin-left: 0 !important;
 }
 
 [dir="rtl"] body:not(.no-sidebar):not(.sidebar-mode-hidden) .hero-carousel-container.immersive .hero-nav-arrows,
+[dir="rtl"] body:not(.no-sidebar):not(.sidebar-mode-hidden) .hero-carousel-container.immersive-performance .hero-nav-arrows,
 [dir="rtl"] body:not(.no-sidebar):not(.sidebar-mode-hidden) .hero-carousel-container.semi-immersive .hero-nav-arrows {
     padding-right: calc(8px + var(--sidebar-width-collapsed, 100px)) !important;
     padding-left: 8px !important;
@@ -1214,32 +1359,42 @@ body:not(.no-sidebar):not(.sidebar-mode-hidden) .hero-carousel-container.semi-im
 @media (max-height: 850px) {
     /* Immersive Mode (Native unscaled viewports only) */
     html:not([data-display-scale]) .hero-carousel-container.immersive .hero-carousel,
-    html:not([data-display-scale]) .hero-carousel-container.immersive.compact .hero-carousel {
+    html:not([data-display-scale]) .hero-carousel-container.immersive-performance .hero-carousel,
+    html:not([data-display-scale]) .hero-carousel-container.immersive.compact .hero-carousel,
+    html:not([data-display-scale]) .hero-carousel-container.immersive-performance.compact .hero-carousel {
         min-height: 520px;
     }
-    html:not([data-display-scale]) #home-hero-placeholder.style-immersive + .home-rows {
+    html:not([data-display-scale]) #home-hero-placeholder.style-immersive + .home-rows,
+    html:not([data-display-scale]) #home-hero-placeholder.style-immersive-performance + .home-rows {
         margin-top: -340px;
     }
-    html:not([data-display-scale]) #home-hero-placeholder.style-immersive.style-compact + .home-rows {
+    html:not([data-display-scale]) #home-hero-placeholder.style-immersive.style-compact + .home-rows,
+    html:not([data-display-scale]) #home-hero-placeholder.style-immersive-performance.style-compact + .home-rows {
         margin-top: -420px;
     }
 
-    html:not([data-display-scale]) .hero-carousel-container.immersive .hero-item {
+    html:not([data-display-scale]) .hero-carousel-container.immersive .hero-item,
+    html:not([data-display-scale]) .hero-carousel-container.immersive-performance .hero-item {
         padding-bottom: 360px;
     }
-    html:not([data-display-scale]) .hero-carousel-container.immersive.compact .hero-item {
+    html:not([data-display-scale]) .hero-carousel-container.immersive.compact .hero-item,
+    html:not([data-display-scale]) .hero-carousel-container.immersive-performance.compact .hero-item {
         padding-bottom: 440px;
     }
-    html:not([data-display-scale]) .hero-carousel-container.immersive .hero-indicators {
+    html:not([data-display-scale]) .hero-carousel-container.immersive .hero-indicators,
+    html:not([data-display-scale]) .hero-carousel-container.immersive-performance .hero-indicators {
         bottom: 330px;
     }
-    html:not([data-display-scale]) .hero-carousel-container.immersive.compact .hero-indicators {
+    html:not([data-display-scale]) .hero-carousel-container.immersive.compact .hero-indicators,
+    html:not([data-display-scale]) .hero-carousel-container.immersive-performance.compact .hero-indicators {
         bottom: 410px;
     }
-    html:not([data-display-scale]) .hero-carousel-container.immersive .hero-nav-arrows {
+    html:not([data-display-scale]) .hero-carousel-container.immersive .hero-nav-arrows,
+    html:not([data-display-scale]) .hero-carousel-container.immersive-performance .hero-nav-arrows {
         top: 35%;
     }
-    html:not([data-display-scale]) .hero-carousel-container.immersive.compact .hero-nav-arrows {
+    html:not([data-display-scale]) .hero-carousel-container.immersive.compact .hero-nav-arrows,
+    html:not([data-display-scale]) .hero-carousel-container.immersive-performance.compact .hero-nav-arrows {
         top: 28%;
     }
 
@@ -1255,32 +1410,42 @@ body:not(.no-sidebar):not(.sidebar-mode-hidden) .hero-carousel-container.semi-im
 @media (max-height: 700px) {
     /* Immersive Mode (Native unscaled viewports only) */
     html:not([data-display-scale]) .hero-carousel-container.immersive .hero-carousel,
-    html:not([data-display-scale]) .hero-carousel-container.immersive.compact .hero-carousel {
+    html:not([data-display-scale]) .hero-carousel-container.immersive-performance .hero-carousel,
+    html:not([data-display-scale]) .hero-carousel-container.immersive.compact .hero-carousel,
+    html:not([data-display-scale]) .hero-carousel-container.immersive-performance.compact .hero-carousel {
         min-height: 420px;
     }
-    html:not([data-display-scale]) #home-hero-placeholder.style-immersive + .home-rows {
+    html:not([data-display-scale]) #home-hero-placeholder.style-immersive + .home-rows,
+    html:not([data-display-scale]) #home-hero-placeholder.style-immersive-performance + .home-rows {
         margin-top: -240px;
     }
-    html:not([data-display-scale]) #home-hero-placeholder.style-immersive.style-compact + .home-rows {
+    html:not([data-display-scale]) #home-hero-placeholder.style-immersive.style-compact + .home-rows,
+    html:not([data-display-scale]) #home-hero-placeholder.style-immersive-performance.style-compact + .home-rows {
         margin-top: -300px;
     }
 
-    html:not([data-display-scale]) .hero-carousel-container.immersive .hero-item {
+    html:not([data-display-scale]) .hero-carousel-container.immersive .hero-item,
+    html:not([data-display-scale]) .hero-carousel-container.immersive-performance .hero-item {
         padding-bottom: 260px;
     }
-    html:not([data-display-scale]) .hero-carousel-container.immersive.compact .hero-item {
+    html:not([data-display-scale]) .hero-carousel-container.immersive.compact .hero-item,
+    html:not([data-display-scale]) .hero-carousel-container.immersive-performance.compact .hero-item {
         padding-bottom: 320px;
     }
-    html:not([data-display-scale]) .hero-carousel-container.immersive .hero-indicators {
+    html:not([data-display-scale]) .hero-carousel-container.immersive .hero-indicators,
+    html:not([data-display-scale]) .hero-carousel-container.immersive-performance .hero-indicators {
         bottom: 230px;
     }
-    html:not([data-display-scale]) .hero-carousel-container.immersive.compact .hero-indicators {
+    html:not([data-display-scale]) .hero-carousel-container.immersive.compact .hero-indicators,
+    html:not([data-display-scale]) .hero-carousel-container.immersive-performance.compact .hero-indicators {
         bottom: 290px;
     }
-    html:not([data-display-scale]) .hero-carousel-container.immersive .hero-nav-arrows {
+    html:not([data-display-scale]) .hero-carousel-container.immersive .hero-nav-arrows,
+    html:not([data-display-scale]) .hero-carousel-container.immersive-performance .hero-nav-arrows {
         top: 40%;
     }
-    html:not([data-display-scale]) .hero-carousel-container.immersive.compact .hero-nav-arrows {
+    html:not([data-display-scale]) .hero-carousel-container.immersive.compact .hero-nav-arrows,
+    html:not([data-display-scale]) .hero-carousel-container.immersive-performance.compact .hero-nav-arrows {
         top: 32%;
     }
 

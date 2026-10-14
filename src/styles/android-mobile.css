@@ -570,12 +570,14 @@ html[data-litefin-touch] .sidebar:not(#nonexistent) .sidebar-item.focused:not(#s
         bottom: 400px !important;
     }
 
-    html[data-litefin-scaled] .hero-carousel-container.immersive .hero-item {
+    html[data-litefin-scaled] .hero-carousel-container.immersive .hero-item,
+    html[data-litefin-scaled] .hero-carousel-container.immersive-performance .hero-item {
         /* Immersive item padding */
         padding-bottom: 423px !important;
     }
 
-    html[data-litefin-scaled] #home-hero-placeholder.style-immersive + .home-rows {
+    html[data-litefin-scaled] #home-hero-placeholder.style-immersive + .home-rows,
+    html[data-litefin-scaled] #home-hero-placeholder.style-immersive-performance + .home-rows {
         /* Pull media rows upward behind immersive backdrop */
         margin-top: -405px !important;
     }
@@ -1374,13 +1376,17 @@ html[data-litefin-touch] .sidebar:not(#nonexistent) .sidebar-item.focused:not(#s
     }
 
     html[data-litefin-scaled] .hero-carousel-container.immersive .hero-indicators,
-    html[data-litefin-portrait] .hero-carousel-container.immersive .hero-indicators {
+    html[data-litefin-scaled] .hero-carousel-container.immersive-performance .hero-indicators,
+    html[data-litefin-portrait] .hero-carousel-container.immersive .hero-indicators,
+    html[data-litefin-portrait] .hero-carousel-container.immersive-performance .hero-indicators {
         /* Position carousel indicators cleanly below description and above rows */
         bottom: 944px !important;
     }
 
     html[data-litefin-scaled] #home-hero-placeholder.style-immersive + .home-rows,
-    html[data-litefin-portrait] #home-hero-placeholder.style-immersive + .home-rows {
+    html[data-litefin-scaled] #home-hero-placeholder.style-immersive-performance + .home-rows,
+    html[data-litefin-portrait] #home-hero-placeholder.style-immersive + .home-rows,
+    html[data-litefin-portrait] #home-hero-placeholder.style-immersive-performance + .home-rows {
         /* Overlap media rows right below the 1.2x extended carousel */
         margin-top: -956px !important;
     }
