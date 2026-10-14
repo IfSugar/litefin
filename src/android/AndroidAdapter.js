@@ -339,8 +339,21 @@ class AndroidAdapter {
             // Determine if the user is currently editing a text input element
             const activeElem = document.activeElement;
             const isTextInput =
-                activeElem &&
-                ((activeElem.tagName === 'INPUT' && activeElem.type !== 'range') || activeElem.tagName === 'TEXTAREA');
+                Boolean(activeElem) &&
+                (activeElem.tagName === 'TEXTAREA' ||
+                    activeElem.isContentEditable ||
+                    (activeElem.tagName === 'INPUT' &&
+                        !['range', 'checkbox', 'radio', 'button', 'submit', 'reset'].includes(activeElem.type)));
+
+            // Form input guard: allow all typing, letters, and editing keys to pass through untouched
+            if (isTextInput) {
+                if (keyCode === ANDROID_KEYS.ESCAPE || keyCode === ANDROID_KEYS.BACK) {
+                    e.preventDefault();
+                    this.handleHardwareBack();
+                    return;
+                }
+                return;
+            }
 
             // Determine if player page is actively rendering in the DOM
             const isPlayerActive = window.location.hash.startsWith('#/player');
