@@ -686,6 +686,8 @@ class LayoutManager {
              */
             const bg = this._lighterBackground ? tints.backgroundAlt : tints.background;
             const bgAlt = this._lighterBackground ? tints.background : tints.backgroundAlt;
+            const bgRgb = themeUtils.hexToRgb(bg);
+            const bgRgbStr = bgRgb ? `${bgRgb.r}, ${bgRgb.g}, ${bgRgb.b}` : '245, 245, 245';
 
             /*
              * Assign dedicated background tokens and explicitly bind --sidebar-bg
@@ -693,6 +695,7 @@ class LayoutManager {
              */
             dynamicCss += `
             --jf-background: ${bg};
+            --jf-background-rgb: ${bgRgbStr};
             --jf-background-alt: ${bgAlt};
             --sidebar-bg: ${bgAlt};
             --jf-surface: ${tints.surface};
@@ -708,6 +711,8 @@ class LayoutManager {
              */
             const bg = this._lighterBackground ? tints.backgroundAlt : tints.background;
             const bgAlt = this._lighterBackground ? tints.background : tints.backgroundAlt;
+            const bgRgb = themeUtils.hexToRgb(bg);
+            const bgRgbStr = bgRgb ? `${bgRgb.r}, ${bgRgb.g}, ${bgRgb.b}` : '16, 16, 16';
 
             /*
              * Bind --sidebar-bg directly to ${bgAlt} to guarantee that settings split-view
@@ -715,6 +720,7 @@ class LayoutManager {
              */
             dynamicCss += `
             --jf-background: ${bg};
+            --jf-background-rgb: ${bgRgbStr};
             --jf-background-alt: ${bgAlt};
             --sidebar-bg: ${bgAlt};
             --jf-surface: ${tints.surface};
@@ -729,6 +735,7 @@ class LayoutManager {
             // Set sidebar background to transparent to ensure ambient glow bleeds through cleanly.
             dynamicCss += `
             --jf-background: #0a0b0c;
+            --jf-background-rgb: 10, 11, 12;
             --jf-background-alt: #070809;
             --sidebar-bg: transparent;
             --jf-surface: rgba(255, 255, 255, 0.035);
@@ -743,6 +750,7 @@ class LayoutManager {
              */
             dynamicCss += `
             --jf-background: #000000;
+            --jf-background-rgb: 0, 0, 0;
             --jf-background-alt: #000000;
             --sidebar-bg: #000000;
             --jf-surface: #0a0a0a;
@@ -756,12 +764,15 @@ class LayoutManager {
              */
             const bg = this._lighterBackground ? '#151515' : '#101010';
             const bgAlt = this._lighterBackground ? '#101010' : '#151515';
+            const bgRgb = themeUtils.hexToRgb(bg);
+            const bgRgbStr = bgRgb ? `${bgRgb.r}, ${bgRgb.g}, ${bgRgb.b}` : '16, 16, 16';
 
             /*
              * Expose --sidebar-bg mapped to the secondary charcoal surface shade.
              */
             dynamicCss += `
             --jf-background: ${bg};
+            --jf-background-rgb: ${bgRgbStr};
             --jf-background-alt: ${bgAlt};
             --sidebar-bg: ${bgAlt};
             --jf-surface: #1a1a1a;
@@ -775,12 +786,15 @@ class LayoutManager {
              */
             const bg = this._lighterBackground ? '#f5f5f5' : '#fdfdfd';
             const bgAlt = this._lighterBackground ? '#fdfdfd' : '#f5f5f5';
+            const bgRgb = themeUtils.hexToRgb(bg);
+            const bgRgbStr = bgRgb ? `${bgRgb.r}, ${bgRgb.g}, ${bgRgb.b}` : '253, 253, 253';
 
             /*
              * Expose --sidebar-bg mapped to the softer light neutral background tone.
              */
             dynamicCss += `
             --jf-background: ${bg};
+            --jf-background-rgb: ${bgRgbStr};
             --jf-background-alt: ${bgAlt};
             --sidebar-bg: ${bgAlt};
             --jf-surface: #ffffff;

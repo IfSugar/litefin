@@ -6,6 +6,7 @@
 
 [data-theme-mode="classic-light"] {
     --jf-background: #fdfdfd;
+    --jf-background-rgb: 253, 253, 253;
     --jf-background-alt: #f5f5f5;
     /*
      * Sidebar and Settings split-view navigation surface background.
