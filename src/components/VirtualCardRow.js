@@ -526,17 +526,19 @@ export class VirtualCardRow {
         // ---------------------------------------------------------------------
         // Interactive Scroll Navigation Arrows
         // ---------------------------------------------------------------------
-        // Render left/right scroll arrow controls for mouse/pointer driven
-        // environments (Web browsers, Desktop Tauri app, and WebOS Magic Remote)
+        // Render left/right scroll arrow controls across all platforms
         // whenever the row contains more cards than fit within the initial view.
+        // These arrow buttons are styled with opacity: 0 and tabindex="-1" so they
+        // remain completely unobtrusive for remote D-pad navigation, but smoothly
+        // reveal whenever a user moves or hovers a mouse/pointer over the row.
         // ---------------------------------------------------------------------
-        if ((platformInfo.isWeb || platformInfo.isDesktop || platformInfo.isWebOS) && this.totalItems > 4) {
+        if (this.totalItems > 4) {
             this._injectScrollArrows();
         }
     }
 
     /**
-     * Injects left/right navigation arrows for web users.
+     * Injects left/right navigation arrows for pointer and mouse interaction.
      */
     _injectScrollArrows() {
         const sectionEl = this.track.parentElement?.parentElement;

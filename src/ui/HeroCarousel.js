@@ -76,8 +76,14 @@ class HeroCarousel {
         const intervalInSeconds = (this._autoScrollInterval / 1000).toFixed(1) + 's';
 
         let navArrowsHtml = '';
-        // Render navigation arrows on pointer-driven platforms (Web, Desktop, WebOS Magic Remote)
-        if ((platformInfo.isWeb || platformInfo.isDesktop || platformInfo.isWebOS) && this._items.length > 1) {
+        // ---------------------------------------------------------------------
+        // Interactive Carousel Navigation Arrows
+        // ---------------------------------------------------------------------
+        // Render navigation arrows across all platforms whenever multiple slides
+        // exist. Arrows are styled with opacity: 0 and tabindex="-1" so they never
+        // interfere with D-pad navigation, and smoothly reveal on mouse hover.
+        // ---------------------------------------------------------------------
+        if (this._items.length > 1) {
             navArrowsHtml = `
                 <div class="hero-nav-arrows">
                     <button class="hero-arrow hero-arrow-left" aria-label="Previous" tabindex="-1">
@@ -516,20 +522,23 @@ class HeroCarousel {
             this._handleFocus();
         }
 
-        // Bind click navigation for mouse/pointer devices (Web browsers, Desktop app, WebOS)
-        if (platformInfo.isWeb || platformInfo.isDesktop || platformInfo.isWebOS) {
-            const leftBtn = this._container.querySelector('.hero-arrow-left');
-            const rightBtn = this._container.querySelector('.hero-arrow-right');
-            if (leftBtn && rightBtn) {
-                leftBtn.addEventListener('click', (e) => {
-                    e.stopPropagation();
-                    this.previous();
-                });
-                rightBtn.addEventListener('click', (e) => {
-                    e.stopPropagation();
-                    this.next();
-                });
-            }
+        // ---------------------------------------------------------------------
+        // Pointer & Mouse Click Navigation for Carousel Arrows
+        // ---------------------------------------------------------------------
+        // Binds previous and next slide transitions on mouse click events.
+        // Works seamlessly across all platforms when buttons exist in the DOM.
+        // ---------------------------------------------------------------------
+        const leftBtn = this._container.querySelector('.hero-arrow-left');
+        const rightBtn = this._container.querySelector('.hero-arrow-right');
+        if (leftBtn && rightBtn) {
+            leftBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.previous();
+            });
+            rightBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.next();
+            });
         }
 
         // Start auto-scroll
