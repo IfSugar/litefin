@@ -825,12 +825,19 @@ html {
     scroll-behavior: auto;
 }
 
-body {
+/*
+ * Main Viewport & Body Surface:
+ * Anchors the global viewport canvas to the active theme palette (--jf-background).
+ * Marked with !important to ensure full coverage across all theme modes (Classic Dark,
+ * Classic Light, Tinted, Black, Ambient) and prevent dark letterbox gaps under collapsed
+ * or floating navigation sidebars on non-home pages such as the library.
+ */
+body:not(.player-active) {
     line-height: 1.5;
     overflow-x: hidden;
 
-    /* Theme colors applied via CSS variables */
-    background-color: var(--jf-background);
+    /* Theme canvas background applied globally */
+    background-color: var(--jf-background) !important;
     color: var(--jf-text-primary);
 }
 

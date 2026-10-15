@@ -4,9 +4,12 @@
 <head>
     <meta charset="UTF-8">
     <style>
-        /* Immediate critical dark background to prevent any white canvas flash during boot */
+        /* 
+         * Immediate critical dark baseline to prevent white canvas flash during boot.
+         * Kept without !important so active theme backgrounds cascade cleanly once CSS initializes.
+         */
         html:not(.player-active), body:not(.player-active) {
-            background-color: #000000 !important;
+            background-color: #000000;
             margin: 0;
             padding: 0;
         }
