@@ -111,7 +111,15 @@ class MainActivity : TauriActivity() {
     })
 
     super.onCreate(savedInstanceState)
-    setFullscreen(true)
+    // -------------------------------------------------------------------------
+    // Set Initial Fullscreen Mode Based on Device Type
+    // -------------------------------------------------------------------------
+    // Android TV platforms lack status and navigation bars and run locked to
+    // immersive fullscreen. Mobile phones and tablets default to non-fullscreen
+    // (displaying status bar and navigation bar in safe area) until toggled.
+    // -------------------------------------------------------------------------
+    val defaultFullscreen = isTvDevice()
+    setFullscreen(defaultFullscreen)
   }
 
   /**
@@ -201,49 +209,109 @@ class MainActivity : TauriActivity() {
     webView.requestFocus()
   }
 
-  // Reference to whether fullscreen mode is currently engaged
-  private var isFullscreen: Boolean = true
+  // ---------------------------------------------------------------------------
+  // Fullscreen State Tracking
+  // ---------------------------------------------------------------------------
+  // Tracks active OS immersive mode state across activity lifecycle events
+  // (pausing, resuming, and window focus changes).
+  // ---------------------------------------------------------------------------
+  private var isFullscreen: Boolean = false
 
   /**
-   * Enforces native immersive sticky fullscreen mode.
-   * Hides status and navigation bars across the entire application.
+   * ===========================================================================
+   * Device Form Factor Detection (Television vs Mobile/Tablet)
+   * ===========================================================================
+   * Evaluates system UI mode manager and package manager Leanback/TV feature
+   * flags to reliably identify Android TV / Google TV hardware.
+   * ===========================================================================
+   */
+  fun isTvDevice(): Boolean {
+    return try {
+      // Query system UI mode manager for dedicated television mode configuration
+      val uiModeManager = getSystemService(android.content.Context.UI_MODE_SERVICE) as? android.app.UiModeManager
+      val isTelevision = uiModeManager?.currentModeType == android.content.res.Configuration.UI_MODE_TYPE_TELEVISION
+      
+      // Check package manager hardware feature tokens
+      val hasLeanback = packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_LEANBACK)
+      val hasTvFeature = packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_TELEVISION)
+      
+      isTelevision || hasLeanback || hasTvFeature
+    } catch (e: Exception) {
+      false
+    }
+  }
+
+  /**
+   * ===========================================================================
+   * Native Android Fullscreen & System Inset Manager
+   * ===========================================================================
+   * Controls system status and navigation bar visibility:
+   * - When fullscreen is true:
+   *   Hides system bars using transient swipe gestures and extends layout
+   *   edge-to-edge across the physical display.
+   * - When fullscreen is false:
+   *   Reveals status bar and navigation bar while enforcing window insets
+   *   via setDecorFitsSystemWindows(true) to keep content within the safe zone.
+   * ===========================================================================
+   * @param fullscreen True for edge-to-edge fullscreen; false for safe zone layout.
    */
   fun setFullscreen(fullscreen: Boolean = true) {
-    isFullscreen = true
+    isFullscreen = fullscreen
     runOnUiThread {
       try {
+        // Modern WindowInsetsControllerCompat implementation (Android 11+ / API 30+)
         val windowInsetsController = androidx.core.view.WindowCompat.getInsetsController(window, window.decorView)
-        windowInsetsController.systemBarsBehavior =
-          androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-        windowInsetsController.hide(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+        
+        if (fullscreen) {
+          // Configure transient gesture bars that auto-hide after swipe interactions
+          windowInsetsController.systemBarsBehavior =
+            androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+          
+          // Hide both top status bar and bottom navigation bar
+          windowInsetsController.hide(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+          
+          // Expand window decor to full physical screen boundaries
+          androidx.core.view.WindowCompat.setDecorFitsSystemWindows(window, false)
+        } else {
+          // Restore standard system bars (status bar + gesture/button navigation bar)
+          windowInsetsController.show(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+          
+          // Confine content layout to system safe zone between status bar and nav bar
+          androidx.core.view.WindowCompat.setDecorFitsSystemWindows(window, true)
+        }
       } catch (e: Exception) {
-        // Fallback legacy flags for older Android versions
+        // Fallback flags for older Android API levels
         @Suppress("DEPRECATION")
-        window.decorView.systemUiVisibility = (
-          View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
-            or View.SYSTEM_UI_FLAG_FULLSCREEN
-            or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
-            or View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-            or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
-            or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
-        )
+        if (fullscreen) {
+          window.decorView.systemUiVisibility = (
+            View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+              or View.SYSTEM_UI_FLAG_FULLSCREEN
+              or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+              or View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+              or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+              or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+          )
+        } else {
+          window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_VISIBLE
+        }
       }
     }
   }
 
   override fun onResume() {
     super.onResume()
-    // Re-assert focus onto the active WebView when resuming from background
+    // Re-assert focus onto active WebView when resuming from background
     activeWebView?.requestFocus()
-    setFullscreen(true)
+    // Synchronize fullscreen state to current configuration
+    setFullscreen(isFullscreen)
   }
 
   override fun onWindowFocusChanged(hasFocus: Boolean) {
     super.onWindowFocusChanged(hasFocus)
-    // Guarantee that whenever the window regains focus, the WebView has active focus and fullscreen is asserted
+    // Maintain active WebView focus and ensure system bars match user preference
     if (hasFocus) {
       activeWebView?.requestFocus()
-      setFullscreen(true)
+      setFullscreen(isFullscreen)
     }
   }
 
@@ -636,23 +704,22 @@ class MainActivity : TauriActivity() {
      */
     @JavascriptInterface
     fun isTv(): Boolean {
-      return try {
-        val uiModeManager = getSystemService(android.content.Context.UI_MODE_SERVICE) as? android.app.UiModeManager
-        val isTelevision = uiModeManager?.currentModeType == android.content.res.Configuration.UI_MODE_TYPE_TELEVISION
-        val hasLeanback = packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_LEANBACK)
-        val hasTvFeature = packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_TELEVISION)
-        isTelevision || hasLeanback || hasTvFeature
-      } catch (e: Exception) {
-        false
-      }
+      // Delegate to centralized activity device check
+      return this@MainActivity.isTvDevice()
     }
 
     /**
-     * Toggles native Android immersive fullscreen mode from JavaScript.
+     * =========================================================================
+     * Fullscreen Bridge Dispatcher
+     * =========================================================================
+     * Controls native OS immersive mode and system bar visibility dynamically
+     * based on user preference or player lifecycle state.
+     * =========================================================================
      */
     @JavascriptInterface
     fun setFullscreen(fullscreen: Boolean) {
-      this@MainActivity.setFullscreen(true)
+      // Pass requested boolean state to main activity window insets manager
+      this@MainActivity.setFullscreen(fullscreen)
     }
 
     /**

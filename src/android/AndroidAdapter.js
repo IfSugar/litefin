@@ -158,9 +158,19 @@ class AndroidAdapter {
                 this._updatePlaybackState('paused');
             });
             eventBus.on('player:stopped', () => {
+                // Clear active media playback flag and wake lock
                 this._isPlaybackActive = false;
                 this.setKeepScreenOn(false);
                 this._updatePlaybackState('none');
+
+                // -------------------------------------------------------------
+                // Restore Mobile Fullscreen Setting Upon Playback Exit
+                // -------------------------------------------------------------
+                // Restores the user's mobile preference when leaving the player.
+                // Android TV remains in permanent fullscreen mode.
+                // -------------------------------------------------------------
+                const shouldBeFs = this.isAndroidTv || this.isMobileFullscreenEnabled();
+                this.setFullscreen(shouldBeFs);
             });
         }
 
@@ -169,9 +179,13 @@ class AndroidAdapter {
             touchHorizontalScroller.init();
         }
 
-        // Ensure viewport meta tag is properly configured:
+        // ---------------------------------------------------------------------
+        // Viewport Meta Tag Normalization & Safe Area Inset Activation
+        // ---------------------------------------------------------------------
         // - Android TV: locked to width=1920 for identical 1080p canvas proportions
-        // - Mobile & Tablets: width=device-width for responsive layout & touch scaling
+        // - Mobile & Tablets: width=device-width with viewport-fit=cover to enable
+        //   standard CSS env(safe-area-inset-*) metrics for notches & bars.
+        // ---------------------------------------------------------------------
         if (typeof document !== 'undefined' && typeof document.querySelector === 'function') {
             const metaViewport = document.querySelector('meta[name="viewport"]');
             if (this.isAndroidTv) {
@@ -180,7 +194,10 @@ class AndroidAdapter {
                 }
             } else {
                 if (metaViewport && metaViewport.getAttribute('content')?.includes('width=1920')) {
-                    metaViewport.setAttribute('content', 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no');
+                    metaViewport.setAttribute('content', 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover');
+                } else if (metaViewport && !metaViewport.getAttribute('content')?.includes('viewport-fit=cover')) {
+                    const currentContent = metaViewport.getAttribute('content') || 'width=device-width, initial-scale=1.0';
+                    metaViewport.setAttribute('content', `${currentContent}, viewport-fit=cover`);
                 }
                 // Stamp touch-primary input indicator onto root element for mobile phones and tablets
                 document.documentElement?.setAttribute?.('data-litefin-touch', '1');
@@ -198,17 +215,28 @@ class AndroidAdapter {
             document.documentElement?.style?.removeProperty('--litefin-app-h');
         }
 
-        // Enforce immersive fullscreen mode across the entire application
-        this.setFullscreen(true);
+        // ---------------------------------------------------------------------
+        // Initial Fullscreen Configuration
+        // ---------------------------------------------------------------------
+        // Android TV remains in permanent fullscreen mode without system bars.
+        // Mobile phones & tablets default to non-fullscreen (safe area) unless
+        // explicitly enabled in display preferences.
+        // ---------------------------------------------------------------------
+        const shouldBeFullscreen = this.isAndroidTv || this.isMobileFullscreenEnabled();
+        this.setFullscreen(shouldBeFullscreen);
 
-        // Re-enforce fullscreen when the window regains focus or visibility
+        // Re-enforce fullscreen preference when the window regains focus or visibility
         if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
-            window.addEventListener('focus', () => this.setFullscreen(true), { passive: true });
+            window.addEventListener('focus', () => {
+                const fs = this._isPlaybackActive || this.isAndroidTv || this.isMobileFullscreenEnabled();
+                this.setFullscreen(fs);
+            }, { passive: true });
         }
         if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
             document.addEventListener('visibilitychange', () => {
                 if (!document.hidden) {
-                    this.setFullscreen(true);
+                    const fs = this._isPlaybackActive || this.isAndroidTv || this.isMobileFullscreenEnabled();
+                    this.setFullscreen(fs);
                     // Re-acquire wake lock if player was actively playing when resuming visibility
                     if (this._isPlaybackActive) {
                         this.setKeepScreenOn(true);
@@ -221,9 +249,18 @@ class AndroidAdapter {
                     }
                 }
             }, { passive: true });
-            // Browser gesture hook for user interaction
-            document.addEventListener('touchstart', () => this.setFullscreen(true), { passive: true, once: true });
-            document.addEventListener('click', () => this.setFullscreen(true), { passive: true, once: true });
+            
+            // Browser gesture hook for user interaction (respects active preference)
+            document.addEventListener('touchstart', () => {
+                if (this._isPlaybackActive || this.isAndroidTv || this.isMobileFullscreenEnabled()) {
+                    this.setFullscreen(true);
+                }
+            }, { passive: true, once: true });
+            document.addEventListener('click', () => {
+                if (this._isPlaybackActive || this.isAndroidTv || this.isMobileFullscreenEnabled()) {
+                    this.setFullscreen(true);
+                }
+            }, { passive: true, once: true });
         }
 
         // Retrieve hardware details from native bridge
@@ -284,34 +321,114 @@ class AndroidAdapter {
     }
 
     /**
-     * Enters or maintains native OS fullscreen mode.
-     * The application is configured to always remain in fullscreen mode across all views.
-     * @param {boolean} [fullscreen=true] - Fullscreen state (always locked to true)
+     * =========================================================================
+     * Mobile Fullscreen Preference Evaluator
+     * =========================================================================
+     * Checks whether mobile fullscreen mode is active:
+     * - Android TV / Leanback devices: Always returns true (TV displays lack
+     *   system status and navigation bars).
+     * - Mobile phones & tablets: Defaults to false (safe area layout) unless
+     *   the user explicitly toggles it on in display preferences.
+     * =========================================================================
+     * @returns {boolean} True if application UI should run in fullscreen mode.
+     */
+    isMobileFullscreenEnabled() {
+        // Television panels always run in permanent fullscreen
+        if (this.isAndroidTv) {
+            return true;
+        }
+
+        // Retrieve persisted setting from local storage (default is false)
+        try {
+            if (typeof storage !== 'undefined' && typeof storage.getItem === 'function') {
+                const savedPreference = storage.getItem('pref:mobileFullscreen');
+                return savedPreference === 'true';
+            }
+        } catch (_) {}
+        return false;
+    }
+
+    /**
+     * =========================================================================
+     * Mobile Fullscreen Preference Setter
+     * =========================================================================
+     * Toggles fullscreen mode for mobile devices and updates running host:
+     * - Persists preference to storage when save=true.
+     * - Immediately applies instruction to native host window if media
+     *   playback is not currently active (player always remains fullscreen).
+     * =========================================================================
+     * @param {boolean} enabled - Whether mobile fullscreen should be enabled
+     * @param {boolean} [save=true] - Whether to persist setting to local storage
+     */
+    setMobileFullscreen(enabled, save = true) {
+        log.info(`Updating mobile fullscreen preference: ${enabled}`);
+
+        // Persist preference to local storage
+        if (save) {
+            try {
+                if (typeof storage !== 'undefined' && typeof storage.setItem === 'function') {
+                    storage.setItem('pref:mobileFullscreen', enabled ? 'true' : 'false');
+                }
+            } catch (_) {}
+        }
+
+        // Apply immediately if not currently on TV and not actively playing media
+        if (!this.isAndroidTv && !this._isPlaybackActive) {
+            this.setFullscreen(Boolean(enabled));
+        }
+
+        // Notify UI components of layout change
+        if (typeof eventBus !== 'undefined' && typeof eventBus.emit === 'function') {
+            eventBus.emit('settings:mobileFullscreenChanged', Boolean(enabled));
+        }
+    }
+
+    /**
+     * =========================================================================
+     * System Fullscreen Mode Dispatcher
+     * =========================================================================
+     * Enters or exits native OS fullscreen mode across native bridges and DOM APIs.
+     * When fullscreen is true, hides status bar and navigation bar.
+     * When fullscreen is false, restores system bars and safe zone layout.
+     * =========================================================================
+     * @param {boolean} [fullscreen=true] - Target fullscreen state
      */
     setFullscreen(fullscreen = true) {
+        const isFs = Boolean(fullscreen);
+        log.debug(`Dispatching setFullscreen: ${isFs}`);
+
         try {
-            // Forward to native bridge if present
+            // Forward instruction to native LitefinAndroid bridge if present
             if (typeof window !== 'undefined') {
                 if (typeof window.LitefinAndroid?.setFullscreen === 'function') {
-                    window.LitefinAndroid.setFullscreen(true);
+                    window.LitefinAndroid.setFullscreen(isFs);
                     return;
                 }
+                // Fallback to legacy AndroidBridge interface
                 if (typeof window.AndroidBridge?.setFullscreen === 'function') {
-                    window.AndroidBridge.setFullscreen(true);
+                    window.AndroidBridge.setFullscreen(isFs);
                     return;
                 }
             }
 
-            // Fallback to DOM fullscreen API
+            // Fallback to standard W3C DOM Fullscreen API for mobile browsers
             if (typeof document !== 'undefined') {
-                if (document.documentElement.requestFullscreen) {
-                    document.documentElement.requestFullscreen().catch(() => {});
-                } else if (document.documentElement.webkitRequestFullscreen) {
-                    document.documentElement.webkitRequestFullscreen();
+                if (isFs) {
+                    if (document.documentElement.requestFullscreen) {
+                        document.documentElement.requestFullscreen().catch(() => {});
+                    } else if (document.documentElement.webkitRequestFullscreen) {
+                        document.documentElement.webkitRequestFullscreen();
+                    }
+                } else {
+                    if (document.exitFullscreen) {
+                        document.exitFullscreen().catch(() => {});
+                    } else if (document.webkitExitFullscreen) {
+                        document.webkitExitFullscreen();
+                    }
                 }
             }
         } catch (e) {
-            log.warn('Failed enforcing fullscreen in AndroidAdapter:', e);
+            log.warn('Failed configuring fullscreen in AndroidAdapter:', e);
         }
     }
 

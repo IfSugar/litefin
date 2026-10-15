@@ -27,6 +27,7 @@ import { availableLanguages } from '../locales/languages.js';
 import { languageManager } from '../utils/LanguageManager.js';
 import { pluginManager } from '../plugins/PluginManager.js';
 import { platformInfo } from '../utils/PlatformInfo.js';
+import { androidAdapter } from '../android/AndroidAdapter.js';
 import { homeLayoutManager } from '../utils/HomeLayoutManager.js';
 import { sidebarLayoutManager } from '../utils/SidebarLayoutManager.js';
 import { AUDIO_FALLBACK_SLOTS, isAudioFallbackSelect } from '../utils/AudioFallbackConfig.js';
@@ -628,6 +629,22 @@ class SettingsPage extends Page {
         )}
                     </div>
                 </div>
+
+                ${platformInfo.isAndroid ? `
+                <div class="setting-item" id="mobile-fullscreen-setting-item">
+                    <div class="setting-label">
+                        <span class="setting-name" data-i18n="MobileFullscreen">${i18n.t('MobileFullscreen') || 'Fullscreen Mode'}</span>
+                        <span class="setting-description" data-i18n="MobileFullscreenDescription">${i18n.t('MobileFullscreenDescription') || 'Hide status and navigation bars on mobile devices for an edge-to-edge layout. When disabled, system bars remain visible in safe zone. Video playback always remains in fullscreen.'}</span>
+                    </div>
+                    <div class="setting-control">
+                        <button class="toggle-switch ${androidAdapter.isMobileFullscreenEnabled() ? 'active' : ''}" 
+                                id="toggle-mobile-fullscreen" 
+                                tabindex="0"
+                                aria-label="${i18n.t('MobileFullscreen') || 'Fullscreen Mode'}">
+                        </button>
+                    </div>
+                </div>
+                ` : ''}
 
 
                 <div class="setting-item">
@@ -3805,7 +3822,7 @@ class SettingsPage extends Page {
                     </div>
                 </div>
 
-                <!-- Mark as Watched Completion Threshold (Apple HIG style tactile selector) -->
+                <!-- Mark as Watched Completion Threshold -->
                 <!-- Allows viewer to keep Litefin's 80% credits-friendly default or respect server MaxResumePct -->
                 <div class="setting-item">
                     <div class="setting-label">
@@ -6456,14 +6473,14 @@ class SettingsPage extends Page {
         if (typeof window !== 'undefined' && window.__TAURI_INTERNALS__?.invoke) {
             window.__TAURI_INTERNALS__.invoke('plugin:opener|open_url', { url })
                 .catch(() => {
-                    try { window.open(url, '_blank'); } catch (_) {}
+                    try { window.open(url, '_blank'); } catch (_) { }
                 });
             return;
         }
         if (typeof window !== 'undefined' && window.__TAURI__?.core?.invoke) {
             window.__TAURI__.core.invoke('plugin:opener|open_url', { url })
                 .catch(() => {
-                    try { window.open(url, '_blank'); } catch (_) {}
+                    try { window.open(url, '_blank'); } catch (_) { }
                 });
             return;
         }
@@ -8269,6 +8286,30 @@ class SettingsPage extends Page {
                 const newValue = !isIncluded;
                 storage.setItem('pref:backdropIncludeMusic', newValue);
                 includeMusicBtn.classList.toggle('active', newValue);
+            });
+        }
+
+        // =====================================================================
+        // MOBILE FULLSCREEN MODE TOGGLE (Android Devices)
+        // =====================================================================
+        // Toggles immersive mode on Android phones and tablets:
+        // - Inverts current active fullscreen preference.
+        // - Dispatches instruction to AndroidAdapter to toggle system bars and
+        //   adjust WindowInsetsControllerCompat between fullscreen and safe zone.
+        // - Updates toggle switch visual indicator state with CSS transitions.
+        // =====================================================================
+        const mobileFullscreenBtn = this.$('#toggle-mobile-fullscreen');
+        if (mobileFullscreenBtn) {
+            mobileFullscreenBtn.addEventListener('click', () => {
+                // Determine current fullscreen setting state
+                const currentVal = androidAdapter.isMobileFullscreenEnabled();
+                const newVal = !currentVal;
+
+                // Persist new setting and apply to active Android activity window
+                androidAdapter.setMobileFullscreen(newVal);
+
+                // Update toggle switch visual active class
+                mobileFullscreenBtn.classList.toggle('active', newVal);
             });
         }
 
@@ -10567,15 +10608,15 @@ class SettingsPage extends Page {
             const slotPillsHtml = `
                 <div class="modal-slot-pills" id="modal-audio-slot-pills">
                     ${SLOTS.map((slot) => {
-                        const isActive = slot === activeSlot;
-                        const info = getSlotValueAndLabel(slot);
+                const isActive = slot === activeSlot;
+                const info = getSlotValueAndLabel(slot);
 
-                        // Concise tab title prefix: "Preferred" or "Fallback 1", "Fallback 2", etc.
-                        const displayTitle = slot === 'pref'
-                            ? (i18n.t('Preferred') || 'Preferred')
-                            : `${i18n.t('Fallback') || 'Fallback'} ${slot}`;
+                // Concise tab title prefix: "Preferred" or "Fallback 1", "Fallback 2", etc.
+                const displayTitle = slot === 'pref'
+                    ? (i18n.t('Preferred') || 'Preferred')
+                    : `${i18n.t('Fallback') || 'Fallback'} ${slot}`;
 
-                        return `
+                return `
                             <button class="modal-filter-pill modal-slot-pill ${isActive ? 'active' : ''}" 
                                     data-slot="${slot}" 
                                     tabindex="0"
@@ -10584,7 +10625,7 @@ class SettingsPage extends Page {
                                 <span class="slot-pill-val">${escapeHtml(info.shortLabel)}</span>
                             </button>
                         `;
-                    }).join('')}
+            }).join('')}
                 </div>
             `;
 

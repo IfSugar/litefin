@@ -75,6 +75,8 @@
     "DisplayScale": "Display Scale",
     "DisplayScaleAuto": "Auto (Fit 1080p)",
     "DisplayScaleDescription": "Adjust overall interface scaling. \"Auto\" dynamically fits the layout to 1080p canvas proportions.",
+    "MobileFullscreen": "Fullscreen Mode",
+    "MobileFullscreenDescription": "Hide status and navigation bars on mobile devices for an edge-to-edge layout. When disabled, system bars remain visible in safe zone. Video playback always remains in fullscreen.",
     "DisplayTabDescription": "Customize themes, accent colors, icons, interface scaling, and display behavior.",
     "EditSubtitles": "Edit subtitles",
     "EnableEAC3": "EAC3 (Dolby Digital Plus) Force State",

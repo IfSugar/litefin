@@ -572,3 +572,105 @@ test('AndroidAdapter: dedicated media controls and MediaSession integration oper
     assert.strictEqual(actionHandlers['pause'], null);
     assert.strictEqual(mockMediaSession.metadata, null);
 });
+
+test('AndroidAdapter: mobile fullscreen toggling, default state, and TV vs Mobile distinction', () => {
+    const storageData = {};
+    const emittedEvents = [];
+
+    const mockEventBus = {
+        emit(event, data) {
+            emittedEvents.push({ event, data });
+        },
+        on() {},
+        off() {}
+    };
+
+    const mockStorage = {
+        getItem(key) {
+            return storageData[key] || null;
+        },
+        setItem(key, value) {
+            storageData[key] = String(value);
+        }
+    };
+
+    let nativeFullscreenCalls = [];
+    const mockWindow = {
+        LitefinAndroid: {
+            isTv() {
+                return false; // Mobile phone environment
+            },
+            setFullscreen(fs) {
+                nativeFullscreenCalls.push(fs);
+            }
+        },
+        addEventListener() {},
+        removeEventListener() {}
+    };
+
+    const mockDocument = {
+        addEventListener() {},
+        querySelector() { return null; },
+        documentElement: {
+            setAttribute() {},
+            removeAttribute() {},
+            style: {
+                removeProperty() {},
+                setProperty() {}
+            }
+        }
+    };
+
+    const androidAdapterSource = readFileSync(new URL('../src/android/AndroidAdapter.js', import.meta.url), 'utf8')
+        .replace(/\r\n/g, '\n')
+        .replace(/^import .*;\n/gm, '')
+        .replace(/^export .*;\n/gm, '');
+
+    const sandbox = {
+        eventBus: mockEventBus,
+        storage: mockStorage,
+        logger: { create: () => ({ info() {}, warn() {}, error() {}, debug() {} }) },
+        window: mockWindow,
+        document: mockDocument,
+        Date,
+        console
+    };
+
+    vm.createContext(sandbox);
+    vm.runInContext(androidAdapterSource + '\n; sandboxAdapter = new AndroidAdapter();', sandbox);
+
+    const adapter = sandbox.sandboxAdapter;
+
+    // 1. Verify default state is NOT fullscreen on mobile
+    assert.strictEqual(adapter.isMobileFullscreenEnabled(), false, 'Mobile fullscreen should default to false');
+
+    // 2. Initialize adapter on mobile - should invoke setFullscreen(false)
+    nativeFullscreenCalls = [];
+    adapter.init();
+    assert.deepStrictEqual(nativeFullscreenCalls, [false], 'Mobile init should set native fullscreen to false by default');
+
+    // 3. Toggle fullscreen ON
+    nativeFullscreenCalls = [];
+    adapter.setMobileFullscreen(true);
+    assert.strictEqual(adapter.isMobileFullscreenEnabled(), true, 'Preference should now be true');
+    assert.strictEqual(storageData['pref:mobileFullscreen'], 'true', 'Storage should persist true');
+    assert.deepStrictEqual(nativeFullscreenCalls, [true], 'Native bridge should receive setFullscreen(true)');
+    assert.ok(emittedEvents.some(e => e.event === 'settings:mobileFullscreenChanged' && e.data === true));
+
+    // 4. Toggle fullscreen OFF
+    nativeFullscreenCalls = [];
+    adapter.setMobileFullscreen(false);
+    assert.strictEqual(adapter.isMobileFullscreenEnabled(), false, 'Preference should now be false');
+    assert.strictEqual(storageData['pref:mobileFullscreen'], 'false', 'Storage should persist false');
+    assert.deepStrictEqual(nativeFullscreenCalls, [false], 'Native bridge should receive setFullscreen(false)');
+
+    // 5. Verify TV behavior: Android TV is always fullscreen
+    mockWindow.LitefinAndroid.isTv = () => true;
+    assert.strictEqual(adapter.isMobileFullscreenEnabled(), true, 'Android TV should always report fullscreen enabled');
+
+    // Attempting to set false on TV does not disable fullscreen
+    nativeFullscreenCalls = [];
+    adapter.setMobileFullscreen(false);
+    assert.strictEqual(nativeFullscreenCalls.length, 0, 'TV hardware should ignore setFullscreen calls from mobile toggle');
+});
+
