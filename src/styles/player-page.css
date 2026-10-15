@@ -670,12 +670,11 @@ html[data-light-music-player="true"] .audio-subtitle {
     transform: scale(0.88) !important;
 }
 
-/* Secondary Subtitle baseline: Always stationary at top of screen without vertical translation */
+/* Secondary Subtitle baseline: Stationary without vertical translation, position configured dynamically */
 .subtitle-overlay.secondary,
 .player-page .subtitle-overlay.secondary,
 .player-container ~ .subtitle-overlay.secondary {
-    bottom: auto !important;
-    top: 10% !important;
+    bottom: auto;
     -webkit-transform-origin: top center;
     transform-origin: top center;
 }
@@ -798,9 +797,8 @@ html[data-layout-tier="ultra-legacy"] .subtitle-overlay {
 }
 
 html[data-layout-tier="ultra-legacy"] .subtitle-overlay.secondary {
-    /* Secondary subtitles sit at the top */
+    /* Secondary subtitles sit at the top, position configured dynamically */
     bottom: auto !important;
-    top: 10% !important;
     -webkit-transform-origin: top center !important;
     transform-origin: top center !important;
     -webkit-transform: none !important;

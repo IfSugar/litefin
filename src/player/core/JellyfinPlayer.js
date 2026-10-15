@@ -4256,11 +4256,20 @@ export class JellyfinPlayer extends EventEmitter {
             this._subtitleManager.refreshStyles();
         }
 
+        /*
+         * ====================================================================
+         * Dual Backend and DOM Subtitle Synchronization
+         * ====================================================================
+         * If the platform backend supports native/hardware subtitle refreshing,
+         * delegate to it. Crucially, always emit the 'refreshsubtitles' event
+         * so PlayerPage can update external SRT, VTT, and secondary subtitle
+         * DOM overlay layers simultaneously.
+         * ====================================================================
+         */
         if (this._backend && this._backend.refreshSubtitles) {
             this._backend.refreshSubtitles();
-        } else {
-             this.emit('refreshsubtitles');
         }
+        this.emit('refreshsubtitles');
     }
 
     /**

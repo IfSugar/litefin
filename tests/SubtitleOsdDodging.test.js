@@ -17,6 +17,7 @@ globalThis.document = {
 };
 
 const { PlayerSettings } = await import('../src/utils/PlayerSettings.js');
+const { getSecondaryWindowStyles } = await import('../src/utils/SubtitleStyles.js');
 
 /**
  * ============================================================================
@@ -209,4 +210,51 @@ test('Dual Subtitle State strips osd-active when OSD is hidden or unmounted', ()
     assert.equal(pageEl.classList.contains('osd-active'), true, 'osd-active must be retained when OSD is visible');
     assert.equal(playerContainer.classList.contains('osd-active'), true, 'playerContainer osd-active must be retained when OSD is visible');
 });
+
+test('Secondary Subtitle position setting updates window styles correctly', () => {
+    storageMap.clear();
+
+    // Default position is 10% from top
+    let styles = getSecondaryWindowStyles();
+    assert.deepEqual(styles, [
+        { name: 'top', value: '10%' },
+        { name: 'bottom', value: 'auto' }
+    ]);
+
+    // Change setting to 25% from top
+    PlayerSettings.set('secondarySubtitleVerticalPositionCustom', 25);
+    styles = getSecondaryWindowStyles();
+    assert.deepEqual(styles, [
+        { name: 'top', value: '25%' },
+        { name: 'bottom', value: 'auto' }
+    ]);
+
+    // Change setting to 5% from top
+    PlayerSettings.set('secondarySubtitleVerticalPositionCustom', 5);
+    styles = getSecondaryWindowStyles();
+    assert.deepEqual(styles, [
+        { name: 'top', value: '5%' },
+        { name: 'bottom', value: 'auto' }
+    ]);
+});
+
+test('CSS rules ensure secondary subtitle does not have hardcoded top !important override', () => {
+    const cssPath = path.resolve('src/styles/player-page.css');
+    const cssContent = fs.readFileSync(cssPath, 'utf8');
+
+    // Verify secondary subtitle baseline does NOT force top !important
+    assert.doesNotMatch(
+        cssContent,
+        /\.subtitle-overlay\.secondary[^{]*\{[^}]*top:\s*10%\s*!important/s,
+        'Secondary subtitle baseline must not force top: 10% !important so dynamic inline styling works'
+    );
+
+    // Verify ultra-legacy does not force top !important
+    assert.doesNotMatch(
+        cssContent,
+        /html\[data-layout-tier="ultra-legacy"\]\s+\.subtitle-overlay\.secondary[^{]*\{[^}]*top:\s*10%\s*!important/s,
+        'Ultra-legacy secondary subtitle must not force top: 10% !important'
+    );
+});
+
 

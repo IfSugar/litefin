@@ -3575,68 +3575,73 @@ class PlayerPage extends Page {
 
         // Refresh primary overlay
         const overlay = document.getElementById('subtitle-overlay');
-        if (overlay && !overlay.classList.contains('hidden')) {
-            /* -------------------------------------------------------------
-               Re-render the active primary cue through sanitizeSubtitleText
-               so that dynamic tag formatting adjustments (such as toggling
-               subtitleOverrideColors in the OSD) take effect immediately.
-               ------------------------------------------------------------- */
-            if (this._currentSubtitleData && this._currentSubtitleData.text) {
-                overlay.innerHTML = `<span class="subtitle-line">${sanitizeSubtitleText(this._currentSubtitleData.text)}</span>`;
-            }
+        if (overlay) {
+            // Re-apply container styles (position/window) unconditionally
+            const windowStyles = SubtitleStyles.getWindowStyles();
+            SubtitleStyles.applyStyles(overlay, windowStyles);
 
-            const span = overlay.querySelector('.subtitle-line');
-            if (span) {
-                log.debug('Refreshing primary subtitle styles');
+            if (!overlay.classList.contains('hidden')) {
+                /* -------------------------------------------------------------
+                   Re-render the active primary cue through sanitizeSubtitleText
+                   so that dynamic tag formatting adjustments (such as toggling
+                   subtitleOverrideColors in the OSD) take effect immediately.
+                   ------------------------------------------------------------- */
+                if (this._currentSubtitleData && this._currentSubtitleData.text) {
+                    overlay.innerHTML = `<span class="subtitle-line">${sanitizeSubtitleText(this._currentSubtitleData.text)}</span>`;
+                }
 
-                // Re-apply text styles with current HDR status
-                const styles = SubtitleStyles.getTextStyles(isHdr);
-                SubtitleStyles.applyStyles(span, styles);
+                const span = overlay.querySelector('.subtitle-line');
+                if (span) {
+                    log.debug('Refreshing primary subtitle styles');
 
-                // Re-apply container styles (position/window)
-                const windowStyles = SubtitleStyles.getWindowStyles();
-                SubtitleStyles.applyStyles(overlay, windowStyles);
+                    // Re-apply text styles with current HDR status
+                    const styles = SubtitleStyles.getTextStyles(isHdr);
+                    SubtitleStyles.applyStyles(span, styles);
 
-                // Handle font loading if changed by user settings
-                const fontId = SubtitleStyles.getCurrentFontId();
-                if (fontId) {
-                    FontLoader.loadFont(fontId, true).then((loaded) => {
-                        if (loaded) {
-                            SubtitleStyles.applyStyles(span, styles);
-                        }
-                    });
+                    // Handle font loading if changed by user settings
+                    const fontId = SubtitleStyles.getCurrentFontId();
+                    if (fontId) {
+                        FontLoader.loadFont(fontId, true).then((loaded) => {
+                            if (loaded) {
+                                SubtitleStyles.applyStyles(span, styles);
+                            }
+                        });
+                    }
                 }
             }
         }
 
         // Refresh secondary overlay (inherits primary appearance — always re-apply on any change)
         const secondaryOverlay = document.getElementById('secondary-subtitle-overlay');
-        if (secondaryOverlay && !secondaryOverlay.classList.contains('hidden')) {
-            /* -------------------------------------------------------------
-               Re-render active secondary cue text through sanitizeSubtitleText.
-               ------------------------------------------------------------- */
-            if (this._currentSecondarySubtitleData && this._currentSecondarySubtitleData.text) {
-                secondaryOverlay.innerHTML = `<span class="subtitle-line">${sanitizeSubtitleText(this._currentSecondarySubtitleData.text)}</span>`;
-            }
+        if (secondaryOverlay) {
+            // Re-apply secondary window/position styles unconditionally
+            const secondaryWindowStyles = SubtitleStyles.getSecondaryWindowStyles();
+            SubtitleStyles.applyStyles(secondaryOverlay, secondaryWindowStyles);
 
-            const span = secondaryOverlay.querySelector('.subtitle-line');
-            if (span) {
-                log.debug('Refreshing secondary subtitle styles');
+            if (!secondaryOverlay.classList.contains('hidden')) {
+                /* -------------------------------------------------------------
+                   Re-render active secondary cue text through sanitizeSubtitleText.
+                   ------------------------------------------------------------- */
+                if (this._currentSecondarySubtitleData && this._currentSecondarySubtitleData.text) {
+                    secondaryOverlay.innerHTML = `<span class="subtitle-line">${sanitizeSubtitleText(this._currentSecondarySubtitleData.text)}</span>`;
+                }
 
-                // Secondary uses inherited styles with its own size override and respects HDR opacity settings
-                const styles = SubtitleStyles.getSecondaryTextStyles(isHdr);
-                SubtitleStyles.applyStyles(span, styles);
+                const span = secondaryOverlay.querySelector('.subtitle-line');
+                if (span) {
+                    log.debug('Refreshing secondary subtitle styles');
 
-                const windowStyles = SubtitleStyles.getSecondaryWindowStyles();
-                SubtitleStyles.applyStyles(secondaryOverlay, windowStyles);
+                    // Secondary uses inherited styles with its own size override and respects HDR opacity settings
+                    const styles = SubtitleStyles.getSecondaryTextStyles(isHdr);
+                    SubtitleStyles.applyStyles(span, styles);
 
-                const fontId = SubtitleStyles.getCurrentFontId();
-                if (fontId) {
-                    FontLoader.loadFont(fontId, true).then((loaded) => {
-                        if (loaded) {
-                            SubtitleStyles.applyStyles(span, styles);
-                        }
-                    });
+                    const fontId = SubtitleStyles.getCurrentFontId();
+                    if (fontId) {
+                        FontLoader.loadFont(fontId, true).then((loaded) => {
+                            if (loaded) {
+                                SubtitleStyles.applyStyles(span, styles);
+                            }
+                        });
+                    }
                 }
             }
         }
@@ -5355,11 +5360,19 @@ class PlayerPage extends Page {
         document.body.classList.remove('player-active', 'lyrics-active');
         document.documentElement.classList.remove('player-active');
 
-        // Maintain immersive fullscreen mode across all views
+        // ---------------------------------------------------------------------
+        // Restore Android Window & Fullscreen Configuration
+        // ---------------------------------------------------------------------
+        // Video playback runs locked to immersive fullscreen. Upon exit, restore
+        // the user's mobile preference (or maintain fullscreen on dedicated TVs).
+        // ---------------------------------------------------------------------
         if (platformInfo.isAndroid) {
-            androidAdapter.setFullscreen(true);
+            const shouldBeFs = androidAdapter.isAndroidTv || androidAdapter.isMobileFullscreenEnabled();
+            androidAdapter.setFullscreen(shouldBeFs);
+            
             // Release keep-screen-on wake lock upon exiting player view
             androidAdapter.setKeepScreenOn(false);
+            
             // Clear registered MediaSession action handlers and reset system transport state
             androidAdapter.clearMediaSession();
         }
