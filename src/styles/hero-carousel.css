@@ -164,31 +164,41 @@
     position: absolute;
     top: 0;
     left: 0;
-    width: 100%;
+    /* 
+     * PERFORMANCE OPTIMIZATION (Geometry Bounding):
+     * Restrict width to 65% (where typography and logos live).
+     * Eliminates 35% of redundant transparent fragment shader overdraw
+     * across the right side of the screen over the backdrop image.
+     */
+    width: 65%;
     height: 100%;
-    /* Horizontal gradient fading to transparent - LTR fallback */
+    /* 
+     * PERFORMANCE OPTIMIZATION (Stop Simplification):
+     * Simplified 3-stop gradient reduces fragment shader ALU instructions.
+     */
     background: linear-gradient(
         to right,
         var(--hero-vignette-start) 0%,
-        var(--hero-vignette-start) 25%,
-        var(--hero-vignette-mid) 60%,
+        var(--hero-vignette-mid) 45%,
         var(--hero-vignette-end) 100%
     );
     z-index: 1;
-    /* Static pseudo-element — no will-change needed */
+    pointer-events: none;
+    transform: translateZ(0);
 }
 
 /*
  * RTL specific text shadow mirror rule.
- * Shifts the vignette center to 100% (right side) and flips gradient direction.
+ * Positions on the right side and flips gradient direction to left.
  */
 [dir="rtl"] .hero-item::before {
     --hero-gradient-x: 100%;
+    left: auto;
+    right: 0;
     background: linear-gradient(
         to left,
         var(--hero-vignette-start) 0%,
-        var(--hero-vignette-start) 25%,
-        var(--hero-vignette-mid) 60%,
+        var(--hero-vignette-mid) 45%,
         var(--hero-vignette-end) 100%
     );
 }
@@ -197,12 +207,25 @@
 .hero-item::after {
     content: '';
     position: absolute;
-    top: 0;
+    /* 
+     * PERFORMANCE OPTIMIZATION (Geometry Bounding):
+     * Instead of spanning 100% height with 60% transparent overdraw,
+     * physically bound the element to the bottom 42% where the fade actually lives.
+     * Instantly cuts GPU fragment shader fill-rate for this layer by ~58%!
+     */
+    bottom: 0;
     left: 0;
     width: 100%;
-    height: 100%;
-    background: linear-gradient(to top,var(--jf-background) 4%,rgba(0,0,0,.8) 30%,transparent 40%);
+    height: 42%;
+    /* Simplified 2-stop bottom gradient for smooth background blending into theme background */
+    background: linear-gradient(
+        to top,
+        var(--jf-background) 0%,
+        transparent 100%
+    );
     z-index: 2;
+    pointer-events: none;
+    transform: translateZ(0);
 }
 
 /* ============================================================================
@@ -997,87 +1020,94 @@
  */
 
 .hero-carousel-container.immersive-performance .hero-backdrop {
-    /* Position image on the right quadrant, spanning ~60% width */
+    /* 
+     * Position artwork on the right quadrant, spanning 65% width and 100% height.
+     * Full height allows the bottom fade to extend across the entire 972px canvas,
+     * seamlessly dissolving behind the row cards into the section below without
+     * any premature horizontal shelf cutoff at 750px.
+     */
     position: absolute;
     top: 0;
     right: 0;
     left: auto;
-    width: 60%;
-    height: 75%;
-    max-height: 750px;
+    width: 65%;
+    height: 100%;
     background-size: cover;
     background-position: center 15%;
     background-repeat: no-repeat;
     transform: translateZ(0);
+
+    /*
+     * Horizontal Alpha Masking:
+     * Feathers the left edge of the backdrop image into the typography side.
+     * The vertical bottom fade is handled universally on the parent (.hero-item),
+     * avoiding multi-mask compositing bugs across different TV browser engines.
+     */
+    -webkit-mask-image: linear-gradient(
+        to right,
+        transparent 0%,
+        rgba(0, 0, 0, 0.02) 8%,
+        rgba(0, 0, 0, 0.10) 18%,
+        rgba(0, 0, 0, 0.26) 30%,
+        rgba(0, 0, 0, 0.48) 44%,
+        rgba(0, 0, 0, 0.70) 58%,
+        rgba(0, 0, 0, 0.86) 70%,
+        rgba(0, 0, 0, 0.96) 82%,
+        black 92%
+    );
+    mask-image: linear-gradient(
+        to right,
+        transparent 0%,
+        rgba(0, 0, 0, 0.02) 8%,
+        rgba(0, 0, 0, 0.10) 18%,
+        rgba(0, 0, 0, 0.26) 30%,
+        rgba(0, 0, 0, 0.48) 44%,
+        rgba(0, 0, 0, 0.70) 58%,
+        rgba(0, 0, 0, 0.86) 70%,
+        rgba(0, 0, 0, 0.96) 82%,
+        black 92%
+    );
 }
 
 [dir="rtl"] .hero-carousel-container.immersive-performance .hero-backdrop {
-    /* Mirror backdrop placement to the left quadrant in RTL layouts */
+    /* Mirrored horizontal alpha mask for RTL reading direction */
     right: auto;
     left: 0;
+    -webkit-mask-image: linear-gradient(
+        to left,
+        transparent 0%,
+        rgba(0, 0, 0, 0.02) 8%,
+        rgba(0, 0, 0, 0.10) 18%,
+        rgba(0, 0, 0, 0.26) 30%,
+        rgba(0, 0, 0, 0.48) 44%,
+        rgba(0, 0, 0, 0.70) 58%,
+        rgba(0, 0, 0, 0.86) 70%,
+        rgba(0, 0, 0, 0.96) 82%,
+        black 92%
+    );
+    mask-image: linear-gradient(
+        to left,
+        transparent 0%,
+        rgba(0, 0, 0, 0.02) 8%,
+        rgba(0, 0, 0, 0.10) 18%,
+        rgba(0, 0, 0, 0.26) 30%,
+        rgba(0, 0, 0, 0.48) 44%,
+        rgba(0, 0, 0, 0.70) 58%,
+        rgba(0, 0, 0, 0.86) 70%,
+        rgba(0, 0, 0, 0.96) 82%,
+        black 92%
+    );
 }
 
-/* Suppress redundant full-screen linear gradient vignettes on .hero-item */
+/*
+ * Suppress full-screen linear gradient vignettes & solid color overlays:
+ * Because the hardware alpha mask handles the transparent falloff on the GPU,
+ * hardcoded black overlays on ::before and ::after are disabled to prevent
+ * stamping black paint over colorful themes (e.g. Purple Haze, Blue Radiance).
+ */
 .hero-carousel-container.immersive-performance .hero-item::before,
-.hero-carousel-container.immersive-performance .hero-item::after {
-    display: none !important;
-}
-
-/*
- * Rectangular Edge Feathering for Non-Ambient Themes:
- * In solid-color themes, blends the artwork smoothly into var(--jf-background)
- * using dual perpendicular linear gradients on ::after. This creates a clean
- * rectangular fade (vertical fade on the left, horizontal fade on the bottom)
- * executed purely in the GPU fragment shader without software rasterization.
- */
+.hero-carousel-container.immersive-performance .hero-item::after,
 .hero-carousel-container.immersive-performance .hero-backdrop::after {
-    content: '';
-    position: absolute;
-    inset: 0;
-    pointer-events: none;
-    z-index: 1;
-    background:
-        linear-gradient(to right, var(--jf-background) 0%, rgba(0, 0, 0, 0.6) 12%, transparent 32%),
-        linear-gradient(to top, var(--jf-background) 0%, rgba(0, 0, 0, 0.6) 10%, transparent 28%);
-}
-
-[dir="rtl"] .hero-carousel-container.immersive-performance .hero-backdrop::after {
-    background:
-        linear-gradient(to left, var(--jf-background) 0%, rgba(0, 0, 0, 0.6) 12%, transparent 32%),
-        linear-gradient(to top, var(--jf-background) 0%, rgba(0, 0, 0, 0.6) 10%, transparent 28%);
-}
-
-/*
- * Rectangular Edge Alpha Mask for Ambient Glow Theme:
- * In Ambient Glow mode, true alpha transparency on .hero-backdrop is essential
- * so the dynamic colorful ambient mesh on <body> bleeds through cleanly.
- * We apply intersecting linear gradient masks for a smooth rectangular fade.
- */
-[data-theme-mode="ambient"] .hero-carousel-container.immersive-performance .hero-backdrop {
-    -webkit-mask-image:
-        linear-gradient(to right, transparent 0%, rgba(0, 0, 0, 0.15) 10%, rgba(0, 0, 0, 0.7) 22%, black 32%),
-        linear-gradient(to top, transparent 0%, rgba(0, 0, 0, 0.2) 8%, rgba(0, 0, 0, 0.75) 18%, black 28%);
-    mask-image:
-        linear-gradient(to right, transparent 0%, rgba(0, 0, 0, 0.15) 10%, rgba(0, 0, 0, 0.7) 22%, black 32%),
-        linear-gradient(to top, transparent 0%, rgba(0, 0, 0, 0.2) 8%, rgba(0, 0, 0, 0.75) 18%, black 28%);
-    -webkit-mask-composite: source-in;
-    mask-composite: intersect;
-}
-
-[dir="rtl"][data-theme-mode="ambient"] .hero-carousel-container.immersive-performance .hero-backdrop,
-[data-theme-mode="ambient"] [dir="rtl"] .hero-carousel-container.immersive-performance .hero-backdrop {
-    -webkit-mask-image:
-        linear-gradient(to left, transparent 0%, rgba(0, 0, 0, 0.15) 10%, rgba(0, 0, 0, 0.7) 22%, black 32%),
-        linear-gradient(to top, transparent 0%, rgba(0, 0, 0, 0.2) 8%, rgba(0, 0, 0, 0.75) 18%, black 28%);
-    mask-image:
-        linear-gradient(to left, transparent 0%, rgba(0, 0, 0, 0.15) 10%, rgba(0, 0, 0, 0.7) 22%, black 32%),
-        linear-gradient(to top, transparent 0%, rgba(0, 0, 0, 0.2) 8%, rgba(0, 0, 0, 0.75) 18%, black 28%);
-    -webkit-mask-composite: source-in;
-    mask-composite: intersect;
-}
-
-/* Eliminate redundant overlay in ambient glow mode when mask is active */
-[data-theme-mode="ambient"] .hero-carousel-container.immersive-performance .hero-backdrop::after {
     display: none !important;
 }
 
@@ -1119,6 +1149,29 @@
     transition: opacity 600ms ease-out;
     pointer-events: none;
     image-rendering: auto;
+    /*
+     * Soft Bottom Feathering:
+     * Fades the low-frequency ambient canvas softly into the background body mesh
+     * without introducing any artificial black pigment or dark bands beneath rows.
+     */
+    -webkit-mask-image: linear-gradient(
+        to top,
+        transparent 0%,
+        rgba(0, 0, 0, 0.02) 6%,
+        rgba(0, 0, 0, 0.12) 16%,
+        rgba(0, 0, 0, 0.38) 28%,
+        rgba(0, 0, 0, 0.75) 42%,
+        black 58%
+    );
+    mask-image: linear-gradient(
+        to top,
+        transparent 0%,
+        rgba(0, 0, 0, 0.02) 6%,
+        rgba(0, 0, 0, 0.12) 16%,
+        rgba(0, 0, 0, 0.38) 28%,
+        rgba(0, 0, 0, 0.75) 42%,
+        black 58%
+    );
 }
 
 .hero-blurhash-fill-vignette {
@@ -1128,50 +1181,32 @@
     height: 100%;
     pointer-events: none;
     z-index: 1;
-    background:
-        linear-gradient(to top, var(--jf-background) 0%, var(--jf-background) 6%, rgba(0, 0, 0, 0.45) 24%, transparent 55%),
-        linear-gradient(to right, rgba(0, 0, 0, 0.8) 0%, rgba(0, 0, 0, 0.5) 35%, rgba(0, 0, 0, 0.15) 65%, transparent 100%);
+    /*
+     * Text-Side Contrast Protection Vignette:
+     * Provides solid contrast behind title typography and metadata on the left quadrant,
+     * while completely preserving clean bottom transparency for the active theme colors.
+     */
+    background: linear-gradient(
+        to right,
+        rgba(0, 0, 0, 0.92) 0%,
+        rgba(0, 0, 0, 0.80) 16%,
+        rgba(0, 0, 0, 0.56) 36%,
+        rgba(0, 0, 0, 0.28) 58%,
+        rgba(0, 0, 0, 0.08) 78%,
+        transparent 92%
+    );
 }
 
 [dir="rtl"] .hero-blurhash-fill-vignette {
-    background:
-        linear-gradient(to top, var(--jf-background) 0%, var(--jf-background) 6%, rgba(0, 0, 0, 0.45) 24%, transparent 55%),
-        linear-gradient(to left, rgba(0, 0, 0, 0.8) 0%, rgba(0, 0, 0, 0.5) 35%, rgba(0, 0, 0, 0.15) 65%, transparent 100%);
-}
-
-/* 
- * Rectangular Feathering in Immersive Performance Mode:
- * When blurhash fill is active, feather .hero-backdrop using dual perpendicular
- * linear gradient masks (smooth vertical fade on the left, horizontal fade on the bottom)
- * so the artwork seamlessly melts into the matching blurhash canvas underneath it.
- * This replaces the oval shape with a cinematic rectangular transition while
- * remaining 100% GPU-accelerated.
- */
-.hero-carousel-container.with-blurhash-fill.immersive-performance .hero-backdrop {
-    -webkit-mask-image:
-        linear-gradient(to right, transparent 0%, rgba(0, 0, 0, 0.15) 10%, rgba(0, 0, 0, 0.7) 22%, black 32%),
-        linear-gradient(to top, transparent 0%, rgba(0, 0, 0, 0.2) 8%, rgba(0, 0, 0, 0.75) 18%, black 28%);
-    mask-image:
-        linear-gradient(to right, transparent 0%, rgba(0, 0, 0, 0.15) 10%, rgba(0, 0, 0, 0.7) 22%, black 32%),
-        linear-gradient(to top, transparent 0%, rgba(0, 0, 0, 0.2) 8%, rgba(0, 0, 0, 0.75) 18%, black 28%);
-    -webkit-mask-composite: source-in;
-    mask-composite: intersect;
-}
-
-[dir="rtl"] .hero-carousel-container.with-blurhash-fill.immersive-performance .hero-backdrop,
-.hero-carousel-container.with-blurhash-fill.immersive-performance [dir="rtl"] .hero-backdrop {
-    -webkit-mask-image:
-        linear-gradient(to left, transparent 0%, rgba(0, 0, 0, 0.15) 10%, rgba(0, 0, 0, 0.7) 22%, black 32%),
-        linear-gradient(to top, transparent 0%, rgba(0, 0, 0, 0.2) 8%, rgba(0, 0, 0, 0.75) 18%, black 28%);
-    mask-image:
-        linear-gradient(to left, transparent 0%, rgba(0, 0, 0, 0.15) 10%, rgba(0, 0, 0, 0.7) 22%, black 32%),
-        linear-gradient(to top, transparent 0%, rgba(0, 0, 0, 0.2) 8%, rgba(0, 0, 0, 0.75) 18%, black 28%);
-    -webkit-mask-composite: source-in;
-    mask-composite: intersect;
-}
-
-.hero-carousel-container.with-blurhash-fill.immersive-performance .hero-backdrop::after {
-    display: none !important;
+    background: linear-gradient(
+        to left,
+        rgba(0, 0, 0, 0.92) 0%,
+        rgba(0, 0, 0, 0.80) 16%,
+        rgba(0, 0, 0, 0.56) 36%,
+        rgba(0, 0, 0, 0.28) 58%,
+        rgba(0, 0, 0, 0.08) 78%,
+        transparent 92%
+    );
 }
 
 
@@ -1208,85 +1243,243 @@
 /*
  * Single-mask approach: apply mask-image to .hero-item (the parent), which clips
  * both the .hero-backdrop image AND the ::before vignette overlay in one operation.
- * No need for separate masks on each child.
+ * Universal across ALL themes (Ambient, Tinted, Classic Dark, Classic Light, etc.).
+ * Guarantees that no theme paints an artificial black gradient over the bottom row cards.
  */
 
-/* Standard widescreen - Ambient Glow theme only */
-[data-theme-mode="ambient"] .hero-carousel-container.immersive:not(.compact) .hero-item {
-    -webkit-mask-image: linear-gradient(to bottom, black 35%, transparent 85%);
-    mask-image: linear-gradient(to bottom, black 35%, transparent 85%);
-}
-[data-theme-mode="ambient"] .hero-carousel-container.semi-immersive:not(.compact) .hero-item {
-    -webkit-mask-image: linear-gradient(to bottom, black 40%, transparent 90%);
-    mask-image: linear-gradient(to bottom, black 40%, transparent 90%);
+/* Standard widescreen - Universal Across All Themes */
+.hero-carousel-container.immersive:not(.compact) .hero-item,
+.hero-carousel-container.immersive-performance:not(.compact) .hero-item {
+    -webkit-mask-image: linear-gradient(
+        to bottom,
+        black 35%,
+        rgba(0, 0, 0, 0.96) 48%,
+        rgba(0, 0, 0, 0.75) 62%,
+        rgba(0, 0, 0, 0.38) 76%,
+        rgba(0, 0, 0, 0.08) 88%,
+        transparent 96%
+    );
+    mask-image: linear-gradient(
+        to bottom,
+        black 35%,
+        rgba(0, 0, 0, 0.96) 48%,
+        rgba(0, 0, 0, 0.75) 62%,
+        rgba(0, 0, 0, 0.38) 76%,
+        rgba(0, 0, 0, 0.08) 88%,
+        transparent 96%
+    );
 }
 
-/* Compact widescreen - Ambient Glow theme only */
-[data-theme-mode="ambient"] .hero-carousel-container.immersive.compact .hero-item {
-    -webkit-mask-image: linear-gradient(to bottom, black 30%, transparent 80%);
-    mask-image: linear-gradient(to bottom, black 30%, transparent 80%);
+/* Compact widescreen - Universal Across All Themes */
+.hero-carousel-container.immersive.compact .hero-item,
+.hero-carousel-container.immersive-performance.compact .hero-item {
+    -webkit-mask-image: linear-gradient(
+        to bottom,
+        black 30%,
+        rgba(0, 0, 0, 0.95) 44%,
+        rgba(0, 0, 0, 0.70) 58%,
+        rgba(0, 0, 0, 0.32) 72%,
+        rgba(0, 0, 0, 0.06) 84%,
+        transparent 94%
+    );
+    mask-image: linear-gradient(
+        to bottom,
+        black 30%,
+        rgba(0, 0, 0, 0.95) 44%,
+        rgba(0, 0, 0, 0.70) 58%,
+        rgba(0, 0, 0, 0.32) 72%,
+        rgba(0, 0, 0, 0.06) 84%,
+        transparent 94%
+    );
 }
-[data-theme-mode="ambient"] .hero-carousel-container.semi-immersive.compact .hero-item {
-    -webkit-mask-image: linear-gradient(to bottom, black 35%, transparent 80%);
-    mask-image: linear-gradient(to bottom, black 35%, transparent 80%);
+
+/*
+ * ============================================================================
+ * Semi-Immersive Layout & Mask Architecture
+ * ============================================================================
+ * In semi-immersive mode, text content (.hero-content) is positioned directly
+ * near the bottom of the canvas (padding-bottom: 120px / 80px compact).
+ * If a vertical mask is applied to the parent .hero-item, the alpha gradient
+ * occludes the overview and meta typography, reducing opacity and readability.
+ *
+ * Architecture Resolution:
+ * 1. .hero-item is left completely unmasked so all text details remain 100% opaque.
+ * 2. .hero-backdrop receives its own bottom alpha mask to softly dissolve artwork
+ *    directly into the theme background without leaving a harsh horizontal shelf.
+ * 3. .hero-item::before receives a dedicated vertical mask that shields the text
+ *    with deep contrast while dissolving to 0% at the baseline edge.
+ * ============================================================================
+ */
+
+/* Keep typography parent container completely unmasked for maximum clarity */
+.hero-carousel-container.semi-immersive .hero-item {
+    -webkit-mask-image: none !important;
+    mask-image: none !important;
+}
+
+/*
+ * Standard Semi-Immersive Backdrop Fade:
+ * Smooth 7-stop polynomial ease curve dissolving artwork texture into --jf-background.
+ * Ensures the bottom boundary vanishes into the section background above media rows.
+ */
+.hero-carousel-container.semi-immersive:not(.compact) .hero-backdrop {
+    -webkit-mask-image: linear-gradient(
+        to bottom,
+        black 25%,
+        rgba(0, 0, 0, 0.96) 40%,
+        rgba(0, 0, 0, 0.82) 54%,
+        rgba(0, 0, 0, 0.58) 68%,
+        rgba(0, 0, 0, 0.30) 80%,
+        rgba(0, 0, 0, 0.08) 92%,
+        transparent 100%
+    );
+    mask-image: linear-gradient(
+        to bottom,
+        black 25%,
+        rgba(0, 0, 0, 0.96) 40%,
+        rgba(0, 0, 0, 0.82) 54%,
+        rgba(0, 0, 0, 0.58) 68%,
+        rgba(0, 0, 0, 0.30) 80%,
+        rgba(0, 0, 0, 0.08) 92%,
+        transparent 100%
+    );
+}
+
+/*
+ * Compact Semi-Immersive Backdrop Fade:
+ * Calibrated for lower canvas height (540px) to deliver an identical smooth gradient falloff.
+ */
+.hero-carousel-container.semi-immersive.compact .hero-backdrop {
+    -webkit-mask-image: linear-gradient(
+        to bottom,
+        black 20%,
+        rgba(0, 0, 0, 0.95) 35%,
+        rgba(0, 0, 0, 0.80) 50%,
+        rgba(0, 0, 0, 0.54) 65%,
+        rgba(0, 0, 0, 0.28) 78%,
+        rgba(0, 0, 0, 0.06) 90%,
+        transparent 100%
+    );
+    mask-image: linear-gradient(
+        to bottom,
+        black 20%,
+        rgba(0, 0, 0, 0.95) 35%,
+        rgba(0, 0, 0, 0.80) 50%,
+        rgba(0, 0, 0, 0.54) 65%,
+        rgba(0, 0, 0, 0.28) 78%,
+        rgba(0, 0, 0, 0.06) 90%,
+        transparent 100%
+    );
 }
 
 /* 
- * Eliminate redundant second gradient layer in Ambient Glow mode:
- * When alpha masking is already carving out the backdrop transparency,
- * this overlay gradient is pure overdraw overhead.
+ * Completely suppress redundant hardcoded black gradient overlay (::after) across ALL themes:
+ * Because hardware alpha masking seamlessly dissolves the backdrop into the theme's true
+ * background canvas, ::after's hardcoded black paint is eliminated on all modes
+ * (Ambient, Tinted, Classic Dark, Classic Light, OLED Black, etc.).
  */
-[data-theme-mode="ambient"] .hero-carousel-container.immersive .hero-item::after,
-[data-theme-mode="ambient"] .hero-carousel-container.semi-immersive .hero-item::after,
-[data-theme-mode="ambient"] .hero-carousel-container.immersive.compact .hero-item::after,
-[data-theme-mode="ambient"] .hero-carousel-container.semi-immersive.compact .hero-item::after {
+.hero-carousel-container.immersive .hero-item::after,
+.hero-carousel-container.immersive-performance .hero-item::after,
+.hero-carousel-container.semi-immersive .hero-item::after,
+.hero-carousel-container.compact .hero-item::after {
     display: none !important;
 }
-
-/* ::before inherits the fade from .hero-item's mask above — no separate mask needed */
-
 
 /* 
  * ============================================================================
  * Text Shadow Overlay (::before)
  * ============================================================================
- * We replace the old mask-image and background-size hacks with standard CSS
- * elliptical radial gradients. By using calc() for the vertical radius, we
- * fade the dark text vignette exactly above the row overlap boundaries.
- * This prevents sharp horizontal seam lines while keeping paint fully on-GPU.
+ * Standard horizontal contrast gradient covering typography on the left quadrant.
+ * Bounded to 65% width to reduce GPU overdraw across the right artwork region.
  * ============================================================================
  */
 
-/* 
- * Text Shadow Overlay (::before):
- * Uses dynamic linear-gradient overlays driven by CSS variables (--hero-vignette-start, etc.).
- * seamlessly into the backdrop artwork without sharp boundary artifacts.
- */
 .hero-carousel-container.immersive .hero-item::before,
 .hero-carousel-container.semi-immersive .hero-item::before,
 .hero-carousel-container.immersive.compact .hero-item::before,
 .hero-carousel-container.semi-immersive.compact .hero-item::before {
-    -webkit-mask-image: none !important;
-    mask-image: none !important;
+    width: 65%;
     background: linear-gradient(
         to right,
         var(--hero-vignette-start) 0%,
-        var(--hero-vignette-start) 25%,
-        var(--hero-vignette-mid) 60%,
+        var(--hero-vignette-mid) 45%,
         var(--hero-vignette-end) 100%
     );
 }
 
+/* RTL horizontal vignette mirror rule */
 [dir="rtl"] .hero-carousel-container.immersive .hero-item::before,
 [dir="rtl"] .hero-carousel-container.semi-immersive .hero-item::before,
 [dir="rtl"] .hero-carousel-container.immersive.compact .hero-item::before,
 [dir="rtl"] .hero-carousel-container.semi-immersive.compact .hero-item::before {
+    left: auto;
+    right: 0;
+    width: 65%;
     background: linear-gradient(
         to left,
         var(--hero-vignette-start) 0%,
-        var(--hero-vignette-start) 25%,
-        var(--hero-vignette-mid) 60%,
+        var(--hero-vignette-mid) 45%,
         var(--hero-vignette-end) 100%
+    );
+}
+
+/* 
+ * Immersive modes inherit the vertical bottom fade from .hero-item's mask,
+ * so ::before does not need its own vertical alpha mask in immersive mode.
+ */
+.hero-carousel-container.immersive .hero-item::before,
+.hero-carousel-container.immersive.compact .hero-item::before {
+    -webkit-mask-image: none !important;
+    mask-image: none !important;
+}
+
+/*
+ * Semi-Immersive Text Contrast Vignette Falloff:
+ * Dedicated vertical alpha ramp for the left vignette overlay.
+ * Delivers deep, uncompromised contrast behind titles and synopsis details,
+ * then softly fades to 0% below the text baseline so no dark rectangular box
+ * stamps over the active theme canvas.
+ */
+.hero-carousel-container.semi-immersive:not(.compact) .hero-item::before {
+    -webkit-mask-image: linear-gradient(
+        to bottom,
+        black 0%,
+        black 65%,
+        rgba(0, 0, 0, 0.92) 76%,
+        rgba(0, 0, 0, 0.45) 86%,
+        rgba(0, 0, 0, 0.08) 94%,
+        transparent 100%
+    );
+    mask-image: linear-gradient(
+        to bottom,
+        black 0%,
+        black 65%,
+        rgba(0, 0, 0, 0.92) 76%,
+        rgba(0, 0, 0, 0.45) 86%,
+        rgba(0, 0, 0, 0.08) 94%,
+        transparent 100%
+    );
+}
+
+/* Compact Semi-Immersive Text Contrast Vignette Falloff */
+.hero-carousel-container.semi-immersive.compact .hero-item::before {
+    -webkit-mask-image: linear-gradient(
+        to bottom,
+        black 0%,
+        black 62%,
+        rgba(0, 0, 0, 0.90) 74%,
+        rgba(0, 0, 0, 0.45) 86%,
+        rgba(0, 0, 0, 0.08) 94%,
+        transparent 100%
+    );
+    mask-image: linear-gradient(
+        to bottom,
+        black 0%,
+        black 62%,
+        rgba(0, 0, 0, 0.90) 74%,
+        rgba(0, 0, 0, 0.45) 86%,
+        rgba(0, 0, 0, 0.08) 94%,
+        transparent 100%
     );
 }
 
