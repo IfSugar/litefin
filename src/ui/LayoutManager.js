@@ -825,6 +825,11 @@ class LayoutManager {
                 background-color: ${resolvedBg} !important;
             }\n`;
 
+            // Ensure focused setting item row background updates cleanly with active accent on ancient engines
+            dynamicCss += `html[data-layout-quirks="c26"] .setting-item.focused-row {
+                background-color: rgba(${accents.accentRgb}, 0.15) !important;
+            }\n`;
+
             if (this._themeMode === THEME_MODES.AMBIENT) {
                 // Apply vendor-prefixed -webkit-radial-gradient using the calculated accent RGB values
                 // coordinates are mapped directly to match the modern CSS radial-gradient spots.
