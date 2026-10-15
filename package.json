@@ -20,6 +20,7 @@
         "serve:normal": "webpack serve --config webpack.config.cjs --config-name normal",
         "serve:legacy": "webpack serve --config webpack.config.cjs --config-name legacy",
         "serve:ultra-legacy": "webpack serve --config webpack.config.cjs --config-name ultra-legacy",
+        "serve:web": "webpack serve --config webpack.config.cjs --config-name web",
         "lint": "eslint src/",
         "lint:fix": "eslint src/ --fix",
         "format": "prettier --write src/",

@@ -647,10 +647,14 @@ export class ApiClient {
                     const data = JSON.parse(bodyText);
                     message = data.message || data.Message || message;
                 } catch {
-                    // Not JSON — use raw text as the error message (trim to 200 chars max)
-                    const trimmed = (bodyText || '').trim();
-                    if (trimmed) {
-                        message = trimmed.length > 200 ? trimmed.slice(0, 200) + '…' : trimmed;
+                    // Not JSON — check if HTML response and extract readable text
+                    let cleaned = (bodyText || '').trim();
+                    if (cleaned.startsWith('<')) {
+                        // Strip HTML markup and collapse whitespace
+                        cleaned = cleaned.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+                    }
+                    if (cleaned) {
+                        message = cleaned.length > 200 ? cleaned.slice(0, 200) + '…' : cleaned;
                     }
                 }
             }
