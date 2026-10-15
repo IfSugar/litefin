@@ -19,6 +19,7 @@ import { androidAdapter } from '../android/AndroidAdapter.js';
 import { desktopAdapter } from '../desktop/DesktopAdapter.js';
 import { webAdapter } from '../web/WebAdapter.js';
 import { platformInfo } from '../utils/PlatformInfo.js';
+import { webCodecsProbe } from '../utils/WebCodecsProbe.js';
 import { layoutManager } from '../ui/LayoutManager.js';
 import { isFallbackFont } from '../utils/FallbackFonts.js';
 import { i18n } from '../utils/i18n.js';
@@ -116,6 +117,11 @@ class App {
             desktopAdapter.init();
         } else {
             webAdapter.init();
+        }
+
+        // 1.6.1. Probe WebCodecs AV1 decoding in the background (Movi backend on desktop and web)
+        if ((platformInfo.isDesktop || platformInfo.isWeb) && platformInfo.hasWebCodecsSupport) {
+            webCodecsProbe.probeAV1();
         }
 
         // 1.7. Initialize Image Cache — opens IndexedDB for homepage blob caching

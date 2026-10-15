@@ -26,6 +26,7 @@ import { PlayerSettings } from '../../utils/PlayerSettings.js';
 import { api } from '../../api/index.js';
 import { storage } from '../../utils/StorageService.js';
 import { prewarmManager } from './PrewarmManager.js';
+import { webCodecsProbe } from '../../utils/WebCodecsProbe.js';
 import { languageManager } from '../../utils/LanguageManager.js';
 import { AUDIO_FALLBACK_STORAGE_KEYS } from '../../utils/AudioFallbackConfig.js';
 
@@ -2008,6 +2009,11 @@ export class JellyfinPlayer extends EventEmitter {
                 profilePlaybackMode = 'remux';
             }
 
+            // The desktop and web profiles depend on the WebCodecs AV1 probe; it is cached after the first run.
+            if ((platformInfo.isDesktop || platformInfo.isWeb) && platformInfo.hasWebCodecsSupport) {
+                await webCodecsProbe.probeAV1();
+            }
+
             // Build device profile once (avoids duplicate logs/work).
             // On an interlaced fallback retry, a pre-built html5 profile is passed in
             // via options._deviceProfile so we don't rebuild with the wrong settings.
@@ -2407,6 +2413,57 @@ export class JellyfinPlayer extends EventEmitter {
                         _deviceProfile: html5Profile
                     });
                 }
+            }
+
+            // ================================================================
+            // WebCodecs AV1 Backend Fallback — Movi Auto-Switch
+            //
+            // Some engines advertise AV1 through WebCodecs but fail every decode
+            // (WebKitGTK/WPE up to 2.54.0, see WebCodecsProbe), so Movi cannot play it.
+            // The HTML5 backend decodes through the media element instead of WebCodecs:
+            // it plays AV1 with the engine's own decoders, and the server transcodes when
+            // the engine has none. Restart on it when the conditions below hold. Needed
+            // only until WebKitGTK/WPE releases with the AV1 fixes ship; on those the
+            // probe passes and this is skipped.
+            //
+            //   1. We are currently on the Movi backend
+            //   2. The startup probe showed WebCodecs cannot decode AV1
+            //   3. The video stream is AV1
+            //   4. This fallback has not already been attempted (guard flag)
+            // ================================================================
+            if (
+                this._backendType === 'movi' &&
+                webCodecsProbe.av1Decodes === false &&
+                (videoStream?.Codec || '').toLowerCase() === 'av1' &&
+                !options._webCodecsAV1FallbackAttempted
+            ) {
+                log.info('[WebCodecsAV1Fallback] WebCodecs cannot decode AV1 here — restarting on HTML5 backend.');
+
+                // Movi is not reused: destroy() stops it and also removes its element and event callback.
+                try {
+                    this._backend.destroy();
+                } catch (destroyErr) {
+                    log.warn('[WebCodecsAV1Fallback] Backend destroy() threw during the switch:', destroyErr);
+                }
+
+                this._backend = new HtmlVideoPlayer({
+                    container: this.container,
+                    settings: PlayerSettings,
+                    onEvent: this._handleBackendEvent.bind(this)
+                });
+                this._backendType = 'html5';
+
+                const html5Profile = buildJellyfinProfile({
+                    manualBitrate: this._manualBitrate,
+                    playbackMode: profilePlaybackMode,
+                    backend: 'html5'
+                });
+
+                return this.play({
+                    ...options,
+                    _webCodecsAV1FallbackAttempted: true,
+                    _deviceProfile: html5Profile
+                });
             }
 
             this._currentMediaSource = mediaSource;

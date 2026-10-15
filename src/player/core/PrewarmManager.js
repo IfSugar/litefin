@@ -16,6 +16,7 @@ import { buildJellyfinProfile } from '../../api/DeviceProfile.js';
 import FontLoader from '../../utils/FontLoader.js';
 import SubtitleStyles from '../../utils/SubtitleStyles.js';
 import { platformInfo } from '../../utils/PlatformInfo.js';
+import { webCodecsProbe } from '../../utils/WebCodecsProbe.js';
 import { resolveBestAudioStream, doesAudioTrackRequireDirectStream } from './JellyfinPlayer.js';
 
 const log = logger.create('PrewarmManager');
@@ -149,6 +150,11 @@ export class PrewarmManager {
             // on WebOS / HTML5 to prevent prewarming in DirectPlay and falling back to AC3
             const needsRemux = targetSource && targetAudioIndex !== null && targetAudioIndex !== undefined &&
                 doesAudioTrackRequireDirectStream(targetSource, targetAudioIndex, backendType);
+
+            // The desktop and web profiles depend on the WebCodecs AV1 probe; skip prewarming until it has run
+            if ((platformInfo.isDesktop || platformInfo.isWeb) && platformInfo.hasWebCodecsSupport && webCodecsProbe.av1Decodes === null) {
+                return;
+            }
 
             const prewarmPlaybackMode = needsRemux ? 'remux' : 'auto';
 
