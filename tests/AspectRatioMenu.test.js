@@ -25,7 +25,7 @@ globalThis.document = {
     }
 };
 
-test('AspectRatioMenu: Offers Zoom option on Tizen along with Auto, Video Aspect Ratio, and Stretch', async () => {
+test('AspectRatioMenu: Omits Zoom option on Tizen and offers Auto, Video Aspect Ratio, and Stretch', async () => {
     // 1. Test Tizen platform detection
     globalThis.window.tizen = {};
     const { platformInfo } = await import('../src/utils/PlatformInfo.js');
@@ -50,8 +50,8 @@ test('AspectRatioMenu: Offers Zoom option on Tizen along with Auto, Video Aspect
 
     assert.deepStrictEqual(
         optionsOnTizen,
-        ['auto', 'zoom', 'video_aspect_ratio', 'stretch'],
-        'On Tizen AVPlay, AspectRatioMenu must offer Auto, Zoom, Video Aspect Ratio, and Stretch'
+        ['auto', 'video_aspect_ratio', 'stretch'],
+        'On Tizen AVPlay, AspectRatioMenu must offer Auto, Video Aspect Ratio, and Stretch (Zoom must be hidden)'
     );
 });
 
@@ -244,26 +244,11 @@ test('TizenAVPlayer: Computes explicit display rect geometry for auto, zoom, str
     assert.strictEqual(lastMethod, 'PLAYER_DISPLAY_MODE_AUTO_ASPECT_RATIO');
 
     // ------------------------------------------------------------------------
-    // Case 4: Zoom (Crop / Cover) Mode
+    // Case 4: Zoom Fallback (Letterbox Mode)
     // ------------------------------------------------------------------------
-    // Scale = max(1920/1920, 1080/800) = 1.35
-    // Width = round(1920 * 1.35) = 2592px, Height = round(800 * 1.35) = 1080px
-    // Left = round((1920 - 2592) / 2) = -336px, Top = 0px
+    // AVPlay does not support negative coordinates or off-screen hardware cropping.
+    // Setting 'zoom' safely falls back to standard letterbox bounds [0, 0, 1920, 1080].
     player.setAspectRatio('zoom');
-    assert.strictEqual(player.getAspectRatio(), 'zoom');
-    assert.deepStrictEqual(lastRect, { x: -336, y: 0, width: 2592, height: 1080 });
-    assert.strictEqual(lastMethod, 'PLAYER_DISPLAY_MODE_LETTER_BOX');
-
-    // ------------------------------------------------------------------------
-    // Case 5: Transition from Stretch directly to Zoom
-    // ------------------------------------------------------------------------
-    // When previous mode was 'stretch', setting 'zoom' resets to 'auto' first
-    // (clearing FULL_SCREEN stretch deformation) before applying the zoom crop.
-    player.setAspectRatio('stretch');
-    methodCalls.length = 0;
-    player.setAspectRatio('zoom');
-    assert.strictEqual(player.getAspectRatio(), 'zoom');
-    assert.deepStrictEqual(methodCalls, ['PLAYER_DISPLAY_MODE_LETTER_BOX', 'PLAYER_DISPLAY_MODE_LETTER_BOX']);
-    assert.deepStrictEqual(lastRect, { x: -336, y: 0, width: 2592, height: 1080 });
+    assert.deepStrictEqual(lastRect, { x: 0, y: 0, width: 1920, height: 1080 });
     assert.strictEqual(lastMethod, 'PLAYER_DISPLAY_MODE_LETTER_BOX');
 });
