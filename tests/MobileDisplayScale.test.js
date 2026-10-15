@@ -60,6 +60,7 @@ globalThis.window = {
 };
 
 const { layoutManager } = await import('../src/ui/LayoutManager.js');
+const { storage } = await import('../src/utils/StorageService.js');
 
 /**
  * ============================================================================
@@ -129,3 +130,57 @@ test('Mobile Scaling: Display Scale option scales landscape mobile UI proportion
     const zoom120 = parseFloat(styles['zoom']);
     assert.ok(Math.abs(zoom120 - 0.6) < 0.01, `Landscape zoom must scale to 0.5 * 1.2 = 0.6 (actual: ${zoom120})`);
 });
+
+/**
+ * ============================================================================
+ * Text Scaling Engine & Custom Property Propagation Tests
+ * ============================================================================
+ * Confirms that setting text scale multiplier:
+ *   1. Updates LayoutManager internal tracker.
+ *   2. Sets the --litefin-text-scale CSS custom property on the document root,
+ *      allowing all calc() expressions across mobile stylesheets to adapt.
+ *   3. Sets the base root font-size with priority so that relative rem units
+ *      scale proportionately across all layout components.
+ *   4. Accurately persists the user's preference to local storage when saved.
+ * ============================================================================
+ */
+
+test('Text Scaling: setTextScale updates text scale, sets --litefin-text-scale variable, and scales root font-size', () => {
+    // Test scale up to 125% (1.25 multiplier)
+    layoutManager.setTextScale(1.25, true);
+
+    // Verify getter returns updated numerical scale factor
+    assert.strictEqual(layoutManager.getTextScale(), 1.25, 'Text scale getter must return 1.25');
+
+    // Verify --litefin-text-scale CSS variable is propagated to document root
+    assert.strictEqual(styles['--litefin-text-scale'], '1.25', '--litefin-text-scale property must be set on document root');
+
+    // Standard base 16px * 1.25 = 20px
+    assert.strictEqual(styles['font-size'], '20px', 'Root font-size must be scaled to 20px for 125%');
+
+    // Verify storage persistence key
+    assert.strictEqual(storage.getItem('litefin:textScale'), '1.25', 'Must persist text scale to storage');
+
+    // Test scaling down to 80% (0.8 multiplier)
+    layoutManager.setTextScale(0.8, false);
+
+    // Verify getter returns 0.8
+    assert.strictEqual(layoutManager.getTextScale(), 0.8, 'Text scale getter must return 0.8');
+
+    // Verify property propagation
+    assert.strictEqual(styles['--litefin-text-scale'], '0.8', '--litefin-text-scale property must update to 0.8');
+
+    // Standard base 16px * 0.8 = 12.8px
+    assert.strictEqual(styles['font-size'], '12.8px', 'Root font-size must be scaled to 12.8px for 80%');
+
+    // Preference was not saved when save=false, so storage remains previous value
+    assert.strictEqual(storage.getItem('litefin:textScale'), '1.25', 'Storage must not be overwritten when save=false');
+
+    // Reset back to baseline 1.0 (100%)
+    layoutManager.setTextScale(1.0, true);
+    assert.strictEqual(layoutManager.getTextScale(), 1.0, 'Reset to 1.0');
+    assert.strictEqual(styles['--litefin-text-scale'], '1', '--litefin-text-scale must be 1');
+    assert.strictEqual(styles['font-size'], '16px', 'Root font size must be 16px');
+    assert.strictEqual(storage.getItem('litefin:textScale'), '1', 'Storage updated to 1');
+});
+

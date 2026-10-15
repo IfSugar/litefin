@@ -987,22 +987,42 @@ class LayoutManager {
     }
 
     /**
-     * Set the global text scale multiplier
-     * @param {number} scale Multiplier for the base font size (e.g. 1.2 for 120%)
-     * @param {boolean} [save=true]
+    /**
+     * ========================================================================
+     * Global Typography & Text Scaling Engine
+     * ========================================================================
+     * Adjusts the foundational root font sizing and propagates the scale factor
+     * across all adaptive stylesheets via the `--litefin-text-scale` CSS variable.
+     *
+     * In standard desktop/TV viewport profiles, scaling the document root font size
+     * dynamically recalculates all relative rem-based layout tokens.
+     * In mobile portrait and landscape viewports, stylesheets consume the
+     * `--litefin-text-scale` variable within calc() expressions to maintain calibrated
+     * touch proportions and legibility without hardcoded layout breakage.
+     *
+     * @param {number} scale Multiplier for base typography (e.g. 1.2 for 120%)
+     * @param {boolean} [save=true] Whether to persist the scale preference
+     * ========================================================================
      */
     setTextScale(scale, save = true) {
+        // Update internal text scale tracker
         this._textScale = scale;
 
-        // Calculate and apply base font size directly to the root element.
-        // Standard base is 16px. Scaling this scales all 'rem' units.
-        const pixelSize = 16 * scale;
-        document.documentElement.style.fontSize = `${pixelSize}px`;
+        // Propagate custom CSS property to document root so all responsive rules
+        // and platform-specific stylesheets (including Android mobile & TV) can scale typography
+        document.documentElement.style.setProperty('--litefin-text-scale', String(scale));
 
+        // Calculate and apply base font size directly to root element with priority flag.
+        // Standard base is 16px. Scaling this scales all 'rem' units across the UI canvas.
+        const pixelSize = 16 * scale;
+        document.documentElement.style.setProperty('font-size', `${pixelSize}px`, 'important');
+
+        // Persist preference to local storage when requested
         if (save) {
             storage.setItem('litefin:textScale', scale.toString());
         }
 
+        // Emit change event to allow listening components to update if necessary
         log.info(`Text scale updated: ${scale} (${pixelSize}px)`);
         eventBus.emit('textScale:changed', { scale });
     }
