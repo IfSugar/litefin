@@ -205,6 +205,15 @@ class Sidebar extends Component {
         this._onSidebarItemsAlignChanged = () => this._updateSidebarItemsAlign();
         eventBus.on('pref:sidebarItemsAlign', this._onSidebarItemsAlignChanged);
 
+        // ---------------------------------------------------------------------
+        // SIDEBAR BACK BUTTON PREFERENCE LISTENER
+        // ---------------------------------------------------------------------
+        // Re-evaluates back button visibility dynamically when user modifies the
+        // back button platform preference in Settings.
+        // ---------------------------------------------------------------------
+        this._onBackButtonPrefChanged = () => this._updateBackButtonState();
+        eventBus.on('pref:sidebarBackButton', this._onBackButtonPrefChanged);
+
         this._updateAnimationMode();
         this._onAnimationModeChanged = () => this._updateAnimationMode();
         eventBus.on('prefChanged:disableSidebarAnimation', this._onAnimationModeChanged);
@@ -476,6 +485,11 @@ class Sidebar extends Component {
 
         if (this._onSidebarItemsAlignChanged) {
             eventBus.off('pref:sidebarItemsAlign', this._onSidebarItemsAlignChanged);
+        }
+
+        // Clean up sidebar back button preference listener
+        if (this._onBackButtonPrefChanged) {
+            eventBus.off('pref:sidebarBackButton', this._onBackButtonPrefChanged);
         }
 
         // Clean up floating island resize listener
@@ -1872,22 +1886,40 @@ class Sidebar extends Component {
 
     /**
      * =========================================================================
-     * Desktop & Web Back Button State Synchronizer
+     * Sidebar Back Button State Synchronizer
      * =========================================================================
-     * Evaluates route depth and navigation history on Desktop and Web platforms.
-     * When there is an ancestor page in the stack (router.canGoBack() is true),
-     * dynamically surfaces the sleek back button and pushes the
-     * Litefin brand logo downward with fluid spring physics.
+     * Evaluates route depth and navigation history across target platforms.
+     * Respects user preference `pref:sidebarBackButton`:
+     *   - 'all' / 'true': Available across all platforms (including TV environments)
+     *   - 'disabled' / 'never' / 'false': Explicitly hidden
+     *   - 'auto' (default): Automatically enabled for pointer-focused Desktop and Web
+     * When an ancestor route is present in navigation history (router.canGoBack()),
+     * dynamically surfaces the sleek capsule back button and repositions the
+     * Litefin brand logo downward with smooth spring transitions.
      * =========================================================================
      * @private
      */
     _updateBackButtonState() {
         if (!this.el) return;
 
-        // Dedicated mouse/pointer back control is only surfaced on Desktop and Web.
-        // TV platforms (Tizen, webOS, Android TV) use remote control Back hardware keys.
-        const isDesktopOrWeb = platformInfo.isWeb || platformInfo.isDesktop;
-        const canBack = isDesktopOrWeb && router.canGoBack();
+        // Fetch user setting for sidebar back button targeting (defaults to 'auto')
+        const pref = storage.getItem('pref:sidebarBackButton') || 'auto';
+        let isPlatformAllowed = false;
+
+        // Resolve whether the current runtime environment is eligible
+        if (pref === 'all' || pref === 'true') {
+            // Unconditionally allow on all platforms including TV systems
+            isPlatformAllowed = true;
+        } else if (pref === 'disabled' || pref === 'never' || pref === 'false') {
+            // Explicitly disabled by user
+            isPlatformAllowed = false;
+        } else {
+            // Default auto mode: pointer-driven Desktop and Web environments
+            isPlatformAllowed = platformInfo.isWeb || platformInfo.isDesktop;
+        }
+
+        // Determine if back navigation is valid for the current route stack
+        const canBack = isPlatformAllowed && router.canGoBack();
 
         // Toggle state class on parent container to trigger CSS spring transition pushing logo down
         this.el.classList.toggle('has-back-button', canBack);

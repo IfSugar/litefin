@@ -3368,6 +3368,31 @@ class SettingsPage extends Page {
         )}
                     </div>
                 </div>
+
+                <!-- ============================================================= -->
+                <!-- SIDEBAR BACK BUTTON CONFIGURATION                             -->
+                <!-- ============================================================= -->
+                <!-- Configures whether the navigation back button appears above   -->
+                <!-- the logo on secondary routes for desktop/web only, all       -->
+                <!-- platforms (including TV devices), or disabled entirely.       -->
+                <!-- ============================================================= -->
+                <div class="setting-item">
+                    <div class="setting-label">
+                        <span class="setting-name" data-i18n="SidebarBackButton">${i18n.t('SidebarBackButton') || 'Sidebar Back Button'}</span>
+                        <span class="setting-description" data-i18n="SidebarBackButtonDescription">${i18n.t('SidebarBackButtonDescription') || 'Show a back button above the Litefin logo when navigating sub-pages.'}</span>
+                    </div>
+                    <div class="setting-control">
+                        ${this._renderDropdown(
+            'sidebar-back-button-select',
+            [
+                { value: 'auto', label: i18n.t('OptionSidebarBackButtonAuto') || 'Desktop & Web Only' },
+                { value: 'all', label: i18n.t('OptionSidebarBackButtonAll') || 'All Platforms' },
+                { value: 'disabled', label: i18n.t('OptionSidebarBackButtonDisabled') || 'Disabled' }
+            ],
+            storage.getItem('pref:sidebarBackButton') || 'auto'
+        )}
+                    </div>
+                </div>
                 
                 <div class="setting-item">
                     <div class="setting-label">
@@ -11707,6 +11732,7 @@ class SettingsPage extends Page {
             'expanded-sidebar-color-select': { key: 'pref:expandedSidebarColor', type: 'local', triggerEvent: true },
             'bottom-nav-bar-color-select': { key: 'pref:bottomNavBarColor', type: 'local', triggerEvent: true },
             'sidebar-logo-settings-select': { key: 'pref:logoSettings', type: 'local', triggerEvent: true },
+            'sidebar-back-button-select': { key: 'pref:sidebarBackButton', type: 'local', triggerEvent: true },
             'sidebar-items-align-select': { key: 'pref:sidebarItemsAlign', type: 'local', triggerEvent: true },
             'trending-movies-collection-select': { key: 'pref:trendingMoviesCollection', type: 'local', triggerEvent: true },
             'trending-series-collection-select': { key: 'pref:trendingSeriesCollection', type: 'local', triggerEvent: true },
