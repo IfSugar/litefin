@@ -263,6 +263,8 @@ export class WebOSPlayer {
             seeked:        this._onSeeked.bind(this),
             volumechange:  this._onVolumeChange.bind(this),
             loadedmetadata: this._onLoadedMetadata.bind(this),
+            // Re-evaluate video bounding box once canplay fires (critical on webOS 5 where dimensions can be 0 at loadedmetadata)
+            canplay:       this._fitVideoBox.bind(this),
             // Fires when the intrinsic size changes, e.g. an HLS variant switch
             resize:        this._fitVideoBox.bind(this),
             // 'progress' = buffered range updates — useful for stall detection
@@ -2169,6 +2171,7 @@ export class WebOSPlayer {
      * @param {'auto'|'zoom'|'stretch'} mode
      */
     setAspectRatio(mode) {
+        // Fallback safely to auto if an invalid or empty mode is passed
         const targetMode = mode || 'auto';
 
         // --------------------------------------------------------------------
@@ -2181,7 +2184,6 @@ export class WebOSPlayer {
             log.info('WebOSPlayer: Resetting aspect ratio to auto prior to applying zoom');
             this._aspectMode = 'auto';
             if (this._videoElement) {
-                this._videoElement.style.objectFit = 'fill';
                 this._fitVideoBox();
             }
         }
@@ -2191,9 +2193,6 @@ export class WebOSPlayer {
         if (!this._videoElement) return;
 
         log.info('WebOSPlayer: Setting aspect ratio mode:', this._aspectMode);
-
-        // Keep object-fit set to fill so the element box and video rasterizer stay in sync
-        this._videoElement.style.objectFit = 'fill';
 
         // Recalculate and apply explicit layout coordinates for the hardware punch-through window
         this._fitVideoBox();
@@ -2205,6 +2204,121 @@ export class WebOSPlayer {
      */
     getAspectRatio() {
         return this._aspectMode || 'auto';
+    }
+
+    /**
+     * Resolve intrinsic video stream dimensions with comprehensive fallback hierarchy.
+     *
+     * On webOS TV (particularly webOS 5 and native HLS demuxers), the <video> element
+     * often returns 0 for videoWidth/videoHeight around loadedmetadata, or delays dimension
+     * reporting until active frame rendering begins. Furthermore, 1080p stream containers
+     * may package letterboxed cinemascope (e.g. 2.40:1) content where videoWidth/videoHeight
+     * report 1920x1080 despite the actual content aspect ratio being wide.
+     *
+     * Resolution hierarchy:
+     *   1. Direct HTML5 video element intrinsic dimensions (videoWidth / videoHeight)
+     *   2. HLS.js current variant level dimensions if MSE pipeline is running
+     *   3. Jellyfin playback options MediaStreams (Type === 'Video')
+     *   4. MediaSource container width/height fallback
+     *   5. Item metadata width/height fallback
+     *   6. AspectRatio string evaluation for letterboxed or anamorphic content
+     *
+     * @private
+     * @returns {{ width: number, height: number } | null}
+     */
+    _getVideoDimensions() {
+        const video = this._videoElement;
+
+        // 1. Direct HTML5 video element intrinsic dimensions
+        let vw = video?.videoWidth || 0;
+        let vh = video?.videoHeight || 0;
+
+        // 2. HLS.js variant level dimensions if MSE pipeline is running
+        if ((!vw || !vh) && this._hlsPlayer) {
+            const level = this._hlsPlayer.levels?.[this._hlsPlayer.currentLevel];
+            if (level?.width && level?.height) {
+                vw = level.width;
+                vh = level.height;
+            }
+        }
+
+        // 3. Jellyfin MediaStreams video stream metadata
+        const mediaSource = this._currentPlayOptions?.mediaSource;
+        const videoStream = mediaSource?.MediaStreams?.find((s) => s.Type === 'Video');
+        if ((!vw || !vh) && videoStream) {
+            vw = videoStream.Width || 0;
+            vh = videoStream.Height || 0;
+        }
+
+        // 4. MediaSource container width/height fallback
+        if ((!vw || !vh) && mediaSource) {
+            vw = mediaSource.Width || 0;
+            vh = mediaSource.Height || 0;
+        }
+
+        // 5. Item width/height fallback
+        const item = this._currentPlayOptions?.item;
+        if ((!vw || !vh) && item) {
+            vw = item.Width || 0;
+            vh = item.Height || 0;
+        }
+
+        // 6. Content dimensions accounting for baked letterbox / pillarbox bars
+        let contentWidth = vw;
+        let contentHeight = vh;
+
+        // AspectRatio string evaluation for letterboxed or anamorphic content
+        const aspectStr = videoStream?.AspectRatio || item?.AspectRatio || '';
+        if (aspectStr && typeof aspectStr === 'string') {
+            let parsedRatio = 0;
+            if (aspectStr.includes(':')) {
+                const parts = aspectStr.split(':');
+                const num = parseFloat(parts[0]);
+                const den = parseFloat(parts[1]);
+                if (num > 0 && den > 0) {
+                    parsedRatio = num / den;
+                }
+            } else {
+                const val = parseFloat(aspectStr);
+                if (!isNaN(val) && val > 0) {
+                    parsedRatio = val;
+                }
+            }
+
+            if (parsedRatio > 0) {
+                // If dimensions are currently absent, synthesize baseline dimensions
+                if (!vw || !vh) {
+                    vw = 1920;
+                    vh = Math.round(1920 / parsedRatio);
+                    contentWidth = vw;
+                    contentHeight = vh;
+                } else {
+                    // Check if content aspect ratio differs from container aspect ratio
+                    const containerRatio = vw / vh;
+                    if (Math.abs(containerRatio - parsedRatio) > 0.05) {
+                        if (parsedRatio > containerRatio) {
+                            // Ultra-wide cinemascope in 16:9 container (e.g. 2.40:1 in 1080p)
+                            contentHeight = Math.round(vw / parsedRatio);
+                        } else {
+                            // 4:3 pillarbox in 16:9 container
+                            contentWidth = Math.round(vh * parsedRatio);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Verify positive integer dimensions before returning
+        if (vw > 0 && vh > 0) {
+            return {
+                width: vw,
+                height: vh,
+                contentWidth: contentWidth || vw,
+                contentHeight: contentHeight || vh
+            };
+        }
+
+        return null;
     }
 
     /**
@@ -2250,14 +2364,18 @@ export class WebOSPlayer {
             style.bottom = '0px';
             style.width = `${cw}px`;
             style.height = `${ch}px`;
+            style.objectFit = 'fill';
             return;
         }
 
-        // Intrinsic video stream dimensions
-        const vw = video.videoWidth;
-        const vh = video.videoHeight;
+        // Intrinsic video stream dimensions with comprehensive fallback chain
+        const dims = this._getVideoDimensions();
+        const vw = dims?.width || 0;
+        const vh = dims?.height || 0;
+        const cwContent = dims?.contentWidth || vw;
+        const chContent = dims?.contentHeight || vh;
 
-        // If metadata has not loaded yet, default to full viewport until loadedmetadata fires
+        // If metadata has not loaded yet, default to full viewport until metadata/playback initializes
         if (!vw || !vh) {
             style.left = '0px';
             style.top = '0px';
@@ -2265,6 +2383,7 @@ export class WebOSPlayer {
             style.bottom = '0px';
             style.width = `${cw}px`;
             style.height = `${ch}px`;
+            style.objectFit = 'contain';
             return;
         }
 
@@ -2273,19 +2392,23 @@ export class WebOSPlayer {
         // ====================================================================
         // Scale by maximum factor to cover the full viewport, cropping overflowing edges
         if (this._aspectMode === 'zoom') {
-            const scale = Math.max(cw / vw, ch / vh);
+            const scale = Math.max(cw / cwContent, ch / chContent);
             const w = Math.round(vw * scale);
             const h = Math.round(vh * scale);
+
             // Center the cropped frame symmetrically using negative offsets
             const left = Math.round((cw - w) / 2);
             const top = Math.round((ch - h) / 2);
 
+            // Apply explicit bounding coordinates and cover fit
             style.left = `${left}px`;
             style.top = `${top}px`;
             style.right = '';
             style.bottom = '';
             style.width = `${w}px`;
             style.height = `${h}px`;
+            style.objectFit = 'cover';
+            style.objectPosition = 'center';
             return;
         }
 
@@ -2296,16 +2419,20 @@ export class WebOSPlayer {
         const scale = Math.min(cw / vw, ch / vh);
         const w = Math.round(vw * scale);
         const h = Math.round(vh * scale);
+
         // Center the letterboxed/pillarboxed video inside the screen
         const left = Math.round((cw - w) / 2);
         const top = Math.round((ch - h) / 2);
 
+        // Apply explicit bounding coordinates and contain fit
         style.left = `${left}px`;
         style.top = `${top}px`;
         style.right = '';
         style.bottom = '';
         style.width = `${w}px`;
         style.height = `${h}px`;
+        style.objectFit = 'contain';
+        style.objectPosition = 'center';
     }
 
     // ========================================================================
@@ -2525,6 +2652,14 @@ export class WebOSPlayer {
 
         // Playhead is confirmed at target. Restore video presentation smoothly.
         this._restoreVideoAfterResume(this._videoElement);
+
+        // --------------------------------------------------------------------
+        // Refit Video Layout Geometry on First Decoded Frame
+        // --------------------------------------------------------------------
+        // On webOS (especially webOS 5), intrinsic dimensions may evaluate to 0
+        // until the initial video frame is decoded. Re-evaluating geometry here
+        // guarantees that aspect ratio cropping / letterboxing is applied immediately.
+        this._fitVideoBox();
 
         if (!this._started) {
             this._started = true;

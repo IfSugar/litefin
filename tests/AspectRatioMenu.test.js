@@ -252,3 +252,73 @@ test('TizenAVPlayer: Computes explicit display rect geometry for auto, zoom, str
     assert.deepStrictEqual(lastRect, { x: 0, y: 0, width: 1920, height: 1080 });
     assert.strictEqual(lastMethod, 'PLAYER_DISPLAY_MODE_LETTER_BOX');
 });
+
+test('WebOSPlayer: Resolves fallback dimensions when video element dimensions are 0 (webOS 5 native HLS)', async () => {
+    // ------------------------------------------------------------------------
+    // webOS 5 Dimension Resolution Verification
+    // ------------------------------------------------------------------------
+    // On webOS 5, native HLS demuxers frequently report 0x0 for videoWidth/videoHeight.
+    // WebOSPlayer must query Jellyfin mediaSource / stream metadata to compute geometry.
+    // ------------------------------------------------------------------------
+
+    const { WebOSPlayer } = await import('../src/player/core/WebOSPlayer.js');
+
+    const mockStyle = {};
+    const mockVideo = {
+        videoWidth: 0,
+        videoHeight: 0,
+        style: mockStyle
+    };
+
+    const mockContainer = {
+        clientWidth: 1920,
+        clientHeight: 1080,
+        appendChild: () => {}
+    };
+
+    // Instantiate player and attach simulated play options with stream metadata
+    const player = new WebOSPlayer({ container: mockContainer });
+    player._videoElement = mockVideo;
+    player._currentPlayOptions = {
+        mediaSource: {
+            MediaStreams: [
+                {
+                    Type: 'Video',
+                    Width: 1920,
+                    Height: 800,
+                    AspectRatio: '2.40:1'
+                }
+            ]
+        }
+    };
+
+    // 1. Auto mode with 0x0 DOM dimensions: should resolve to 1920x800 centered
+    player.setAspectRatio('auto');
+    assert.strictEqual(mockStyle.width, '1920px');
+    assert.strictEqual(mockStyle.height, '800px');
+    assert.strictEqual(mockStyle.left, '0px');
+    assert.strictEqual(mockStyle.top, '140px');
+
+    // 2. Zoom mode with 0x0 DOM dimensions: should resolve to 2592x1080 cropped
+    player.setAspectRatio('zoom');
+    assert.strictEqual(mockStyle.width, '2592px');
+    assert.strictEqual(mockStyle.height, '1080px');
+    assert.strictEqual(mockStyle.left, '-336px');
+    assert.strictEqual(mockStyle.top, '0px');
+    assert.strictEqual(mockStyle.objectFit, 'cover');
+
+    // 3. Zoom mode with 1920x1080 container holding baked 2.40:1 letterbox
+    // DOM reports 1920x1080, but AspectRatio metadata indicates 2.40:1 active frame
+    mockVideo.videoWidth = 1920;
+    mockVideo.videoHeight = 1080;
+    player.setAspectRatio('zoom');
+
+    // Expected scale = 1080 / 800 = 1.35
+    // Width = 1920 * 1.35 = 2592px, Height = 1080 * 1.35 = 1458px
+    // Left = (1920 - 2592) / 2 = -336px, Top = (1080 - 1458) / 2 = -189px
+    assert.strictEqual(mockStyle.width, '2592px');
+    assert.strictEqual(mockStyle.height, '1458px');
+    assert.strictEqual(mockStyle.left, '-336px');
+    assert.strictEqual(mockStyle.top, '-189px');
+    assert.strictEqual(mockStyle.objectFit, 'cover');
+});

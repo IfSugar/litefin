@@ -1564,36 +1564,39 @@ class PlayerPage extends Page {
         }
 
         // ====================================================================
-        // WebOS Media Session (System Controls & Metadata)
+        // OS Media Session (System Controls & Remote Transport Buttons)
         // ====================================================================
-        // Update the OS-level media session. This enables the Magic Remote
-        // media controls and provides metadata to the LG system overlay.
+        // Update the OS-level media session. This enables TV remote playback
+        // controls (Play, Pause, FastForward, Rewind, Next, Prev) on WebOS and
+        // Android TV / Google TV, routing physical buttons to our handlers.
+        const mediaSessionMetadata = {
+            title: item.Name,
+            artist: item.ProductionYear ? item.ProductionYear.toString() : '',
+            album: item.SeriesName || 'Litefin',
+            artworkUrl: api.getImageUrl(item.Id, 'Primary', { maxWidth: 400 })
+        };
+        const mediaSessionCallbacks = {
+            onPlay: () => this._onRemotePlay(),
+            onPause: () => this._onRemotePause(),
+            onStop: () => this._onRemoteStop(),
+            onNext: () => this._onRemoteNext(),
+            onPrevious: () => this._onRemotePrevious(),
+            onSeekForward: () => {
+                // Route seeking through debounced OSD controller if present
+                if (this._osd) this._osd._executeAction('fastForward');
+                else if (this._player) this._player.seekRelative(30000);
+            },
+            onSeekBackward: () => {
+                // Route seeking through debounced OSD controller if present
+                if (this._osd) this._osd._executeAction('rewind');
+                else if (this._player) this._player.seekRelative(-10000);
+            }
+        };
+
         if (platformInfo.isWebOS) {
-            webosAdapter.updateMediaSession(
-                {
-                    title: item.Name,
-                    artist: item.ProductionYear ? item.ProductionYear.toString() : '',
-                    album: item.SeriesName || 'Litefin',
-                    artworkUrl: api.getImageUrl(item.Id, 'Primary', { maxWidth: 400 })
-                },
-                {
-                    onPlay: () => this._onRemotePlay(),
-                    onPause: () => this._onRemotePause(),
-                    onStop: () => this._onRemoteStop(),
-                    onNext: () => this._onRemoteNext(),
-                    onPrevious: () => this._onRemotePrevious(),
-                    onSeekForward: () => {
-                        // Route seeking through debounced OSD controller if present
-                        if (this._osd) this._osd._executeAction('fastForward');
-                        else if (this._player) this._player.seekRelative(30000);
-                    },
-                    onSeekBackward: () => {
-                        // Route seeking through debounced OSD controller if present
-                        if (this._osd) this._osd._executeAction('rewind');
-                        else if (this._player) this._player.seekRelative(-10000);
-                    }
-                }
-            );
+            webosAdapter.updateMediaSession(mediaSessionMetadata, mediaSessionCallbacks);
+        } else if (platformInfo.isAndroid) {
+            androidAdapter.updateMediaSession(mediaSessionMetadata, mediaSessionCallbacks);
         }
 
         // ====================================================================
@@ -5304,6 +5307,8 @@ class PlayerPage extends Page {
             androidAdapter.setFullscreen(true);
             // Release keep-screen-on wake lock upon exiting player view
             androidAdapter.setKeepScreenOn(false);
+            // Clear registered MediaSession action handlers and reset system transport state
+            androidAdapter.clearMediaSession();
         }
 
         // Restore natural screen auto-rotation upon exiting the video player
