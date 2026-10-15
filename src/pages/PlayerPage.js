@@ -857,8 +857,8 @@ class PlayerPage extends Page {
                 }
 
                 // Touch UX: on touchscreen devices (Android phones & tablets), tapping the video
-                // should reveal or dismiss the On-Screen Display controls gracefully, following
-                // Apple Human Interface Guidelines for video playback rather than abruptly pausing.
+                // should reveal or dismiss the On-Screen Display controls gracefully
+                // rather than abruptly pausing playback.
                 if (document.documentElement.hasAttribute('data-litefin-touch') && !window.matchMedia('(pointer: fine)').matches) {
                     if (this._osd) {
                         if (this._osd.isOsdVisible) {
@@ -1213,6 +1213,24 @@ class PlayerPage extends Page {
         // Reset playback ended state before beginning new playback session.
         // This ensures subsequent video loads or queue transitions start clean.
         this._isPlaybackEnded = false;
+
+        /*
+         * ====================================================================
+         * Clean Subtitle & OSD State on Playback Launch
+         * ====================================================================
+         * Strip any lingering 'osd-active' state from previous sessions or
+         * startup transitions to prevent subtitles from dodging an invisible OSD.
+         * Subtitles must start anchored at baseline.
+         * ====================================================================
+         */
+        const initialPageEl = this.el || document.querySelector('.player-page');
+        if (initialPageEl) {
+            initialPageEl.classList.remove('osd-active');
+        }
+        const initialContainerEl = document.getElementById('player-container');
+        if (initialContainerEl) {
+            initialContainerEl.classList.remove('osd-active');
+        }
 
         // Clear cached play method so we never bleed the previous item's value
         // into the new session (relevant for queue auto-advance where onInit
@@ -2044,6 +2062,25 @@ class PlayerPage extends Page {
         // Sync OSD track state (especially important for queue switches)
         if (this._osd) {
             this._osd.syncTracks();
+        }
+
+        /*
+         * ====================================================================
+         * Subtitle Baseline Verification on Active Playback
+         * ====================================================================
+         * When playback begins rendering frames, ensure the subtitles remain at
+         * baseline unless the On-Screen Display controls are actively showing.
+         * ====================================================================
+         */
+        if (!this._osd || !this._osd.isOsdVisible) {
+            const pageEl = this.el || document.querySelector('.player-page');
+            if (pageEl) {
+                pageEl.classList.remove('osd-active');
+            }
+            const playerContainer = document.getElementById('player-container');
+            if (playerContainer) {
+                playerContainer.classList.remove('osd-active');
+            }
         }
 
         // Report progress (Start/Unpause)
@@ -3454,6 +3491,22 @@ class PlayerPage extends Page {
         const isDodgingEnabled = PlayerSettings.get('subtitleOsdDodging') !== false;
         if (pageEl) pageEl.classList.toggle('osd-dodging-disabled', !isDodgingEnabled);
         if (playerContainer) playerContainer.classList.toggle('osd-dodging-disabled', !isDodgingEnabled);
+
+        /*
+         * ====================================================================
+         * Dynamic Subtitle OSD Dodging Synchronization
+         * ====================================================================
+         * Verify whether the OSD controls layer is truly visible on screen.
+         * If the OSD is hidden, unmounted, or dismissed, ensure 'osd-active' is
+         * stripped immediately so text subtitles render strictly at the bottom
+         * baseline rather than floating prematurely in the middle of the display.
+         * ====================================================================
+         */
+        const isOsdVisible = !!(this._osd && this._osd.isOsdVisible);
+        if (!isOsdVisible) {
+            if (pageEl) pageEl.classList.remove('osd-active');
+            if (playerContainer) playerContainer.classList.remove('osd-active');
+        }
     }
 
     _onMediaStreamsChange(data) {

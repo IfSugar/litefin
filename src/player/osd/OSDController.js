@@ -2117,6 +2117,26 @@ export default class OSDController extends Component {
             const idx = this._player.getCurrentSecondarySubtitleStreamIndex();
             if (idx !== undefined && idx !== null) this._currentSecondarySubtitleIndex = idx;
         }
+
+        /*
+         * ====================================================================
+         * Subtitle Dodging Hygiene on Track Synchronization
+         * ====================================================================
+         * Whenever tracks are synchronized (e.g. on playback start or track switch),
+         * verify if OSD controls are hidden. If hidden, ensure 'osd-active' is
+         * removed to prevent text subtitles from rendering at an elevated offset.
+         * ====================================================================
+         */
+        if (!this._isOsdVisible) {
+            const pageEl = this._playerPage?.el || document.querySelector('.player-page');
+            if (pageEl) {
+                pageEl.classList.remove('osd-active');
+            }
+            const playerContainer = document.getElementById('player-container');
+            if (playerContainer) {
+                playerContainer.classList.remove('osd-active');
+            }
+        }
     }
 
     // ===================================
