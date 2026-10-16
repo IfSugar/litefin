@@ -82,7 +82,8 @@
             try {
                 var savedScale = localStorage.getItem('pref:displayScale') || 'auto';
                 var ua = navigator.userAgent;
-                var isNativeTv = /Tizen|Web[O0]S/i.test(ua);
+                // TV platforms run at native 1080p canvas unless explicitly scaled
+                var isNativeTv = /Tizen|Web[O0]S/i.test(ua) || (typeof isAndroidTv !== 'undefined' && isAndroidTv);
                 var effectiveScale = 1.0;
 
                 if (savedScale === 'auto') {

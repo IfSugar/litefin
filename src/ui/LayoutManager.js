@@ -353,6 +353,13 @@ class LayoutManager {
         document.documentElement.setAttribute('data-layout-tier', platformInfo.layoutTier);
         document.documentElement.setAttribute('data-platform', platformInfo.platformString);
 
+        // Dedicated television identification for styling and layout separation.
+        // Stamping data-device-type allows CSS rules to definitively distinguish
+        // 1080p television panels from mobile/tablet touch canvases.
+        if (platformInfo.isTv) {
+            document.documentElement.setAttribute('data-device-type', 'tv');
+        }
+
         // Apply dedicated rendering quirk class/attribute for devices on ancient layout engines
         // (Chrome < 32) such as early LG WebOS 1.x and ancient Samsung Tizen 2.x firmware.
         // This isolates structural layout workarounds (e.g. table-layout / floats / ancient display-box)
@@ -1118,11 +1125,10 @@ class LayoutManager {
         const appEl = document.getElementById('app');
         if (!root) return;
 
-        // Dedicated television environments run at fixed 1080p framebuffer
-        const isNativeTv =
-            platformInfo.isTizen ||
-            platformInfo.isWebOS ||
-            (platformInfo.isAndroid && Boolean(window.LitefinAndroid?.isTv?.()));
+        // Dedicated television environments run at fixed 1080p framebuffer.
+        // platformInfo.isTv comprehensively evaluates Samsung Tizen, LG webOS,
+        // and Android TV / Google TV runtimes (native bridge isTv calls and UA tokens).
+        const isNativeTv = platformInfo.isTv;
 
         // Resolve user display scale multiplier from settings ('auto' => 1.0, '0.8' => 0.8, etc.)
         const userMultiplier = this._displayScale === 'auto' ? 1.0 : (parseFloat(this._displayScale) || 1.0);
@@ -1131,14 +1137,18 @@ class LayoutManager {
             // Television panels run natively at 1:1 scale unless user sets manual factor
             const tvScale = userMultiplier;
             if (Math.abs(tvScale - 1.0) < 0.02) {
+                // Return to natural unzoomed 1:1 pixel grid
                 root.style.removeProperty('zoom');
                 root.removeAttribute('data-display-scale');
             } else {
+                // Apply user-selected television display zoom factor
                 root.style.setProperty('zoom', String(tvScale));
                 root.setAttribute('data-display-scale', '1');
             }
+            // Strip mobile-specific responsive attributes on television hardware
             root.removeAttribute('data-litefin-portrait');
             root.removeAttribute('data-litefin-scaled');
+            root.removeAttribute('data-litefin-touch');
             root.style.removeProperty('--litefin-app-w');
             root.style.removeProperty('--litefin-app-h');
             if (appEl) {

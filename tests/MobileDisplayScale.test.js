@@ -61,6 +61,7 @@ globalThis.window = {
 
 const { layoutManager } = await import('../src/ui/LayoutManager.js');
 const { storage } = await import('../src/utils/StorageService.js');
+const { platformInfo } = await import('../src/utils/PlatformInfo.js');
 
 /**
  * ============================================================================
@@ -182,5 +183,70 @@ test('Text Scaling: setTextScale updates text scale, sets --litefin-text-scale v
     assert.strictEqual(styles['--litefin-text-scale'], '1', '--litefin-text-scale must be 1');
     assert.strictEqual(styles['font-size'], '16px', 'Root font size must be 16px');
     assert.strictEqual(storage.getItem('litefin:textScale'), '1', 'Storage updated to 1');
+});
+
+/**
+ * ============================================================================
+ * Android TV & Landscape Login Layout Isolation Tests
+ * ============================================================================
+ * Confirms that:
+ *   1. Android TV environments (recognized via platformInfo.isTv) never receive
+ *      mobile responsive markers (data-litefin-scaled, data-litefin-portrait,
+ *      data-litefin-touch) and run at 1:1 framebuffer scale.
+ *   2. The mobile stylesheet (android-mobile.css) contains no rules forcing
+ *      the login page into mobile/scaled layouts in landscape mode, allowing
+ *      Android TV and wide displays to use the normal full-canvas login page.
+ * ============================================================================
+ */
+
+test('TV Scaling: Android TV bypasses mobile markers and preserves normal login layout in landscape', () => {
+    // Save previous platform getters
+    const originalIsTv = platformInfo.isTv;
+    const originalIsAndroid = platformInfo.isAndroid;
+    const originalIsAndroidTv = platformInfo.isAndroidTv;
+
+    try {
+        // Mock Android TV platform flags
+        Object.defineProperty(platformInfo, 'isTv', { value: true, configurable: true });
+        Object.defineProperty(platformInfo, 'isAndroid', { value: true, configurable: true });
+        Object.defineProperty(platformInfo, 'isAndroidTv', { value: true, configurable: true });
+
+        // Simulate 1080p landscape TV display (1920x1080)
+        globalThis.window.innerWidth = 1920;
+        globalThis.window.innerHeight = 1080;
+
+        // Apply display scale calculation
+        layoutManager.setDisplayScale('auto', false);
+
+        // Verify that mobile attributes are stripped on Android TV
+        assert.strictEqual(attributes['data-litefin-portrait'], undefined, 'Must not stamp data-litefin-portrait on Android TV');
+        assert.strictEqual(attributes['data-litefin-scaled'], undefined, 'Must not stamp data-litefin-scaled on Android TV');
+        assert.strictEqual(attributes['data-litefin-touch'], undefined, 'Must not stamp data-litefin-touch on Android TV');
+
+        // Verify 1:1 TV scale
+        assert.strictEqual(styles['zoom'], undefined, 'Zoom should be removed at 1:1 on TV');
+    } finally {
+        // Restore platform getters
+        Object.defineProperty(platformInfo, 'isTv', { value: originalIsTv, configurable: true });
+        Object.defineProperty(platformInfo, 'isAndroid', { value: originalIsAndroid, configurable: true });
+        Object.defineProperty(platformInfo, 'isAndroidTv', { value: originalIsAndroidTv, configurable: true });
+    }
+});
+
+test('Login Layout: android-mobile.css contains no mobile login overrides for landscape or scaled mode', async () => {
+    const fs = await import('node:fs');
+    const path = await import('node:path');
+
+    // Read active mobile stylesheet
+    const cssPath = path.resolve(process.cwd(), 'src/styles/android-mobile.css');
+    const cssContent = fs.readFileSync(cssPath, 'utf8');
+
+    // Verify no mobile landscape login overrides targeting data-litefin-scaled exist
+    const hasScaledLogin = /html\[data-litefin-scaled\]\s+\.login-page/.test(cssContent);
+    assert.strictEqual(hasScaledLogin, false, 'android-mobile.css must not contain html[data-litefin-scaled] .login-page selectors');
+
+    // Verify all mobile login layout overrides are strictly scoped to portrait mode
+    const portraitLoginMatches = cssContent.match(/html\[data-litefin-portrait\]\s+\.login-page/g);
+    assert.ok(portraitLoginMatches && portraitLoginMatches.length > 0, 'Mobile login overrides must be conditioned on data-litefin-portrait');
 });
 
