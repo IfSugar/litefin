@@ -5840,6 +5840,19 @@ class SettingsPage extends Page {
 
                 <div class="setting-item">
                     <div class="setting-label">
+                        <span class="setting-name" data-i18n="LabelDisableLibraryBlurHash">${i18n.t('LabelDisableLibraryBlurHash') || 'Disable BlurHash in Library'}</span>
+                        <span class="setting-description" data-i18n="DisableLibraryBlurHashDescription">${i18n.t('DisableLibraryBlurHashDescription') || 'Stop decoding and displaying BlurHash placeholder canvases in library grids. Uses standard dark skeletons instead to maximize navigation and scroll performance on low-power TVs.'}</span>
+                    </div>
+                    <div class="setting-control">
+                        <button class="toggle-switch ${layoutManager.getDisableLibraryBlurhash() ? 'active' : ''}" 
+                                id="toggle-disable-library-blurhash" 
+                                tabindex="0">
+                        </button>
+                    </div>
+                </div>
+
+                <div class="setting-item">
+                    <div class="setting-label">
                         <span class="setting-name" data-i18n="LabelDisableFocusRestore">${i18n.t('LabelDisableFocusRestore') || 'Disable Focus Restoration'}</span>
                         <span class="setting-description" data-i18n="DisableFocusRestoreDescription">${i18n.t('DisableFocusRestoreDescription') || 'Skip saving and restoring the last focused item when navigating between pages to reduce memory usage. Focus will reset to the first item on each page.'}</span>
                     </div>
@@ -8937,6 +8950,29 @@ class SettingsPage extends Page {
 
                 // Toggle active class state on the premium UI toggle-switch switch
                 disableBlurhashBtn.classList.toggle('active', newValue);
+            });
+        }
+
+        // =====================================================================
+        // Toggle Disable BlurHash in Library
+        // =====================================================================
+        // Toggles whether BlurHash placeholder canvases are rendered in library grids.
+        // Defaults to true (turned on) to maximize weak device navigation and scroll fluidity.
+        // =====================================================================
+        const disableLibraryBlurhashBtn = this.$('#toggle-disable-library-blurhash');
+        if (disableLibraryBlurhashBtn) {
+            disableLibraryBlurhashBtn.addEventListener('click', () => {
+                // Invert the current Disable Library BlurHash state
+                const newValue = !layoutManager.getDisableLibraryBlurhash();
+
+                // Write setting to LayoutManager which handles DOM, Storage, and CardRenderer cache clearing
+                layoutManager.setDisableLibraryBlurhash(newValue);
+
+                // Toggle active class state on the UI toggle-switch
+                disableLibraryBlurhashBtn.classList.toggle('active', newValue);
+
+                // Clear cached library state so navigating back forces immediate re-render
+                state.delete('library:cache');
             });
         }
 

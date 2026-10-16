@@ -118,6 +118,10 @@ class LayoutManager {
         // Disable BlurHash: Disables color-accurate blurred canvas rendering during image load
         this._disableBlurhash = false;
 
+        // Disable Library BlurHash: Specifically disables BlurHash DCT canvas decodes in library grids
+        // Defaults to true (disabled) to maximize navigation and scrolling performance on weak TV chipsets.
+        this._disableLibraryBlurhash = true;
+
         // Only BlurHash Backdrop: Uses only decoded blurhash for details backdrop background without loading image
         this._onlyBlurHashBackdrop = false;
 
@@ -255,6 +259,13 @@ class LayoutManager {
          */
         const savedLoaderStyle = storage.getItem('litefin:loaderStyle') || (savedSimpleLoader ? 'ring' : 'ring');
         const savedDisableBlurhash = storage.getItem('litefin:disableBlurhash') === 'true';
+        /*
+         * Disable BlurHash in Library preference.
+         * Default is true (enabled toggle = disabled blurhash in library grids)
+         * to eliminate DCT canvas decoding overhead during fast scrolling on low-power TV processors.
+         * Only evaluates to false if explicitly saved as 'false'.
+         */
+        const savedDisableLibraryBlurhash = storage.getItem('pref:disableLibraryBlurhash') !== 'false';
         const savedOnlyBlurHashBackdrop = storage.getItem('litefin:onlyBlurHashBackdrop') === 'true';
         const savedLightMusicPlayer = storage.getItem('pref:lightMusicPlayer') === 'true';
         const savedBadgeStyle = storage.getItem('litefin:badgeStyle') || 'auto';
@@ -307,6 +318,8 @@ class LayoutManager {
         // Apply loading indicator style and sync legacy simple loader flag
         this.setLoaderStyle(savedLoaderStyle, false);
         this.setDisableBlurhash(savedDisableBlurhash, false);
+        // Apply saved disable library blurhash state to DOM attributes and runtime tracking
+        this.setDisableLibraryBlurhash(savedDisableLibraryBlurhash, false);
         this.setOnlyBlurHashBackdrop(savedOnlyBlurHashBackdrop, false);
         this.setLightMusicPlayer(savedLightMusicPlayer, false);
         this.setBadgeStyle(savedBadgeStyle, false);
@@ -1746,6 +1759,50 @@ class LayoutManager {
      */
     getDisableBlurhash() {
         return this._disableBlurhash;
+    }
+
+    /**
+     * Disable or enable BlurHash placeholder rendering specifically in library grids.
+     * When disabled (true), cards in the library skip canvas generation and DCT decoding,
+     * relying on lightweight CSS background skeletons to ensure maximum framerate and fluidity.
+     *
+     * @param {boolean} disabled - True to disable library BlurHash; false to enable.
+     * @param {boolean} [save=true] - Whether to persist the setting to storage.
+     * @public
+     */
+    setDisableLibraryBlurhash(disabled, save = true) {
+        // Track the updated preference state in memory
+        this._disableLibraryBlurhash = disabled;
+
+        // Apply HTML attribute flag to document root for stylesheet selector optimization
+        if (disabled) {
+            document.documentElement.setAttribute('data-disable-library-blurhash', 'true');
+        } else {
+            document.documentElement.removeAttribute('data-disable-library-blurhash');
+        }
+
+        // Persist setting inside the StorageService database
+        if (save) {
+            storage.setItem('pref:disableLibraryBlurhash', disabled ? 'true' : 'false');
+        }
+
+        // Invalidate card HTML cache so cards refresh instantly on navigation or re-render
+        CardRenderer.clearCache();
+
+        // Dispatch status update event to notify any interested subscribers
+        log.info(`Disable Library BlurHash set to: ${disabled}`);
+        eventBus.emit('disableLibraryBlurhash:changed', { disabled });
+    }
+
+    /**
+     * Retrieve the current preference state for disabling BlurHash in library grids.
+     * Defaults to true unless explicitly toggled off by the user.
+     *
+     * @returns {boolean} True if BlurHash is disabled in library grids; false otherwise.
+     * @public
+     */
+    getDisableLibraryBlurhash() {
+        return this._disableLibraryBlurhash;
     }
 
     /**
