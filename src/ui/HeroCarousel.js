@@ -71,8 +71,8 @@ class HeroCarousel {
         const isCompact = storage.getItem('pref:heroCarouselCompact') !== 'false';
         const isZoomEnabled = storage.getItem('pref:heroCarouselZoom') === 'true';
         const isAnimationEnabled = storage.getItem('pref:heroCarouselIndicatorAnimation') !== 'false';
-        // BlurHash ambient color fill is exclusive to Immersive (Performance) mode and enabled by default
-        const isBlurhashFill = carouselStyle === 'immersive-performance' && storage.getItem('pref:heroCarouselBlurhashFill') !== 'false';
+        // BlurHash ambient color fill is exclusive to Immersive (Performance) mode and disabled by default
+        const isBlurhashFill = carouselStyle === 'immersive-performance' && storage.getItem('pref:heroCarouselBlurhashFill') === 'true';
         const intervalInSeconds = (this._autoScrollInterval / 1000).toFixed(1) + 's';
 
         let navArrowsHtml = '';
@@ -216,8 +216,8 @@ class HeroCarousel {
 
         // Resolve BlurHash for the hero backdrop and ambient fill background
         const blurHash = this._resolveBlurHash(item);
-        // Ambient BlurHash fill is exclusive to the Immersive (Performance) style and on by default
-        const isBlurhashFill = carouselStyle === 'immersive-performance' && storage.getItem('pref:heroCarouselBlurhashFill') !== 'false';
+        // Ambient BlurHash fill is exclusive to the Immersive (Performance) style and off by default
+        const isBlurhashFill = carouselStyle === 'immersive-performance' && storage.getItem('pref:heroCarouselBlurhashFill') === 'true';
 
         // ---------------------------------------------------------------------
         // Lazy Backdrop & BlurHash Texture Allocation
@@ -629,10 +629,10 @@ class HeroCarousel {
         // ────────────────────────────────────────────────────────────────────
         // Ambient BlurHash Background Color Fill for Active Slide
         // ────────────────────────────────────────────────────────────────────
-        // Exclusive to the Immersive (Performance) style and enabled by default.
+        // Exclusive to the Immersive (Performance) style and disabled by default.
         // Extracts ambient colors from BlurHash to fill any empty canvas area.
         const carouselStyle = storage.getItem('pref:heroCarouselStyle') || 'immersive';
-        const isBlurhashFill = carouselStyle === 'immersive-performance' && storage.getItem('pref:heroCarouselBlurhashFill') !== 'false';
+        const isBlurhashFill = carouselStyle === 'immersive-performance' && storage.getItem('pref:heroCarouselBlurhashFill') === 'true';
         if (isBlurhashFill) {
             const activeSlide = this._container.querySelector('.hero-item.active');
             if (activeSlide) {
@@ -894,9 +894,9 @@ class HeroCarousel {
         // Pre-decode Ambient BlurHash Fill Canvas for Preloaded Slide
         // ────────────────────────────────────────────────────────────────────
         // Prepares the background ambient gradient before the slide transitions into view.
-        // Exclusive to the Immersive (Performance) carousel style.
+        // Exclusive to the Immersive (Performance) carousel style (disabled by default).
         const carouselStyle = storage.getItem('pref:heroCarouselStyle') || 'immersive';
-        const isBlurhashFill = carouselStyle === 'immersive-performance' && storage.getItem('pref:heroCarouselBlurhashFill') !== 'false';
+        const isBlurhashFill = carouselStyle === 'immersive-performance' && storage.getItem('pref:heroCarouselBlurhashFill') === 'true';
         if (isBlurhashFill) {
             this._decodeBlurhashFill(item);
         }

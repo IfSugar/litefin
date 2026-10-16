@@ -3074,7 +3074,7 @@ class SettingsPage extends Page {
                         <span class="setting-description" data-i18n="HeroCarouselBlurhashFillDescription">${i18n.t('HeroCarouselBlurhashFillDescription') || 'Fill the rest of the hero carousel background with ambient colors extracted from the artwork BlurHash.'}</span>
                     </div>
                     <div class="setting-control">
-                         <button class="toggle-switch ${storage.getItem('pref:heroCarouselBlurhashFill') !== 'false' ? 'active' : ''}" 
+                         <button class="toggle-switch ${storage.getItem('pref:heroCarouselBlurhashFill') === 'true' ? 'active' : ''}" 
                                  id="toggle-hero-carousel-blurhash-fill" 
                                  tabindex="0">
                         </button>
@@ -9198,14 +9198,15 @@ class SettingsPage extends Page {
         // Toggles ambient background color filling behind the hero artwork using
         // low-frequency color coefficients decoded from the item's BlurHash.
         // Exclusive to the Immersive (Performance) carousel style.
+        // Defaults to OFF unless explicitly toggled on by user preference.
         const heroCarouselBlurhashFillBtn = this.$('#toggle-hero-carousel-blurhash-fill');
         if (heroCarouselBlurhashFillBtn) {
             heroCarouselBlurhashFillBtn.addEventListener('click', () => {
-                // Determine whether blurhash color filling is currently enabled (default: true)
-                const isEnabled = storage.getItem('pref:heroCarouselBlurhashFill') !== 'false';
+                // Determine whether blurhash color filling is currently enabled (default: false)
+                const isEnabled = storage.getItem('pref:heroCarouselBlurhashFill') === 'true';
                 const newValue = !isEnabled;
 
-                // Save updated preference key into local storage
+                // Save updated preference key into persistent local storage
                 storage.setItem('pref:heroCarouselBlurhashFill', newValue.toString());
 
                 // Update visual toggle switch state
@@ -12024,6 +12025,8 @@ class SettingsPage extends Page {
                                     const isCarouselEnabled = storage.getItem('pref:heroCarousel') !== 'false';
                                     animToggleItem.style.display = isCarouselEnabled && newValue === 'progress' ? '' : 'none';
                                 }
+                                // Invalidate spatial navigation focus map to register the dynamic indicator animation toggle
+                                focusManager.invalidateCache('settings-content');
                             }
 
                             // Cascade visibility for BlurHash fill toggle (exclusive to immersive-performance style)
@@ -12033,6 +12036,8 @@ class SettingsPage extends Page {
                                     const isCarouselEnabled = storage.getItem('pref:heroCarousel') !== 'false';
                                     blurhashFillItem.style.display = isCarouselEnabled && newValue === 'immersive-performance' ? '' : 'none';
                                 }
+                                // Invalidate spatial navigation focus cache so the newly revealed BlurHash toggle can be focused
+                                focusManager.invalidateCache('settings-content');
                             }
 
                             /* -------------------------------------------------------------
