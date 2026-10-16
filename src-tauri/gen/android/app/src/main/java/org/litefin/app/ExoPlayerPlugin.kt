@@ -19,6 +19,7 @@ import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
+import androidx.media3.session.MediaSession
 import app.tauri.annotation.Command
 import app.tauri.annotation.TauriPlugin
 import app.tauri.plugin.Invoke
@@ -51,11 +52,29 @@ import java.util.concurrent.TimeUnit
 @OptIn(UnstableApi::class)
 class ExoPlayerPlugin(private val activity: Activity) : Plugin(activity) {
 
+  companion object {
+    /**
+     * Centralized singleton reference allowing MainActivity and other native components
+     * to check player state or dispatch media transport events.
+     */
+    @Volatile
+    var instance: ExoPlayerPlugin? = null
+      private set
+  }
+
+  init {
+    // Retain active plugin singleton instance upon initialization
+    instance = this
+  }
+
   // ---------------------------------------------------------------------------
   // Core Media3 Components
   // ---------------------------------------------------------------------------
   // The primary Media3 ExoPlayer playback engine
   private var player: ExoPlayer? = null
+
+  // Native Android MediaSession bridging ExoPlayer to OS transport controls & tvQuickActions
+  private var mediaSession: MediaSession? = null
 
   // Custom track selector enabling fine-grained audio stream switching
   private var trackSelector: DefaultTrackSelector? = null
@@ -122,6 +141,8 @@ class ExoPlayerPlugin(private val activity: Activity) : Plugin(activity) {
       MainActivity.instance?.getTextureView()?.let { textureView ->
         existing.setVideoTextureView(textureView)
       }
+      // Guarantee MediaSession remains active for existing player instance
+      ensureMediaSession(existing)
       return existing
     }
 
@@ -131,6 +152,15 @@ class ExoPlayerPlugin(private val activity: Activity) : Plugin(activity) {
     val newPlayer = ExoPlayer.Builder(activity)
       .setTrackSelector(selector)
       .build()
+
+    // -------------------------------------------------------------------------
+    // Connect Native Media3 MediaSession
+    // -------------------------------------------------------------------------
+    // Registers ExoPlayer with Android OS MediaSessionManager.
+    // Enables physical TV remote transport keys (Play/Pause/Rewind/FF) and
+    // external accessibility mappers like tvQuickActions to control playback.
+    // -------------------------------------------------------------------------
+    ensureMediaSession(newPlayer)
 
     // -------------------------------------------------------------------------
     // Bind Hardware TextureView
@@ -327,6 +357,51 @@ class ExoPlayerPlugin(private val activity: Activity) : Plugin(activity) {
 
     this.player = newPlayer
     return newPlayer
+  }
+
+  /**
+   * ===========================================================================
+   * Native MediaSession Lifecycle Management
+   * ===========================================================================
+   * Ensures an active Media3 MediaSession is bound to the ExoPlayer instance.
+   * Android OS routes remote control media buttons, Bluetooth headsets, and
+   * tvQuickActions shortcut commands directly to this session.
+   * ===========================================================================
+   */
+  private fun ensureMediaSession(exo: ExoPlayer): MediaSession {
+    mediaSession?.let { return it }
+
+    // Build native MediaSession bound directly to the hardware ExoPlayer looper
+    val session = MediaSession.Builder(activity, exo)
+      .setId("LitefinExoMediaSession")
+      .build()
+
+    this.mediaSession = session
+    return session
+  }
+
+  /**
+   * Releases and clears the active MediaSession when playback terminates.
+   */
+  private fun releaseMediaSession() {
+    try {
+      mediaSession?.release()
+    } catch (_: Exception) {}
+    mediaSession = null
+  }
+
+  /**
+   * Checks whether the native ExoPlayer is currently allocated and ready.
+   */
+  fun hasActivePlayer(): Boolean {
+    return player != null
+  }
+
+  /**
+   * Checks whether the native player is actively playing video frames.
+   */
+  fun isPlaying(): Boolean {
+    return player?.isPlaying ?: false
   }
 
   // ===========================================================================
@@ -596,6 +671,8 @@ class ExoPlayerPlugin(private val activity: Activity) : Plugin(activity) {
     activity.runOnUiThread {
       try {
         stopProgressHeartbeat()
+        // Release MediaSession so system knows playback has halted
+        releaseMediaSession()
         player?.stop()
         MainActivity.instance?.setKeepScreenOn(false)
         MainActivity.instance?.hideVideoSurface()
@@ -614,6 +691,8 @@ class ExoPlayerPlugin(private val activity: Activity) : Plugin(activity) {
     activity.runOnUiThread {
       try {
         stopProgressHeartbeat()
+        // Tear down native MediaSession connection to OS media services
+        releaseMediaSession()
         player?.release()
         player = null
         trackSelector = null
@@ -801,6 +880,7 @@ class ExoPlayerPlugin(private val activity: Activity) : Plugin(activity) {
     fun destroy() {
       activity.runOnUiThread {
         stopProgressHeartbeat()
+        releaseMediaSession()
         player?.release()
         player = null
         trackSelector = null

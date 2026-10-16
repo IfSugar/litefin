@@ -73,7 +73,16 @@ const ANDROID_KEYS = {
     YELLOW: 185,          // Android KeyEvent.KEYCODE_PROG_YELLOW
     YELLOW_LEGACY: 405,   // Standard Smart TV / HbbTV yellow keycode
     BLUE: 186,            // Android KeyEvent.KEYCODE_PROG_BLUE
-    BLUE_LEGACY: 406      // Standard Smart TV / HbbTV blue keycode
+    BLUE_LEGACY: 406,     // Standard Smart TV / HbbTV blue keycode
+
+    // TV utility & function buttons
+    CAPTIONS: 175,        // Android KeyEvent.KEYCODE_CAPTIONS
+    SUBTITLE: 460,        // Standard Smart TV subtitle keycode
+    INFO: 165,            // Android KeyEvent.KEYCODE_INFO
+    INFO_LEGACY: 457,     // Standard Smart TV info keycode
+    GUIDE: 172,           // Android KeyEvent.KEYCODE_GUIDE
+    GUIDE_LEGACY: 458,    // Standard Smart TV guide keycode
+    BOOKMARK: 174         // Android KeyEvent.KEYCODE_BOOKMARK
 };
 
 class AndroidAdapter {
@@ -739,11 +748,35 @@ class AndroidAdapter {
      * @private
      */
     _setupKeyHandler() {
-        document.addEventListener('keydown', (e) => {
+        // Tracks currently held keycodes to prevent duplicate actions between keydown and keyup
+        const pressedKeys = new Set();
+
+        // Clear tracking set if window loses focus to prevent stuck keys
+        window.addEventListener('blur', () => pressedKeys.clear(), { passive: true });
+
+        /**
+         * Unified key event processor handling both standard hardware remotes
+         * and virtual accessibility key injections (e.g. tvQuickActions).
+         *
+         * @param {KeyboardEvent} e - DOM KeyboardEvent
+         * @param {boolean} isKeyUp - True when triggered on keyup / ACTION_UP
+         */
+        const processKeyEvent = (e, isKeyUp = false) => {
             this.reportInput();
             const keyCode = e.keyCode;
             const keyStr = typeof e.key === 'string' ? e.key : '';
             const codeStr = typeof e.code === 'string' ? e.code : '';
+
+            // Handle press lifecycle: if keydown already handled the action, ignore keyup.
+            // If an accessibility tool or virtual remote sends a lone keyup, process it.
+            if (isKeyUp) {
+                if (pressedKeys.has(keyCode)) {
+                    pressedKeys.delete(keyCode);
+                    return;
+                }
+            } else {
+                pressedKeys.add(keyCode);
+            }
 
             // Determine if the user is currently editing a text input element
             const activeElem = document.activeElement;
@@ -761,6 +794,52 @@ class AndroidAdapter {
                     this.handleHardwareBack();
                     return;
                 }
+                return;
+            }
+
+            // -----------------------------------------------------------------
+            // Subtitles / Closed Captions Shortcut
+            // -----------------------------------------------------------------
+            const isCaptionsKey =
+                keyCode === ANDROID_KEYS.CAPTIONS ||
+                keyCode === ANDROID_KEYS.SUBTITLE ||
+                keyStr === 'Subtitle' ||
+                keyStr === 'ClosedCaption' ||
+                codeStr === 'ClosedCaption';
+
+            if (isCaptionsKey) {
+                e.preventDefault();
+                eventBus.emit('key:captions', e);
+                return;
+            }
+
+            // -----------------------------------------------------------------
+            // Info / OSD Toggle Shortcut
+            // -----------------------------------------------------------------
+            const isInfoKey =
+                keyCode === ANDROID_KEYS.INFO ||
+                keyCode === ANDROID_KEYS.INFO_LEGACY ||
+                keyStr === 'Info' ||
+                codeStr === 'Info';
+
+            if (isInfoKey) {
+                e.preventDefault();
+                eventBus.emit('key:info', e);
+                return;
+            }
+
+            // -----------------------------------------------------------------
+            // Electronic Program Guide (EPG) Shortcut
+            // -----------------------------------------------------------------
+            const isGuideKey =
+                keyCode === ANDROID_KEYS.GUIDE ||
+                keyCode === ANDROID_KEYS.GUIDE_LEGACY ||
+                keyStr === 'Guide' ||
+                codeStr === 'Guide';
+
+            if (isGuideKey) {
+                e.preventDefault();
+                eventBus.emit('key:guide', e);
                 return;
             }
 
@@ -1051,7 +1130,12 @@ class AndroidAdapter {
                     eventBus.emit('key:any', { keyCode, event: e });
                     break;
             }
-        });
+        };
+
+        // Register both keydown and keyup listeners to capture standard physical remotes
+        // alongside virtual remote injectors and accessibility tools (tvQuickActions)
+        document.addEventListener('keydown', (e) => processKeyEvent(e, false));
+        document.addEventListener('keyup', (e) => processKeyEvent(e, true));
     }
 
     /**

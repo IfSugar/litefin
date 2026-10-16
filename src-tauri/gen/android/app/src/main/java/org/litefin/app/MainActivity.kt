@@ -617,17 +617,130 @@ class MainActivity : TauriActivity() {
    * ===========================================================================
    */
   override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+    // -------------------------------------------------------------------------
+    // 1. Hardware Back Interception
+    // -------------------------------------------------------------------------
+    // Consumes Android back button to drive unified web-level routing and modal dismissal,
+    // preventing Chromium from performing an unintended window history navigation.
+    // -------------------------------------------------------------------------
     if (event.keyCode == KeyEvent.KEYCODE_BACK) {
       if (event.action == KeyEvent.ACTION_UP) {
         handleHardwareBack()
       }
-      // Return true for both ACTION_DOWN and ACTION_UP to fully consume
-      // the hardware back event and prevent any default browser history navigation.
       return true
     }
 
     // -------------------------------------------------------------------------
-    // Android TV Directional D-Pad Direct Dispatch Guard
+    // 2. Hardware TV Remote Contextual Color Buttons (Red, Green, Yellow, Blue)
+    // -------------------------------------------------------------------------
+    // Physical TV remotes (TCL, Philips, Sony, Panasonic) feature 4 programmable
+    // contextual color keys. Chromium's WebView often swallows or misidentifies
+    // these keycodes. By intercepting them natively in dispatchKeyEvent, we ensure
+    // they are dispatched cleanly to Litefin's RemoteButtonManager and OSD without drops.
+    // -------------------------------------------------------------------------
+    when (event.keyCode) {
+      KeyEvent.KEYCODE_PROG_RED -> {
+        if (event.action == KeyEvent.ACTION_UP) {
+          handleColorButton("red")
+        }
+        return true
+      }
+      KeyEvent.KEYCODE_PROG_GREEN -> {
+        if (event.action == KeyEvent.ACTION_UP) {
+          handleColorButton("green")
+        }
+        return true
+      }
+      KeyEvent.KEYCODE_PROG_YELLOW -> {
+        if (event.action == KeyEvent.ACTION_UP) {
+          handleColorButton("yellow")
+        }
+        return true
+      }
+      KeyEvent.KEYCODE_PROG_BLUE -> {
+        if (event.action == KeyEvent.ACTION_UP) {
+          handleColorButton("blue")
+        }
+        return true
+      }
+    }
+
+    // -------------------------------------------------------------------------
+    // 3. Television Function & Utility Shortcuts
+    // -------------------------------------------------------------------------
+    // Captures remote keys for subtitles (captions), display info, electronic program
+    // guide (EPG), bookmarks, and channel stepping.
+    // -------------------------------------------------------------------------
+    when (event.keyCode) {
+      KeyEvent.KEYCODE_CAPTIONS -> {
+        if (event.action == KeyEvent.ACTION_UP) {
+          handleTvShortcut("captions")
+        }
+        return true
+      }
+      KeyEvent.KEYCODE_INFO -> {
+        if (event.action == KeyEvent.ACTION_UP) {
+          handleTvShortcut("info")
+        }
+        return true
+      }
+      KeyEvent.KEYCODE_GUIDE -> {
+        if (event.action == KeyEvent.ACTION_UP) {
+          handleTvShortcut("guide")
+        }
+        return true
+      }
+      KeyEvent.KEYCODE_BOOKMARK -> {
+        if (event.action == KeyEvent.ACTION_UP) {
+          handleTvShortcut("bookmark")
+        }
+        return true
+      }
+      KeyEvent.KEYCODE_CHANNEL_UP, KeyEvent.KEYCODE_PAGE_UP -> {
+        if (event.action == KeyEvent.ACTION_UP) {
+          handleTvShortcut("channelUp")
+        }
+        return true
+      }
+      KeyEvent.KEYCODE_CHANNEL_DOWN, KeyEvent.KEYCODE_PAGE_DOWN -> {
+        if (event.action == KeyEvent.ACTION_UP) {
+          handleTvShortcut("channelDown")
+        }
+        return true
+      }
+    }
+
+    // -------------------------------------------------------------------------
+    // 4. Physical Remote Media Playback Controls
+    // -------------------------------------------------------------------------
+    // When native ExoPlayer is active, Media3 MediaSession automatically handles
+    // OS media events. If ExoPlayer is not active (e.g. user is browsing cards
+    // on the home screen or web audio is playing), forward the media transport
+    // command directly to the web layer so quick play or cards act accordingly.
+    // -------------------------------------------------------------------------
+    val isExoActive = ExoPlayerPlugin.instance?.hasActivePlayer() == true
+    if (!isExoActive) {
+      val mediaCmd = when (event.keyCode) {
+        KeyEvent.KEYCODE_MEDIA_PLAY -> "play"
+        KeyEvent.KEYCODE_MEDIA_PAUSE -> "pause"
+        KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, KeyEvent.KEYCODE_HEADSETHOOK -> "playPause"
+        KeyEvent.KEYCODE_MEDIA_STOP -> "stop"
+        KeyEvent.KEYCODE_MEDIA_FAST_FORWARD, KeyEvent.KEYCODE_MEDIA_STEP_FORWARD, KeyEvent.KEYCODE_MEDIA_SKIP_FORWARD -> "fastForward"
+        KeyEvent.KEYCODE_MEDIA_REWIND, KeyEvent.KEYCODE_MEDIA_STEP_BACKWARD, KeyEvent.KEYCODE_MEDIA_SKIP_BACKWARD -> "rewind"
+        KeyEvent.KEYCODE_MEDIA_NEXT -> "next"
+        KeyEvent.KEYCODE_MEDIA_PREVIOUS -> "previous"
+        else -> null
+      }
+      if (mediaCmd != null) {
+        if (event.action == KeyEvent.ACTION_UP) {
+          handleMediaCommand(mediaCmd)
+        }
+        return true
+      }
+    }
+
+    // -------------------------------------------------------------------------
+    // 5. Android TV Directional D-Pad Direct Dispatch Guard
     // -------------------------------------------------------------------------
     // If the system window focus ever drifted to the FrameLayout root or DecorView,
     // immediately re-anchor focus to activeWebView so directional keys (Left, Right,
@@ -657,6 +770,74 @@ class MainActivity : TauriActivity() {
           } else {
             var evt = new KeyboardEvent('keydown', { key: 'Escape', keyCode: 27, bubbles: true });
             document.dispatchEvent(evt);
+          }
+        })();
+        """.trimIndent(),
+        null
+      )
+    }
+  }
+
+  /**
+   * Dispatches a contextual remote color button event to the Litefin frontend.
+   *
+   * @param color Normalized color name ("red", "green", "yellow", "blue").
+   */
+  fun handleColorButton(color: String) {
+    runOnUiThread {
+      activeWebView?.evaluateJavascript(
+        """
+        (function() {
+          if (window.androidAdapter && typeof window.androidAdapter.handleColorButton === 'function') {
+            window.androidAdapter.handleColorButton('$color');
+          } else if (typeof window.__litefinAndroidColorButton === 'function') {
+            window.__litefinAndroidColorButton('$color');
+          } else if (window.eventBus && typeof window.eventBus.emit === 'function') {
+            window.eventBus.emit('key:$color', { source: 'native-remote' });
+          }
+        })();
+        """.trimIndent(),
+        null
+      )
+    }
+  }
+
+  /**
+   * Dispatches a media transport command to the Litefin frontend.
+   *
+   * @param command Normalized transport command ("play", "pause", "playPause", "rewind", "fastForward", "stop", "next", "previous").
+   */
+  fun handleMediaCommand(command: String) {
+    runOnUiThread {
+      activeWebView?.evaluateJavascript(
+        """
+        (function() {
+          if (window.androidAdapter && typeof window.androidAdapter.handleMediaCommand === 'function') {
+            window.androidAdapter.handleMediaCommand('$command');
+          } else if (typeof window.__litefinAndroidMediaCommand === 'function') {
+            window.__litefinAndroidMediaCommand('$command');
+          } else if (window.eventBus && typeof window.eventBus.emit === 'function') {
+            window.eventBus.emit('key:$command', { source: 'native-media-bridge' });
+          }
+        })();
+        """.trimIndent(),
+        null
+      )
+    }
+  }
+
+  /**
+   * Dispatches a TV shortcut key event to the Litefin frontend.
+   *
+   * @param shortcut Action identifier ("captions", "info", "guide", "bookmark", "channelUp", "channelDown").
+   */
+  fun handleTvShortcut(shortcut: String) {
+    runOnUiThread {
+      activeWebView?.evaluateJavascript(
+        """
+        (function() {
+          if (window.eventBus && typeof window.eventBus.emit === 'function') {
+            window.eventBus.emit('key:$shortcut', { source: 'native-remote' });
           }
         })();
         """.trimIndent(),
