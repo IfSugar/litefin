@@ -1186,65 +1186,154 @@ html[data-litefin-touch] .sidebar:not(#nonexistent) .sidebar-item.focused:not(#s
 
     /*
      * ========================================================================
-     * Home Carousel Background Sizing (Recalibrated for 1.2x Carousel)
+     * Home Carousel Background Sizing & Gradient Architecture (Mobile Portrait)
      * ========================================================================
-     * Scales the background backdrop image and its gradient blend layers to
-     * proportionally match the 20% taller carousel (60% portrait height),
-     * ensuring artwork blankets the slide before fading smoothly into rows.
+     * Recalibrates the carousel backdrop image, text contrast vignette, and
+     * bottom blend layers to seamlessly integrate with mobile portrait proportions.
+     * Prevents abrupt horizontal cutoff lines and guarantees crystal-clear legibility.
      * ========================================================================
      */
-    html[data-litefin-scaled] .hero-carousel-container .hero-backdrop,
-    html[data-litefin-portrait] .hero-carousel-container .hero-backdrop {
-        /* Restrict backdrop artwork height to cover the 1.2x carousel */
-        height: calc(var(--litefin-app-h, 100vh) * 0.60) !important;
-        max-height: 60vh !important;
+
+    /*
+     * Universal Unmasked Typography Container (.hero-item):
+     * Removes full-canvas clipping masks from .hero-item so that overview text,
+     * badges, action controls, and indicators remain 100% visible and unclipped.
+     * All gradient blends and alpha dissolves are scoped directly to the artwork layers.
+     */
+    html[data-litefin-scaled] .hero-carousel-container .hero-item,
+    html[data-litefin-portrait] .hero-carousel-container .hero-item {
+        -webkit-mask-image: none !important;
+        mask-image: none !important;
     }
 
     /*
-     * Redundant Text Shadow Vignette Layer (::before):
-     * The radial/horizontal text shadow vignette is unnecessary on mobile builds
-     * because the text container already provides dedicated contrast backing.
-     * Removing this overlay reveals clean, unoccluded backdrop artwork.
+     * Backdrop Artwork Boundary & Seamless Bottom Alpha Dissolve:
+     * Restricts backdrop artwork height to 60% of portrait height, giving ideal
+     * presence while applying a non-linear vertical alpha fade that smoothly
+     * dissolves the artwork texture into the solid canvas background.
+     */
+    html[data-litefin-scaled] .hero-carousel-container .hero-backdrop,
+    html[data-litefin-portrait] .hero-carousel-container .hero-backdrop {
+        width: 100% !important;
+        left: 0 !important;
+        right: 0 !important;
+        height: calc(var(--litefin-app-h, 100vh) * 0.60) !important;
+        max-height: 60vh !important;
+        -webkit-mask-image: linear-gradient(
+            to bottom,
+            black 0%,
+            black 35%,
+            rgba(0, 0, 0, 0.95) 50%,
+            rgba(0, 0, 0, 0.70) 68%,
+            rgba(0, 0, 0, 0.32) 84%,
+            rgba(0, 0, 0, 0.08) 94%,
+            transparent 100%
+        ) !important;
+        mask-image: linear-gradient(
+            to bottom,
+            black 0%,
+            black 35%,
+            rgba(0, 0, 0, 0.95) 50%,
+            rgba(0, 0, 0, 0.70) 68%,
+            rgba(0, 0, 0, 0.32) 84%,
+            rgba(0, 0, 0, 0.08) 94%,
+            transparent 100%
+        ) !important;
+    }
+
+    /*
+     * Mobile Hero Typography Contrast Vignette (::before):
+     * Restores directional contrast backing behind titles, metadata badges, and
+     * synopsis descriptions. Prevents white typography from washing out against
+     * bright background artwork while leaving the main visual focal point clean.
      */
     html[data-litefin-scaled] .hero-carousel-container .hero-item::before,
     html[data-litefin-portrait] .hero-carousel-container .hero-item::before,
+    html[data-litefin-scaled] .hero-carousel-container.immersive-performance .hero-item::before,
+    html[data-litefin-portrait] .hero-carousel-container.immersive-performance .hero-item::before,
     [data-platform="android"] .hero-carousel-container .hero-item::before {
-        display: none !important;
-        background: none !important;
-    }
-
-    html[data-litefin-scaled] .hero-carousel-container .hero-item::after,
-    html[data-litefin-portrait] .hero-carousel-container .hero-item::after {
-        /* Match bottom gradient blend precisely to the 60% boundary */
+        content: '' !important;
+        display: block !important;
+        position: absolute !important;
+        top: 0 !important;
+        left: 0 !important;
+        width: 100% !important;
         height: calc(var(--litefin-app-h, 100vh) * 0.60) !important;
         max-height: 60vh !important;
-        /* Smooth, seamless fade from transparent artwork into solid background */
+        pointer-events: none !important;
+        z-index: 1 !important;
+        background: linear-gradient(
+            to right,
+            rgba(0, 0, 0, 0.75) 0%,
+            rgba(0, 0, 0, 0.50) 45%,
+            rgba(0, 0, 0, 0.15) 75%,
+            transparent 100%
+        ) !important;
+    }
+
+    /* Mirrored horizontal text contrast vignette for RTL reading direction */
+    [dir="rtl"] html[data-litefin-scaled] .hero-carousel-container .hero-item::before,
+    [dir="rtl"] html[data-litefin-portrait] .hero-carousel-container .hero-item::before,
+    [dir="rtl"] html[data-litefin-scaled] .hero-carousel-container.immersive-performance .hero-item::before,
+    [dir="rtl"] html[data-litefin-portrait] .hero-carousel-container.immersive-performance .hero-item::before,
+    [dir="rtl"][data-platform="android"] .hero-carousel-container .hero-item::before {
+        left: auto !important;
+        right: 0 !important;
+        background: linear-gradient(
+            to left,
+            rgba(0, 0, 0, 0.75) 0%,
+            rgba(0, 0, 0, 0.50) 45%,
+            rgba(0, 0, 0, 0.15) 75%,
+            transparent 100%
+        ) !important;
+    }
+
+    /*
+     * Dual-Direction Atmospheric Gradient & Theme Canvas Blending (::after):
+     * 1. Top subtle darkening (0%-15%) shields the status bar, clock, and header controls.
+     * 2. Center aperture (20%-35%) keeps artwork vibrant and punchy.
+     * 3. Bottom progressive fade (40%-100%) merges smoothly into the solid page background,
+     *    ensuring zero harsh boundaries before the media rows commence.
+     */
+    html[data-litefin-scaled] .hero-carousel-container .hero-item::after,
+    html[data-litefin-portrait] .hero-carousel-container .hero-item::after,
+    html[data-litefin-scaled] .hero-carousel-container.immersive-performance .hero-item::after,
+    html[data-litefin-portrait] .hero-carousel-container.immersive-performance .hero-item::after,
+    html[data-litefin-scaled] .hero-carousel-container.immersive .hero-item::after,
+    html[data-litefin-portrait] .hero-carousel-container.immersive .hero-item::after {
+        content: '' !important;
+        display: block !important;
+        position: absolute !important;
+        top: 0 !important;
+        bottom: auto !important;
+        left: 0 !important;
+        right: 0 !important;
+        width: 100% !important;
+        height: calc(var(--litefin-app-h, 100vh) * 0.60) !important;
+        max-height: 60vh !important;
+        pointer-events: none !important;
+        z-index: 2 !important;
         background: linear-gradient(
             to bottom,
-            transparent 0%,
+            rgba(0, 0, 0, 0.50) 0%,
+            rgba(0, 0, 0, 0.22) 12%,
+            transparent 22%,
             transparent 35%,
-            rgba(0, 0, 0, 0.40) 65%,
-            rgba(0, 0, 0, 0.85) 85%,
+            rgba(0, 0, 0, 0.38) 60%,
+            rgba(0, 0, 0, 0.82) 84%,
+            var(--jf-background, #000000) 98%,
             var(--jf-background, #000000) 100%
         ) !important;
     }
 
     /*
-     * ========================================================================
-     * Ambient Glow Theme Mask Treatment (Recalibrated for 1.2x Carousel)
-     * ========================================================================
-     * In Ambient Glow mode, hero backdrop fade uses CSS alpha masking on .hero-item
-     * so the colorful ambient background mesh on <body> bleeds through seamlessly.
-     * Transition into complete transparency at 60% portrait height.
-     * ========================================================================
+     * BlurHash Fill Container Constraint for Mobile:
+     * Bounds the ambient BlurHash canvas to the exact 60% portrait artwork frame.
      */
-    html[data-litefin-scaled][data-theme-mode="ambient"] .hero-carousel-container .hero-item,
-    html[data-litefin-portrait][data-theme-mode="ambient"] .hero-carousel-container .hero-item,
-    [data-theme-mode="ambient"] html[data-litefin-scaled] .hero-carousel-container .hero-item,
-    [data-theme-mode="ambient"] html[data-litefin-portrait] .hero-carousel-container .hero-item {
-        /* Alpha mask transition to pure transparent at 60% portrait height */
-        -webkit-mask-image: linear-gradient(to bottom, black 25%, transparent 60%) !important;
-        mask-image: linear-gradient(to bottom, black 25%, transparent 60%) !important;
+    html[data-litefin-scaled] .hero-carousel-container .hero-blurhash-fill-wrap,
+    html[data-litefin-portrait] .hero-carousel-container .hero-blurhash-fill-wrap {
+        height: calc(var(--litefin-app-h, 100vh) * 0.60) !important;
+        max-height: 60vh !important;
     }
 
     html[data-litefin-scaled] .livetv-page .ltv-tab-header {
