@@ -1683,35 +1683,19 @@ export class ApiClient {
     /**
      * Get all album artists in the library.
      *
-     * JF12+ canonical: GET /Persons?personTypes=AlbumArtist&userId=...
-     *   (The /Artists/AlbumArtists endpoint is marked [Obsolete("Use GetPersons")]
-     *    in JF12 source — ArtistsController.cs.)
+     * In Jellyfin 10.x, 11.x, and 12.x+, the dedicated endpoint for album artists is:
+     * GET /Artists/AlbumArtists
      *
-     * Legacy (pre-12):  GET /Artists/AlbumArtists?UserId=...
-     *
-     * Note: /Persons uses the lowercase `userId` param; /Artists used `UserId`.
+     * In ArtistsController.cs on Jellyfin 12, GetAlbumArtists remains fully active,
+     * delegating directly to LibraryManager.GetAlbumArtists() on the music repository.
+     * The /Persons endpoint only queries the video Peoples table and does not return
+     * music library artists.
      *
      * @param {Object} [params] - Additional query params (Limit, ParentId, etc.)
+     * @returns {Promise<any>}
      */
     async getAlbumArtists(params = {}) {
-        if (this.isJF12Plus()) {
-            /*
-             * /Persons?personTypes=AlbumArtist is the recommended replacement.
-             * We strip out ItemCounts from Fields since /Persons doesn't support
-             * that field and would silently ignore it.
-             */
-            const defaults = {
-                userId: this._userId,
-                personTypes: 'AlbumArtist',
-                Recursive: true,
-                SortBy: 'SortName',
-                SortOrder: 'Ascending',
-                EnableTotalRecordCount: true
-            };
-            return this.get('/Persons', { ...defaults, ...params, personTypes: 'AlbumArtist' });
-        }
-
-        // Legacy path for JF 10.10 / 10.11
+        // Configure standard query defaults for album artists
         const defaults = {
             UserId: this._userId,
             Recursive: true,
@@ -1720,34 +1704,26 @@ export class ApiClient {
             SortOrder: 'Ascending',
             EnableTotalRecordCount: true
         };
+
+        // Execute request to the dedicated /Artists/AlbumArtists endpoint
         return this.get('/Artists/AlbumArtists', { ...defaults, ...params });
     }
 
     /**
      * Get all music artists in the library.
      *
-     * JF12+ canonical: GET /Persons?personTypes=Artist&userId=...
-     *   (The /Artists endpoint is marked [Obsolete("Use GetPersons")]
-     *    in JF12 source — ArtistsController.cs.)
+     * In Jellyfin 10.x, 11.x, and 12.x+, the dedicated endpoint for music artists is:
+     * GET /Artists
      *
-     * Legacy (pre-12):  GET /Artists?UserId=...
+     * In ArtistsController.cs on Jellyfin 12, GetArtists remains fully active,
+     * querying LibraryManager.GetArtists() to return MusicArtist items with counts.
+     * Official clients (including jellyfin-web) query this endpoint for music artists.
      *
      * @param {Object} [params] - Additional query params
+     * @returns {Promise<any>}
      */
     async getMusicArtists(params = {}) {
-        if (this.isJF12Plus()) {
-            const defaults = {
-                userId: this._userId,
-                personTypes: 'Artist',
-                Recursive: true,
-                SortBy: 'SortName',
-                SortOrder: 'Ascending',
-                EnableTotalRecordCount: true
-            };
-            return this.get('/Persons', { ...defaults, ...params, personTypes: 'Artist' });
-        }
-
-        // Legacy path for JF 10.10 / 10.11
+        // Configure standard query defaults for music artists
         const defaults = {
             UserId: this._userId,
             Recursive: true,
@@ -1756,6 +1732,8 @@ export class ApiClient {
             SortOrder: 'Ascending',
             EnableTotalRecordCount: true
         };
+
+        // Execute request to the dedicated /Artists endpoint
         return this.get('/Artists', { ...defaults, ...params });
     }
 
