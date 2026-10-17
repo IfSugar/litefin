@@ -187,13 +187,13 @@ class PlayerPage extends Page {
                 <!-- OSD Overlay (controlled by jellyfin-player-osd.js) -->
                 <div id="osd-overlay" class="player-osd"></div>
 
-                <!-- Primary Subtitle Overlay (Bottom) -->
-                <div id="subtitle-overlay" class="subtitle-overlay"></div>
+                <!-- Primary Subtitle Overlay (Bottom standard default) -->
+                <div id="subtitle-overlay" class="subtitle-overlay pos-bottom"></div>
 
-                <!-- Secondary Subtitle Overlay (Top) -->
+                <!-- Secondary Subtitle Overlay (Top standard default) -->
                 <!-- Positioned via CSS .subtitle-overlay.secondary (top: 10%) -->
                 <!-- Styles are inherited from primary, only size/position are independent -->
-                <div id="secondary-subtitle-overlay" class="subtitle-overlay secondary hidden"></div>
+                <div id="secondary-subtitle-overlay" class="subtitle-overlay secondary pos-top hidden"></div>
 
                 <!-- Playback Screen/Input Lock Overlay (Premium Dark Mode Aesthetic) -->
                 <div id="lock-overlay" class="lock-overlay">
@@ -3569,6 +3569,28 @@ class PlayerPage extends Page {
 
         /*
          * ====================================================================
+         * Smart Directional Subtitle Shifting State
+         * ====================================================================
+         * Inspect user-configured vertical positioning for primary and
+         * secondary subtitle tracks to determine screen hemisphere placement.
+         * Subtitles in the bottom half dodge UP when OSD controls appear;
+         * subtitles in the top half dodge DOWN to clear the top header bar.
+         * ====================================================================
+         */
+        const isPrimBottom = SubtitleStyles.isPrimarySubtitleInBottomHalf();
+        if (primaryOverlay) {
+            primaryOverlay.classList.toggle('pos-bottom', isPrimBottom);
+            primaryOverlay.classList.toggle('pos-top', !isPrimBottom);
+        }
+
+        const isSecBottom = SubtitleStyles.isSecondarySubtitleInBottomHalf();
+        if (secondaryOverlay) {
+            secondaryOverlay.classList.toggle('pos-bottom', isSecBottom);
+            secondaryOverlay.classList.toggle('pos-top', !isSecBottom);
+        }
+
+        /*
+         * ====================================================================
          * Dynamic Subtitle OSD Dodging Synchronization
          * ====================================================================
          * Verify whether the OSD controls layer is truly visible on screen.
@@ -3651,6 +3673,10 @@ class PlayerPage extends Page {
         // Refresh primary overlay
         const overlay = document.getElementById('subtitle-overlay');
         if (overlay) {
+            const isPrimBottom = SubtitleStyles.isPrimarySubtitleInBottomHalf();
+            overlay.classList.toggle('pos-bottom', isPrimBottom);
+            overlay.classList.toggle('pos-top', !isPrimBottom);
+
             // Re-apply container styles (position/window) unconditionally
             const windowStyles = SubtitleStyles.getWindowStyles();
             SubtitleStyles.applyStyles(overlay, windowStyles);
@@ -3689,6 +3715,10 @@ class PlayerPage extends Page {
         // Refresh secondary overlay (inherits primary appearance — always re-apply on any change)
         const secondaryOverlay = document.getElementById('secondary-subtitle-overlay');
         if (secondaryOverlay) {
+            const isSecBottom = SubtitleStyles.isSecondarySubtitleInBottomHalf();
+            secondaryOverlay.classList.toggle('pos-bottom', isSecBottom);
+            secondaryOverlay.classList.toggle('pos-top', !isSecBottom);
+
             // Re-apply secondary window/position styles unconditionally
             const secondaryWindowStyles = SubtitleStyles.getSecondaryWindowStyles();
             SubtitleStyles.applyStyles(secondaryOverlay, secondaryWindowStyles);

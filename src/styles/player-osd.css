@@ -212,9 +212,14 @@ html[data-osd-progress-color="theme-inverted"] {
     opacity: 0.9;
 }
 
+/*
+ * Main OSD Title (Show name or standalone media title).
+ * Formats primary title text with prominent weight and clean shadow.
+ * Margin is zeroed to guarantee exact vertical and baseline alignment
+ * with the secondary title segment across all display scales.
+ */
 .osd-title {
     font-size: 1.8em;
-    /* 1.5em * 1.2 */
     font-weight: bold;
     text-shadow: 0 2px 4px rgba(0, 0, 0, 0.8);
     max-width: 60vw;
@@ -222,7 +227,7 @@ html[data-osd-progress-color="theme-inverted"] {
     overflow: hidden;
     text-overflow: ellipsis;
     line-height: 1.5;
-    margin: 0px 0px 2px 0px;
+    margin: 0;
 }
 
 .osd-title-wrap {
@@ -305,15 +310,22 @@ html[data-osd-progress-color="theme-inverted"] {
     max-height: 108px !important;
 }
 
+/*
+ * Secondary OSD Title (Episode designation, episode name, and production year).
+ * Matches primary title font-size (1.8em) and line-height (1.5) to keep a unified
+ * typographic baseline and cap-height across the horizontal title line.
+ * Subtle hierarchy is preserved via weight (500) and optical opacity.
+ */
 .osd-title-secondary {
-    font-size: 1.6em;
-    font-weight: 500; /* Slightly lighter than main title for hierarchy */
+    font-size: 1.8em;
+    font-weight: 500;
     text-shadow: 0 2px 4px rgba(0, 0, 0, 0.8);
     opacity: 0.9;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    line-height: 1.5; /* Match main title line-height */
+    line-height: 1.5;
+    margin: 0;
 }
 
 
