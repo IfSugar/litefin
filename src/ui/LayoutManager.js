@@ -865,22 +865,48 @@ class LayoutManager {
             }\n`;
 
             if (this._themeMode === THEME_MODES.AMBIENT) {
-                // Apply vendor-prefixed -webkit-radial-gradient using the calculated accent RGB values
-                // coordinates are mapped directly to match the modern CSS radial-gradient spots.
-                dynamicCss += `html[data-layout-quirks="c26"][data-theme-mode="ambient"] body {
+                // Apply vendor-prefixed -webkit-radial-gradient using calculated accent RGB values.
+                // Map coordinates directly to match modern CSS radial-gradient positions.
+                // Hardware optimization: isolate on a fixed body::before layer with transform: translateZ(0)
+                // to eliminate full-screen rasterization overhead during scrolling on older TV chipsets.
+                dynamicCss += `html[data-layout-quirks="c26"][data-theme-mode="ambient"] body::before {
+                    content: '' !important;
+                    position: fixed !important;
+                    top: 0 !important;
+                    left: 0 !important;
+                    right: 0 !important;
+                    bottom: 0 !important;
+                    width: 100% !important;
+                    height: 100% !important;
+                    z-index: -1 !important;
+                    pointer-events: none !important;
+                    background-color: ${resolvedBg} !important;
                     background-image: 
                         -webkit-radial-gradient(85% 15%, circle, rgba(${accents.accentRgb}, 0.30) 0%, rgba(${accents.accentRgb}, 0.10) 35%, transparent 70%),
                         -webkit-radial-gradient(15% 85%, circle, rgba(${accents.accentRgb}, 0.30) 0%, rgba(${accents.accentRgb}, 0.10) 35%, transparent 70%) !important;
-                    background-attachment: fixed !important;
                     background-size: cover !important;
+                    background-repeat: no-repeat !important;
+                    -webkit-transform: translateZ(0) !important;
+                    transform: translateZ(0) !important;
+                }
+                html[data-layout-quirks="c26"][data-theme-mode="ambient"] body {
+                    background-color: transparent !important;
+                    background-image: none !important;
+                }
+                html[data-layout-quirks="c26"][data-theme-mode="ambient"] body.player-active::before,
+                html[data-layout-quirks="c26"].player-active[data-theme-mode="ambient"] body::before {
+                    display: none !important;
                 }
                 html[data-layout-quirks="c26"][data-theme-mode="ambient"] .page {
                     background: transparent !important;
                 }\n`;
             } else {
-                // Ensure dynamic gradients from other sessions are cleared
+                // Ensure dynamic gradients and pseudo-elements from other sessions are cleared
                 dynamicCss += `html[data-layout-quirks="c26"] body {
                     background-image: none !important;
+                }
+                html[data-layout-quirks="c26"] body::before {
+                    display: none !important;
                 }\n`;
             }
         }
