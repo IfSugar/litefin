@@ -5693,6 +5693,25 @@ class SettingsPage extends Page {
         )}
                     </div>
                 </div>
+
+                <div class="setting-item">
+                    <div class="setting-label">
+                        <span class="setting-name" data-i18n="ScrollSmoothingDuration">${i18n.t('ScrollSmoothingDuration') || 'Scroll Smoothing (Duration)'}</span>
+                        <span class="setting-description" data-i18n="ScrollSmoothingDurationDescription">${i18n.t('ScrollSmoothingDurationDescription') || 'Configure animation duration and speed for vertical row navigation.'}</span>
+                    </div>
+                    <div class="setting-control">
+                        ${this._renderDropdown(
+            'scroll-smoothing-duration-select',
+            [
+                { value: 'instant', label: i18n.t('ScrollDurationInstant') || 'Instant (No Animation)' },
+                { value: 'current', label: i18n.t('ScrollDurationCurrent') || 'Fast (Default)' },
+                { value: 'smooth', label: i18n.t('ScrollDurationSmooth') || 'Smooth' },
+                { value: 'slower', label: i18n.t('ScrollDurationSlower') || 'Slower (Ultra Smooth)' }
+            ],
+            storage.getItem('pref:scrollSmoothingDuration') || 'current'
+        )}
+                    </div>
+                </div>
                 
                 <div class="setting-item">
                     <div class="setting-label">
@@ -11673,6 +11692,7 @@ class SettingsPage extends Page {
             'screensaver-type-select': { key: 'pref:screensaverType', type: 'local', triggerEvent: true },
             'backdrop-dimmer-select': { key: 'pref:backdropDimmer', type: 'local', triggerEvent: true },
             'vertical-scroll-mode-select': { key: 'pref:verticalScrollMode', type: 'local', triggerEvent: true },
+            'scroll-smoothing-duration-select': { key: 'pref:scrollSmoothingDuration', type: 'local', triggerEvent: true },
 
             // Centralized mappings for TV hardware remote control color buttons
             'remote-red-select': { key: 'pref:remoteRedAction', type: 'local', triggerEvent: true },
