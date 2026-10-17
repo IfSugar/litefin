@@ -1226,6 +1226,10 @@ class DetailsPage extends Page {
                     } else {
                         this._selectedSubtitleIndex = undefined;
                     }
+                } else if (effectiveSubtitleMode === 'Always' && resolvedSubtitle === -1) {
+                    // In Always mode, do not restore an Off (-1) state from previous sessions.
+                    // Subtitles must always display; leave undefined so automatic language resolution runs.
+                    this._selectedSubtitleIndex = undefined;
                 } else {
                     this._selectedSubtitleIndex = resolvedSubtitle;
                     log.info(`[DetailsPage] Restored saved subtitle track for ${this._itemId}: ${resolvedSubtitle}`);
@@ -1248,10 +1252,15 @@ class DetailsPage extends Page {
         ) {
             const resolvedSeriesSubtitle = MediaHelper.resolveSeriesTrack(source, 'Subtitle', this._item.SeriesId);
             if (resolvedSeriesSubtitle !== undefined) {
-                this._selectedSubtitleIndex = resolvedSeriesSubtitle;
-                log.info(
-                    `[DetailsPage] Restored series-level subtitle track for ${this._itemId}: ${resolvedSeriesSubtitle}`
-                );
+                if (effectiveSubtitleMode === 'Always' && resolvedSeriesSubtitle === -1) {
+                    // In Always mode, do not inherit an Off state from series track memory
+                    this._selectedSubtitleIndex = undefined;
+                } else {
+                    this._selectedSubtitleIndex = resolvedSeriesSubtitle;
+                    log.info(
+                        `[DetailsPage] Restored series-level subtitle track for ${this._itemId}: ${resolvedSeriesSubtitle}`
+                    );
+                }
             }
         }
 
@@ -5290,7 +5299,8 @@ class DetailsPage extends Page {
         // If a selection has not yet been locked in, resolve it according to the
         // active Subtitle Mode preference (e.g. None, OnlyForced, Default, Always)
         let currentIndex = this._selectedSubtitleIndex;
-        if (currentIndex === undefined) {
+        const effectiveSubMode = getEffectiveSubtitleMode();
+        if (currentIndex === undefined || (effectiveSubMode === 'Always' && currentIndex === -1)) {
             currentIndex = resolveSubtitleStream(mediaSource, {
                 audioStreamIndex: this._selectedAudioIndex
             });

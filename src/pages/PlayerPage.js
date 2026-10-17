@@ -1338,8 +1338,10 @@ class PlayerPage extends Page {
         // ---------------------------------------------------------------------
         // Pre-Selected Subtitle Mode Guard
         // ---------------------------------------------------------------------
-        // If subtitles are preSelected, guard against non-forced tracks in OnlyForced mode
-        // or any tracks when Subtitle Mode is None.
+        // Pre-Selected Subtitle Mode Guard
+        // ---------------------------------------------------------------------
+        // If subtitles are preSelected, guard against non-forced tracks in OnlyForced mode,
+        // any tracks when Subtitle Mode is None, or Off (-1) tracks in Always mode.
         if (savedSubtitleIndex !== undefined) {
             if (effectiveSubtitleMode === 'None') {
                 savedSubtitleIndex = -1;
@@ -1350,6 +1352,10 @@ class PlayerPage extends Page {
                 if (streamMatch && !isForcedStream(streamMatch)) {
                     savedSubtitleIndex = undefined;
                 }
+            } else if (effectiveSubtitleMode === 'Always' && savedSubtitleIndex === -1) {
+                // In Always mode, subtitles must never start off. Discard preselected -1 so
+                // resolution runs and picks the user's preferred language.
+                savedSubtitleIndex = undefined;
             }
         }
 
@@ -1415,6 +1421,9 @@ class PlayerPage extends Page {
                         if (streamMatch && isForcedStream(streamMatch)) {
                             savedSubtitleIndex = resolvedSubtitle;
                         }
+                    } else if (effectiveSubtitleMode === 'Always' && resolvedSubtitle === -1) {
+                        // In Always mode, do not restore an Off (-1) state from past playback
+                        savedSubtitleIndex = undefined;
                     } else {
                         savedSubtitleIndex = resolvedSubtitle;
                     }
@@ -1458,8 +1467,13 @@ class PlayerPage extends Page {
             if (savedSubtitleIndex === undefined && effectiveSubtitleMode !== 'None' && effectiveSubtitleMode !== 'OnlyForced') {
                 const resolvedSeriesSubtitle = MediaHelper.resolveSeriesTrack(mediaSource, 'Subtitle', item.SeriesId);
                 if (resolvedSeriesSubtitle !== undefined) {
-                    savedSubtitleIndex = resolvedSeriesSubtitle;
-                    log.info(`[Track Memory] Restored series-level subtitle track: Index ${savedSubtitleIndex}`);
+                    if (effectiveSubtitleMode === 'Always' && resolvedSeriesSubtitle === -1) {
+                        // In Always mode, do not inherit an Off state from series memory
+                        savedSubtitleIndex = undefined;
+                    } else {
+                        savedSubtitleIndex = resolvedSeriesSubtitle;
+                        log.info(`[Track Memory] Restored series-level subtitle track: Index ${savedSubtitleIndex}`);
+                    }
                 }
             }
         }
@@ -1494,22 +1508,31 @@ class PlayerPage extends Page {
             // Session-Scoped Subtitle Memory Guard
             // -----------------------------------------------------------------
             // Do not carry over session subtitle preferences if Subtitle Mode is
-            // configured to 'None' or 'OnlyForced'.
+            // configured to 'None' or 'OnlyForced'. In Always mode, do not carry over 'none'.
             if (savedSubtitleIndex === undefined && effectiveSubtitleMode !== 'None' && effectiveSubtitleMode !== 'OnlyForced') {
                 const sessionSubtitleLang = storage.getItem('session:lastSubtitleLang');
                 const sessionSubtitleTitle = storage.getItem('session:lastSubtitleTitle');
                 if (sessionSubtitleLang) {
-                    const resolvedSubtitle = this._resolveTrackByLang(
-                        mediaSource,
-                        'Subtitle',
-                        sessionSubtitleLang,
-                        sessionSubtitleTitle
-                    );
-                    if (resolvedSubtitle !== undefined) {
-                        savedSubtitleIndex = resolvedSubtitle;
-                        log.info(
-                            `[Track Memory] Restored Subtitle: ${sessionSubtitleLang} - ${sessionSubtitleTitle} -> Index ${resolvedSubtitle}`
+                    if (effectiveSubtitleMode === 'Always' && sessionSubtitleLang === 'none') {
+                        // In Always mode, do not carry over 'none' from session memory
+                    } else {
+                        const resolvedSubtitle = this._resolveTrackByLang(
+                            mediaSource,
+                            'Subtitle',
+                            sessionSubtitleLang,
+                            sessionSubtitleTitle
                         );
+                        if (resolvedSubtitle !== undefined) {
+                            if (effectiveSubtitleMode === 'Always' && resolvedSubtitle === -1) {
+                                // In Always mode, do not restore an Off state
+                                savedSubtitleIndex = undefined;
+                            } else {
+                                savedSubtitleIndex = resolvedSubtitle;
+                                log.info(
+                                    `[Track Memory] Restored Subtitle: ${sessionSubtitleLang} - ${sessionSubtitleTitle} -> Index ${resolvedSubtitle}`
+                                );
+                            }
+                        }
                     }
                 }
             }

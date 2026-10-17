@@ -399,76 +399,125 @@ export function isAudioTrackNativelyPlayable(track, mediaSource = null, backendT
 }
 
 /**
- * Matches media stream languages across 2-letter ISO, 3-letter ISO, and regional prefixes
- * using the centralized LanguageManager cache.
+ * Matches media stream languages across 2-letter ISO, 3-letter ISO, regional prefixes,
+ * and track metadata titles using the centralized LanguageManager cache.
  *
- * @param {string} trackLang - Language tag on the media stream (e.g. 'eng', 'en', 'en-US')
- * @param {string} targetLanguage - Target language tag to match against
+ * Supports passing either a raw language tag (e.g. 'ara', 'ar', 'en-US')
+ * or a media stream metadata object (e.g. { Language: 'ara', Title: 'Arabic', DisplayTitle: 'Arabic' }).
+ *
+ * @param {string|Object} trackOrLang - Language tag string or media stream object
+ * @param {string} targetLanguage - Target language tag or name to match against
  * @returns {boolean} True if the languages represent a match
  */
-export const isLanguageMatch = (trackLang, targetLanguage) => {
+export const isLanguageMatch = (trackOrLang, targetLanguage) => {
     // Immediate validation guard: return false if either parameter is missing or empty
-    if (!trackLang || !targetLanguage) return false;
+    if (!trackOrLang || !targetLanguage) return false;
 
-    // Normalize both strings to lowercase trimmed tokens for consistent baseline comparison
-    const cleanTrack = String(trackLang).trim().toLowerCase();
+    // Extract raw language code and potential track titles if a stream object was supplied
+    const trackLang = typeof trackOrLang === 'object' ? trackOrLang.Language : trackOrLang;
+    const trackTitle = typeof trackOrLang === 'object' ? (trackOrLang.Title || '') : '';
+    const trackDisplayTitle = typeof trackOrLang === 'object' ? (trackOrLang.DisplayTitle || '') : '';
+
+    // Normalize target string to lowercase trimmed token
     const cleanTarget = String(targetLanguage).trim().toLowerCase();
 
-    // Exact raw token match
-    if (cleanTrack === cleanTarget) return true;
+    // 1. Direct language code match if trackLang is available
+    if (trackLang) {
+        const cleanTrack = String(trackLang).trim().toLowerCase();
 
-    // Compare normalized ISO codes via languageManager utility
-    if (typeof languageManager !== 'undefined' && typeof languageManager?.normalizeLanguage === 'function') {
-        const normTrack = languageManager.normalizeLanguage(cleanTrack);
-        const normTarget = languageManager.normalizeLanguage(cleanTarget);
-        if (normTrack && normTarget) {
-            // Check 3-letter ISO code match (e.g. 'eng' vs 'eng')
-            if (normTrack.code && normTarget.code && normTrack.code.toLowerCase() === normTarget.code.toLowerCase()) {
-                return true;
+        // Exact raw token match
+        if (cleanTrack === cleanTarget) return true;
+
+        // Compare normalized ISO codes via languageManager utility
+        if (typeof languageManager !== 'undefined' && typeof languageManager?.normalizeLanguage === 'function') {
+            const normTrack = languageManager.normalizeLanguage(cleanTrack);
+            const normTarget = languageManager.normalizeLanguage(cleanTarget);
+            if (normTrack && normTarget) {
+                // Check 3-letter ISO code match (e.g. 'ara' vs 'ara')
+                if (normTrack.code && normTarget.code && normTrack.code.toLowerCase() === normTarget.code.toLowerCase()) {
+                    return true;
+                }
+                // Check 2-letter ISO code match (e.g. 'ar' vs 'ar')
+                if (normTrack.twoLetter && normTarget.twoLetter && normTrack.twoLetter.toLowerCase() === normTarget.twoLetter.toLowerCase()) {
+                    return true;
+                }
             }
-            // Check 2-letter ISO code match (e.g. 'en' vs 'en')
-            if (normTrack.twoLetter && normTarget.twoLetter && normTrack.twoLetter.toLowerCase() === normTarget.twoLetter.toLowerCase()) {
-                return true;
-            }
+        }
+
+        // Fallback prefix check for regional locale tags (e.g. 'en-US' matching 'en', 'ar-SA' matching 'ar')
+        if (cleanTrack.length >= 2 && cleanTarget.length >= 2 && cleanTrack.slice(0, 2) === cleanTarget.slice(0, 2)) {
+            return true;
         }
     }
 
-    // Fallback prefix check for regional locale tags (e.g. 'en-US' matching 'en')
-    if (cleanTrack.length >= 2 && cleanTarget.length >= 2 && cleanTrack.slice(0, 2) === cleanTarget.slice(0, 2)) {
-        return true;
+    // 2. Title / DisplayTitle Fallback Matching
+    // If track language code is missing, undetermined ('und'/'unknown'/'none'), or failed code match,
+    // inspect track Title and DisplayTitle for language name or code tokens (e.g. 'Arabic', 'العربية')
+    if (trackTitle || trackDisplayTitle) {
+        const combinedTitle = `${trackTitle} ${trackDisplayTitle}`.toLowerCase();
+
+        // Check if combined title matches target directly
+        if (combinedTitle.includes(cleanTarget)) {
+            return true;
+        }
+
+        // Check via languageManager normalized names
+        if (typeof languageManager !== 'undefined' && typeof languageManager?.normalizeLanguage === 'function') {
+            const normTarget = languageManager.normalizeLanguage(cleanTarget);
+            if (normTarget) {
+                // Check English name (e.g. 'arabic')
+                if (normTarget.name && combinedTitle.includes(normTarget.name.toLowerCase())) {
+                    return true;
+                }
+                // Check Native display name (e.g. 'العربية')
+                if (normTarget.nativeName && combinedTitle.includes(normTarget.nativeName.toLowerCase())) {
+                    return true;
+                }
+                // Check 3-letter ISO code bounded check (e.g. 'ara')
+                if (normTarget.code && new RegExp(`\\b${normTarget.code}\\b`, 'i').test(combinedTitle)) {
+                    return true;
+                }
+            }
+        }
     }
 
     return false;
 };
 
 /**
- * Determine if a subtitle stream is flagged or designated as forced.
- * Inspects Matroska / MP4 container disposition flags (IsForced, Forced) as well as
- * track titles and localized display names for common 'forced' descriptor patterns.
- *
- * @param {Object} stream - Subtitle stream metadata object
- * @returns {boolean} True if the track is forced
- */
-/**
  * Resolves the effective subtitle mode taking into account the server user's
  * configured SubtitleMode when Litefin is set to 'Default' (Server Preference).
+ * Performs case-insensitive canonical normalization to PascalCase.
  *
  * @param {string} [mode] - Active client subtitle mode setting
  * @returns {string} Effective subtitle mode ('None', 'OnlyForced', 'Default', 'Always', 'Smart')
  */
 export function getEffectiveSubtitleMode(mode) {
     // Retrieve currently active client subtitle playback mode
-    const activeMode = mode || PlayerSettings.get('subtitleMode') || 'Default';
+    const rawClientMode = mode || PlayerSettings.get('subtitleMode') || 'Default';
+    const cleanClient = String(rawClientMode).trim().toLowerCase();
 
     // If client mode is 'Default' (Server Preference), defer to the server user's profile
-    if (activeMode === 'Default') {
+    if (cleanClient === 'default') {
         const currentUser = auth?.getCurrentUser?.();
         const serverMode = currentUser?.Configuration?.SubtitleMode;
-        if (serverMode && serverMode !== 'Default') {
-            return serverMode;
+        if (serverMode) {
+            const cleanServer = String(serverMode).trim().toLowerCase();
+            if (cleanServer === 'always') return 'Always';
+            if (cleanServer === 'onlyforced' || cleanServer === 'only_forced' || cleanServer === 'forced') return 'OnlyForced';
+            if (cleanServer === 'none' || cleanServer === 'off') return 'None';
+            if (cleanServer === 'smart') return 'Smart';
         }
+        return 'Default';
     }
-    return activeMode;
+
+    // Canonicalize client mode string
+    if (cleanClient === 'always') return 'Always';
+    if (cleanClient === 'onlyforced' || cleanClient === 'only_forced' || cleanClient === 'forced') return 'OnlyForced';
+    if (cleanClient === 'none' || cleanClient === 'off') return 'None';
+    if (cleanClient === 'smart') return 'Smart';
+
+    return 'Default';
 }
 
 /**
@@ -615,13 +664,15 @@ export function resolveSubtitleStream(mediaSource, options = {}) {
     // 5. Context Language Extraction
     // -------------------------------------------------------------------------
     // Extract preferred subtitle language and active audio language to evaluate matches.
-    // Fall back to server user profile language if client has no specific language selected ('none').
-    let prefLang = options.prefLang || storage.getItem('pref:subtitleLang') || 'none';
-    if (!prefLang || prefLang === 'none') {
+    // Fall back to server user profile language if client has no specific language selected ('none' or 'Default').
+    let prefLang = options.prefLang || storage.getItem('pref:subtitleLang');
+    if (!prefLang || prefLang === 'none' || prefLang === 'Default' || prefLang === 'default') {
         const currentUser = auth?.getCurrentUser?.();
         const serverSubLang = currentUser?.Configuration?.SubtitleLanguagePreference;
-        if (serverSubLang) {
+        if (serverSubLang && serverSubLang !== 'none' && serverSubLang !== 'Default') {
             prefLang = serverSubLang;
+        } else {
+            prefLang = 'none';
         }
     }
 
@@ -651,12 +702,12 @@ export function resolveSubtitleStream(mediaSource, options = {}) {
 
         // Priority 1: Forced track matching user's preferred subtitle language
         if (prefLang && prefLang !== 'none') {
-            forced = subtitleStreams.find((s) => isForcedStream(s) && isLanguageMatch(s.Language, prefLang));
+            forced = subtitleStreams.find((s) => isForcedStream(s) && isLanguageMatch(s, prefLang));
         }
 
         // Priority 2: Forced track matching the active spoken audio language
         if (!forced && audioLang && audioLang !== 'und') {
-            forced = subtitleStreams.find((s) => isForcedStream(s) && isLanguageMatch(s.Language, audioLang));
+            forced = subtitleStreams.find((s) => isForcedStream(s) && isLanguageMatch(s, audioLang));
         }
 
         // Priority 3: Any forced track available on the media item
@@ -682,10 +733,10 @@ export function resolveSubtitleStream(mediaSource, options = {}) {
                 // External track matching preferred language with default or forced flag
                 if (prefLang && prefLang !== 'none') {
                     best = externalStreams.find(
-                        (s) => isLanguageMatch(s.Language, prefLang) && (s.IsDefault || isForcedStream(s))
+                        (s) => isLanguageMatch(s, prefLang) && (s.IsDefault || isForcedStream(s))
                     );
                     if (!best) {
-                        best = externalStreams.find((s) => isLanguageMatch(s.Language, prefLang));
+                        best = externalStreams.find((s) => isLanguageMatch(s, prefLang));
                     }
                 }
                 // Fallback to undetermined or untagged external stream
@@ -702,10 +753,10 @@ export function resolveSubtitleStream(mediaSource, options = {}) {
         if (!best) {
             if (prefLang && prefLang !== 'none') {
                 best = subtitleStreams.find(
-                    (s) => isLanguageMatch(s.Language, prefLang) && (s.IsDefault || isForcedStream(s))
+                    (s) => isLanguageMatch(s, prefLang) && (s.IsDefault || isForcedStream(s))
                 );
                 if (!best) {
-                    best = subtitleStreams.find((s) => isLanguageMatch(s.Language, prefLang));
+                    best = subtitleStreams.find((s) => isLanguageMatch(s, prefLang));
                 }
             }
             if (!best) {
@@ -728,10 +779,10 @@ export function resolveSubtitleStream(mediaSource, options = {}) {
         // Condition: Spoken audio differs from user's preferred subtitle language
         if (prefLang !== 'none' && !isLanguageMatch(audioLang, prefLang) && audioLang !== 'und') {
             let best = subtitleStreams.find(
-                (s) => isLanguageMatch(s.Language, prefLang) && (s.IsDefault || isForcedStream(s))
+                (s) => isLanguageMatch(s, prefLang) && (s.IsDefault || isForcedStream(s))
             );
             if (!best) {
-                best = subtitleStreams.find((s) => isLanguageMatch(s.Language, prefLang));
+                best = subtitleStreams.find((s) => isLanguageMatch(s, prefLang));
             }
             if (best) return best.Index;
         }
@@ -739,10 +790,10 @@ export function resolveSubtitleStream(mediaSource, options = {}) {
         // Spoken audio matches preferred language: show only forced subtitles
         let forced = null;
         if (prefLang && prefLang !== 'none') {
-            forced = subtitleStreams.find((s) => isForcedStream(s) && isLanguageMatch(s.Language, prefLang));
+            forced = subtitleStreams.find((s) => isForcedStream(s) && isLanguageMatch(s, prefLang));
         }
         if (!forced && audioLang && audioLang !== 'und') {
-            forced = subtitleStreams.find((s) => isForcedStream(s) && isLanguageMatch(s.Language, audioLang));
+            forced = subtitleStreams.find((s) => isForcedStream(s) && isLanguageMatch(s, audioLang));
         }
         if (!forced) {
             forced = subtitleStreams.find((s) => isForcedStream(s));

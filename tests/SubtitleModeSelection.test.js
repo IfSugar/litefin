@@ -71,7 +71,7 @@ function setup(settings = {}, serverUser = null) {
     });
 
     // Extract isLanguageMatch, getEffectiveSubtitleMode, isForcedStream, and resolveSubtitleStream
-    const startMarker = 'const isLanguageMatch = (trackLang, targetLanguage) => {';
+    const startMarker = 'export const isLanguageMatch = (trackOrLang, targetLanguage) => {';
     const endMarker = '/**\n * Automatically resolve the best audio track for a given media source.';
 
     const startIdx = playerSource.indexOf(startMarker);
@@ -81,17 +81,20 @@ function setup(settings = {}, serverUser = null) {
         throw new Error('Failed to locate resolveSubtitleStream source block in JellyfinPlayer.js');
     }
 
-    const codeToRun = playerSource.slice(startIdx, endIdx).replace(/export function /g, 'function ');
+    const codeToRun = playerSource.slice(startIdx, endIdx)
+        .replace(/export function /g, 'function ')
+        .replace(/export const /g, 'const ');
     const script = `
         ${codeToRun}
-        ({ resolveSubtitleStream, isForcedStream, getEffectiveSubtitleMode });
+        ({ resolveSubtitleStream, isForcedStream, getEffectiveSubtitleMode, isLanguageMatch });
     `;
 
-    const { resolveSubtitleStream, isForcedStream, getEffectiveSubtitleMode } = vm.runInContext(script, context);
+    const { resolveSubtitleStream, isForcedStream, getEffectiveSubtitleMode, isLanguageMatch } = vm.runInContext(script, context);
     return {
         resolveSubtitleStream,
         isForcedStream,
         getEffectiveSubtitleMode,
+        isLanguageMatch,
         setServerUser: (u) => { currentUser = u; },
         setSetting: (key, val) => { currentSettings[key] = val; }
     };
@@ -335,4 +338,102 @@ test('Saved item subtitle guard discards previously saved non-forced track in "O
     }
 
     assert.equal(savedSubtitleIndex, undefined, 'Saved non-forced track must be cleared in OnlyForced mode');
+});
+
+test('isLanguageMatch: Matches Arabic across ISO codes, full names, and title metadata', () => {
+    const { isLanguageMatch } = setup();
+
+    // 1. ISO 639-2 ('ara') vs ISO 639-1 ('ar')
+    assert.equal(isLanguageMatch('ara', 'ar'), true, 'ara matches ar');
+    assert.equal(isLanguageMatch('ar', 'ara'), true, 'ar matches ara');
+
+    // 2. Regional locale tag 'ar-SA' matching 'ara'
+    assert.equal(isLanguageMatch('ar-SA', 'ara'), true, 'ar-SA matches ara');
+
+    // 3. Full name 'Arabic' matching 'ara'
+    assert.equal(isLanguageMatch('Arabic', 'ara'), true, 'Arabic matches ara');
+
+    // 4. Stream object with Language 'und' and Title 'Arabic'
+    const undTrackWithTitle = {
+        Language: 'und',
+        Title: 'Arabic',
+        DisplayTitle: 'Arabic (SRT)'
+    };
+    assert.equal(isLanguageMatch(undTrackWithTitle, 'ara'), true, 'Title Arabic matches ara');
+
+    // 5. Stream object with DisplayTitle 'العربية'
+    const arabicNativeTrack = {
+        Language: '',
+        Title: '',
+        DisplayTitle: 'العربية - Default'
+    };
+    assert.equal(isLanguageMatch(arabicNativeTrack, 'ara'), true, 'Native display title matches ara');
+
+    // 6. Non-matching language
+    assert.equal(isLanguageMatch('eng', 'ara'), false, 'eng does not match ara');
+});
+
+test('getEffectiveSubtitleMode: Normalizes casing and handles server preferences', () => {
+    const { getEffectiveSubtitleMode } = setup({ subtitleMode: 'always' });
+    assert.equal(getEffectiveSubtitleMode(), 'Always', 'Lowercase "always" normalizes to "Always"');
+
+    const { getEffectiveSubtitleMode: getEffServer } = setup({ subtitleMode: 'Default' }, {
+        Configuration: { SubtitleMode: 'always' }
+    });
+    assert.equal(getEffServer(), 'Always', 'Server SubtitleMode "always" normalizes to "Always"');
+});
+
+test('resolveSubtitleStream: Subtitle mode "Always" selects Arabic track', () => {
+    const { resolveSubtitleStream } = setup({
+        subtitleMode: 'Always',
+        subtitleLanguage: 'ara'
+    });
+
+    const mediaSource = {
+        Id: 'test-source-arabic',
+        MediaStreams: [
+            { Type: 'Audio', Index: 1, Language: 'eng', IsDefault: true },
+            { Type: 'Subtitle', Index: 2, Language: 'eng', IsDefault: true, IsForced: false },
+            { Type: 'Subtitle', Index: 3, Language: 'ara', IsDefault: false, IsForced: false, Title: 'Arabic' }
+        ]
+    };
+
+    const result = resolveSubtitleStream(mediaSource, { audioStreamIndex: 1 });
+    assert.equal(result, 3, 'Subtitle mode "Always" must pick Arabic subtitle track');
+});
+
+test('resolveSubtitleStream: Subtitle mode "Always" selects Arabic subtitle with Title "Arabic" when Language is "und"', () => {
+    const { resolveSubtitleStream } = setup({
+        subtitleMode: 'Always',
+        subtitleLanguage: 'ara'
+    });
+
+    const mediaSource = {
+        Id: 'test-source-arabic-und',
+        MediaStreams: [
+            { Type: 'Audio', Index: 1, Language: 'eng', IsDefault: true },
+            { Type: 'Subtitle', Index: 2, Language: 'eng', IsDefault: true, IsForced: false },
+            { Type: 'Subtitle', Index: 3, Language: 'und', IsDefault: false, IsForced: false, Title: 'Arabic', DisplayTitle: 'Arabic (SRT)' }
+        ]
+    };
+
+    const result = resolveSubtitleStream(mediaSource, { audioStreamIndex: 1 });
+    assert.equal(result, 3, 'Subtitle mode "Always" must match Arabic via track title when language tag is undetermined');
+});
+
+test('Saved subtitle guard: Subtitle mode "Always" discards stored -1 (Off) so subtitles always start enabled', () => {
+    const { getEffectiveSubtitleMode } = setup({
+        subtitleMode: 'Always'
+    });
+
+    const effectiveMode = getEffectiveSubtitleMode();
+    assert.equal(effectiveMode, 'Always');
+
+    // Simulate preselected -1 (Off) restored from previous playback
+    let savedSubtitleIndex = -1;
+    if (effectiveMode === 'Always' && savedSubtitleIndex === -1) {
+        savedSubtitleIndex = undefined;
+    }
+
+    assert.equal(savedSubtitleIndex, undefined, 'Always mode must discard -1 so automatic track resolution activates');
 });

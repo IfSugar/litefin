@@ -17,7 +17,7 @@ import FontLoader from '../../utils/FontLoader.js';
 import SubtitleStyles from '../../utils/SubtitleStyles.js';
 import { platformInfo } from '../../utils/PlatformInfo.js';
 import { webCodecsProbe } from '../../utils/WebCodecsProbe.js';
-import { resolveBestAudioStream, doesAudioTrackRequireDirectStream, resolveSubtitleStream } from './JellyfinPlayer.js';
+import { resolveBestAudioStream, doesAudioTrackRequireDirectStream, resolveSubtitleStream, getEffectiveSubtitleMode } from './JellyfinPlayer.js';
 
 const log = logger.create('PrewarmManager');
 
@@ -84,7 +84,8 @@ export class PrewarmManager {
         // If an explicit subtitle stream index is provided, use it.
         // Otherwise, resolve the subtitle stream using the user's active Subtitle Mode.
         let targetSubtitleIndex = prewarmOptions.subtitleStreamIndex;
-        if (targetSubtitleIndex === undefined) {
+        const effectiveSubMode = getEffectiveSubtitleMode();
+        if (targetSubtitleIndex === undefined || (effectiveSubMode === 'Always' && targetSubtitleIndex === -1)) {
             const fallbackSource = item.MediaSources?.[0];
             const ms = targetMediaSourceId && item.MediaSources
                 ? item.MediaSources.find(m => m.Id === targetMediaSourceId)
