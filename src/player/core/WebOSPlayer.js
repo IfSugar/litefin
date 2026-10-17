@@ -24,6 +24,7 @@ import Hls from 'hls.js';
 import { MediaHelper } from './MediaHelper.js';
 import { logger } from '../../utils/Logger.js';
 import { PlayerSettings } from '../../utils/PlayerSettings.js';
+import { platformInfo } from '../../utils/PlatformInfo.js';
 import { getDeviceCapabilities } from '../../api/DeviceProfile.js';
 
 const log = logger.create('WebOSPlayer');
@@ -121,6 +122,13 @@ export class WebOSPlayer {
 
         // ---- Aspect ratio mode ('auto' | 'zoom' | 'stretch') ----
         this._aspectMode = 'auto';
+
+        // ---- TV video window override for old webOS (see _applyOutputWindow) ----
+        this._outputWindowState = 'unknown'; // 'unknown' | 'ok' | 'failed'
+        this._outputWindowActive = false;
+        this._outputWindowFailures = 0;
+        this._outputWindowRetryTimer = null;
+        this._outputWindowRefreshTimer = null;
 
         /** @type {ResizeObserver|null} Refits the video box when the container resizes */
         this._containerObserver = null;
@@ -1549,6 +1557,9 @@ export class WebOSPlayer {
         }
         this._clearStallCheck();
         this._destroyHlsPlayer();
+        this._stopOutputWindowTimers();
+        this._outputWindowActive = false;
+        this._outputWindowFailures = 0;
 
         const video = this._videoElement;
 
@@ -2297,7 +2308,7 @@ export class WebOSPlayer {
         // If previous mode was 'stretch' (or any non-default mode), reset the
         // layout box to 'auto' first so residual stretch styling is cleared before
         // computing and applying the oversized zoom bounding box.
-        if (targetMode === 'zoom') {
+        if (targetMode === 'zoom' && !this._canUseOutputWindow()) {
             log.info('WebOSPlayer: Resetting aspect ratio to auto prior to applying zoom');
             this._aspectMode = 'auto';
             if (this._videoElement) {
@@ -2470,6 +2481,20 @@ export class WebOSPlayer {
         style.right = '';
         style.bottom = '';
 
+        // The TV crops via _applyOutputWindow. The box covers the screen because the TV clips the
+        // picture (and the OSD over it) to the box when the page is composited above the video.
+        if (this._canUseOutputWindow()) {
+            style.left = '0px';
+            style.top = '0px';
+            style.right = '0px';
+            style.bottom = '0px';
+            style.width = `${cw}px`;
+            style.height = `${ch}px`;
+            style.objectFit = 'fill';
+            this._applyOutputWindow();
+            return;
+        }
+
         // ====================================================================
         // Mode 1: Fullscreen Stretch
         // ====================================================================
@@ -2550,6 +2575,153 @@ export class WebOSPlayer {
         style.height = `${h}px`;
         style.objectFit = 'contain';
         style.objectPosition = 'center';
+    }
+
+    /** Old webOS (Chromium < 79) cannot crop centered via the box, so the TV's video output service does it. */
+    _canUseOutputWindow() {
+        return platformInfo.chromeVersion < 79 &&
+            this._outputWindowState !== 'failed' &&
+            typeof window.PalmServiceBridge !== 'undefined';
+    }
+
+    _callLuna(uri, params) {
+        return new Promise((resolve) => {
+            let bridge = null;
+            let timer = null;
+            const done = (reply) => {
+                clearTimeout(timer);
+                try { if (bridge) bridge.cancel(); } catch (e) { /* ignore */ }
+                resolve(reply);
+            };
+            try {
+                bridge = new window.PalmServiceBridge();
+                bridge.onservicecallback = (msg) => {
+                    try { done(JSON.parse(msg)); } catch (e) { done({ returnValue: false }); }
+                };
+                timer = setTimeout(() => done({ returnValue: false }), 5000);
+                bridge.call(uri, JSON.stringify(params));
+            } catch (e) {
+                done({ returnValue: false });
+            }
+        });
+    }
+
+    /** Source crop (video px) and target rectangle (screen px) for the video output service. */
+    _computeOutputWindow(mode, vw, vh, sw, sh) {
+        const full = { x: 0, y: 0, width: vw, height: vh };
+        const screenRect = { x: 0, y: 0, width: sw, height: sh };
+
+        if (mode === 'stretch') {
+            // A source with the screen's aspect ratio leaves nothing to letterbox
+            const declared = { x: 0, y: 0, width: vw, height: Math.round((vw * sh) / sw) };
+            return { original: declared, source: declared, output: screenRect };
+        }
+
+        if (mode === 'zoom') {
+            if (vw / vh < sw / sh) {
+                const h = Math.round((vw * sh) / sw);
+                return {
+                    original: full,
+                    source: { x: 0, y: Math.round((vh - h) / 2), width: vw, height: h },
+                    output: screenRect
+                };
+            }
+            const w = Math.round((vh * sw) / sh);
+            return {
+                original: full,
+                source: { x: Math.round((vw - w) / 2), y: 0, width: w, height: vh },
+                output: screenRect
+            };
+        }
+
+        const scale = Math.min(sw / vw, sh / vh);
+        const w = Math.round(vw * scale);
+        const h = Math.round(vh * scale);
+        return {
+            original: full,
+            source: full,
+            output: { x: Math.round((sw - w) / 2), y: Math.round((sh - h) / 2), width: w, height: h }
+        };
+    }
+
+    /** Send the aspect mode to the TV (once per load plus a slow refresh), else fall back to the box geometry. */
+    async _applyOutputWindow() {
+        const video = this._videoElement;
+        if (!video) return;
+
+        const mode = this._aspectMode;
+        if (mode === 'auto' && !this._outputWindowActive) {
+            this._stopOutputWindowTimers();
+            return;
+        }
+
+        const vw = video.videoWidth;
+        const vh = video.videoHeight;
+        // No metadata yet, loadedmetadata/resize will fit the box again
+        if (!vw || !vh) return;
+
+        const mediaId = video.mediaId;
+        let ok = false;
+        // A new pipeline registers with the service a few seconds after load (errorCode 53 until then)
+        let pending = !mediaId;
+
+        if (mediaId) {
+            const sw = window.screen.width || window.innerWidth || 1920;
+            const sh = window.screen.height || window.innerHeight || 1080;
+            const rects = this._computeOutputWindow(mode, vw, vh, sw, sh);
+
+            const reply = await this._callLuna('luna://com.webos.service.videooutput/display/setDisplayWindow', {
+                context: mediaId,
+                sourcePort: 3,
+                originalInput: rects.original,
+                sourceInput: rects.source,
+                displayOutput: rects.output,
+                fullScreen: false
+            });
+
+            // The mode or the element changed while the call was in flight
+            if (mode !== this._aspectMode || video !== this._videoElement) return;
+            ok = Boolean(reply && reply.returnValue);
+            pending = Boolean(reply && reply.errorCode === 53);
+        }
+
+        if (ok) {
+            if (this._outputWindowState !== 'ok') {
+                log.info('WebOSPlayer: video output window accepted by the TV for mode', mode);
+            }
+            this._outputWindowState = 'ok';
+            this._outputWindowFailures = 0;
+            this._outputWindowActive = mode !== 'auto';
+
+            if (mode === 'auto') {
+                this._stopOutputWindowTimers();
+            } else if (!this._outputWindowRefreshTimer) {
+                this._outputWindowRefreshTimer = setInterval(() => this._applyOutputWindow(), 3000);
+            }
+            return;
+        }
+
+        this._outputWindowFailures++;
+        if (this._outputWindowFailures < (pending ? 40 : 5)) {
+            clearTimeout(this._outputWindowRetryTimer);
+            this._outputWindowRetryTimer = setTimeout(() => this._applyOutputWindow(), 500);
+            return;
+        }
+
+        log.warn('WebOSPlayer: TV rejected the video output window, using layout geometry instead');
+        this._outputWindowState = 'failed';
+        this._outputWindowActive = false;
+        this._stopOutputWindowTimers();
+        this._fitVideoBox();
+    }
+
+    _stopOutputWindowTimers() {
+        clearTimeout(this._outputWindowRetryTimer);
+        this._outputWindowRetryTimer = null;
+        if (this._outputWindowRefreshTimer) {
+            clearInterval(this._outputWindowRefreshTimer);
+            this._outputWindowRefreshTimer = null;
+        }
     }
 
     // ========================================================================
