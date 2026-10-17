@@ -2887,6 +2887,22 @@ export class JellyfinPlayer extends EventEmitter {
             await this._backend.play(backendOptions);
             log.info('Backend play() promise resolved');
 
+            // A restart recreates the video element, so re-apply speed and aspect ratio
+            if (this._playbackSpeed && this._playbackSpeed !== 1) {
+                try {
+                    this._backend.setSpeed(this._playbackSpeed);
+                } catch (e) {
+                    log.warn('Failed to restore playback speed:', e);
+                }
+            }
+            if (this._currentAspectRatio && this._currentAspectRatio !== 'auto') {
+                try {
+                    this._backend.setAspectRatio(this._currentAspectRatio);
+                } catch (e) {
+                    log.warn('Failed to restore aspect ratio:', e);
+                }
+            }
+
             this._isPlaying = true;
             this._isPaused = options.autoPlay === false;
 
