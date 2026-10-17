@@ -533,26 +533,61 @@ class LibraryPage extends Page {
 
         const cacheKey = this._getCacheKey();
 
+        // --------------------------------------------------------------------
+        // ACTIVE PAGE SIZE SETTING VALIDATION
+        // Resolve the active page limit and infinite pagination settings from
+        // storage so we can detect configuration changes made in Settings.
+        // --------------------------------------------------------------------
+        const activePageSize = storage.getItem('pref:libraryPageSize');
+        const activeIsInfinite = activePageSize === 'unlimited';
+        const activeLimit = activeIsInfinite ? 100 : (parseInt(activePageSize, 10) || 50);
+
         // State Rehydration Check
         // Priority 1: Check memory state cache for full rehydration
         let savedState = state.get(cacheKey);
+
+        // Invalidate stale memory cache if limit or infinite pagination mode has changed
+        if (savedState && savedState.stateData) {
+            const cachedLimit = savedState.stateData.limit;
+            const cachedIsInfinite = savedState.stateData.isInfinite;
+            // Detect if limit or mode was modified while away from this page
+            if (cachedLimit !== activeLimit || cachedIsInfinite !== activeIsInfinite) {
+                log.info(
+                    `Invalidating cached library state due to limit mismatch: cached=${cachedLimit} (infinite=${cachedIsInfinite}) vs active=${activeLimit} (infinite=${activeIsInfinite})`
+                );
+                state.delete(cacheKey);
+                savedState = null;
+            }
+        }
 
         // Priority 2: Fallback to items restored via navigation history
         // If the route was restored or re-entered and items were preserved in state,
         // construct a synthetic savedState so the page rehydrates instead of dropping lazy-loaded items
         if (!savedState && this.state.items && this.state.items.length > 0) {
-            // Extract target item ID from CSS selector if present (e.g. data-item-id="...")
-            let fallbackItemId = null;
-            if (this._pendingNavState?.focusElementSelector) {
-                const match = this._pendingNavState.focusElementSelector.match(/data-(?:item-)?id="([^"]+)"/);
-                fallbackItemId = match ? match[1] : this._pendingNavState.focusElementSelector.replace(/^#/, '');
-            }
+            // Verify navigation items match current page size configuration
+            if (this.state.limit === activeLimit && this.state.isInfinite === activeIsInfinite) {
+                // Extract target item ID from CSS selector if present (e.g. data-item-id="...")
+                let fallbackItemId = null;
+                if (this._pendingNavState?.focusElementSelector) {
+                    const match = this._pendingNavState.focusElementSelector.match(/data-(?:item-)?id="([^"]+)"/);
+                    fallbackItemId = match ? match[1] : this._pendingNavState.focusElementSelector.replace(/^#/, '');
+                }
 
-            savedState = {
-                stateData: this.state,
-                focusSectionId: this._pendingNavState?.focusSectionName || 'library-grid',
-                focusItemId: fallbackItemId
-            };
+                savedState = {
+                    stateData: this.state,
+                    focusSectionId: this._pendingNavState?.focusSectionName || 'library-grid',
+                    focusItemId: fallbackItemId
+                };
+            } else {
+                // Discard stale item collection if page limit setting changed
+                log.info(
+                    `Discarding navigation-restored items due to limit mismatch: restored=${this.state.limit} vs active=${activeLimit}`
+                );
+                this.state.items = [];
+                this.state.totalRecordCount = 0;
+                this.state.limit = activeLimit;
+                this.state.isInfinite = activeIsInfinite;
+            }
         }
 
         if (savedState) {
@@ -983,12 +1018,17 @@ class LibraryPage extends Page {
         // Listen for dynamic library page size / unlimited infinite pagination changes
         if (!this._onLibraryPageSizeChanged) {
             this._onLibraryPageSizeChanged = (newSize) => {
+                log.info(`Dynamic library page size update received: ${newSize}`);
                 const isInfinite = newSize === 'unlimited';
                 this.state.isInfinite = isInfinite;
                 this.state.limit = isInfinite ? 100 : parseInt(newSize, 10) || 50;
                 this.state.startIndex = 0;
+                this.state.items = [];
+                // Clear cached snapshot for this specific library view
+                state.delete(this._getCacheKey());
                 this._loadItems();
             };
+            eventBus.on('pref:libraryPageSize', this._onLibraryPageSizeChanged);
             eventBus.on('pref:libraryPageSize:changed', this._onLibraryPageSizeChanged);
         }
 
@@ -1156,6 +1196,7 @@ class LibraryPage extends Page {
             nameStartsWith: this.state.nameStartsWith,
             startIndex: this.state.startIndex,
             limit: this.state.limit,
+            isInfinite: this.state.isInfinite,
             viewMode: this.state.viewMode,
             gridMode: this.state.gridMode,
             gridColumns: this.state.gridColumns,
@@ -1174,6 +1215,19 @@ class LibraryPage extends Page {
     setNavigationState(savedState) {
         if (!savedState) return;
 
+        // --------------------------------------------------------------------
+        // ACTIVE SETTING MISMATCH CHECK
+        // If the user modified the library items limit in Settings while away,
+        // we must not restore stale item arrays or obsolete page limits.
+        // --------------------------------------------------------------------
+        const activePageSize = storage.getItem('pref:libraryPageSize');
+        const activeIsInfinite = activePageSize === 'unlimited';
+        const activeLimit = activeIsInfinite ? 100 : (parseInt(activePageSize, 10) || 50);
+
+        const limitMismatch =
+            savedState.limit != null &&
+            (savedState.limit !== activeLimit || savedState.isInfinite !== activeIsInfinite);
+
         // Merge saved state into current state
         // This will be used when _loadItems() is called in onInit()
         Object.assign(this.state, {
@@ -1182,22 +1236,29 @@ class LibraryPage extends Page {
             sortOrder: savedState.sortOrder || this.state.sortOrder,
             filters: savedState.filters || {},
             nameStartsWith: savedState.nameStartsWith || null,
-            startIndex: savedState.startIndex || 0,
-            limit: savedState.limit || this.state.limit,
+            startIndex: limitMismatch ? 0 : (savedState.startIndex || 0),
+            limit: activeLimit,
+            isInfinite: activeIsInfinite,
             // Restore view mode and column layouts from nav state
             viewMode: savedState.viewMode || this.state.viewMode,
             gridMode: savedState.gridMode || this.state.gridMode,
             gridColumns: savedState.gridColumns || this.state.gridColumns
         });
 
-        // Restore loaded item collection if preserved in navigation state
-        if (savedState.items && savedState.items.length > 0) {
+        // Restore loaded item collection ONLY if limit configuration has not changed
+        if (!limitMismatch && savedState.items && savedState.items.length > 0) {
             this.state.items = savedState.items;
             this.state.totalRecordCount = savedState.totalRecordCount || savedState.items.length;
+        } else if (limitMismatch) {
+            log.info(
+                `Discarding restored items in setNavigationState due to limit mismatch (${savedState.limit} vs ${activeLimit})`
+            );
+            this.state.items = [];
+            this.state.totalRecordCount = 0;
         }
 
         // Restore query context for infinite scrolling and letter jump calculation
-        if (savedState.lastFetchContext) {
+        if (!limitMismatch && savedState.lastFetchContext) {
             this._lastFetchContext = savedState.lastFetchContext;
         }
 
@@ -1253,6 +1314,7 @@ class LibraryPage extends Page {
             this._onAlphaPickerPositionChanged = null;
         }
         if (this._onLibraryPageSizeChanged) {
+            eventBus.off('pref:libraryPageSize', this._onLibraryPageSizeChanged);
             eventBus.off('pref:libraryPageSize:changed', this._onLibraryPageSizeChanged);
             this._onLibraryPageSizeChanged = null;
         }
@@ -1630,12 +1692,16 @@ class LibraryPage extends Page {
             );
         }
 
-        // Check infinite pagination preference (unlimited setting)
+        // --------------------------------------------------------------------
+        // DYNAMIC PAGE SIZE AND INFINITE PAGINATION RESOLUTION
+        // Always resolve the active limit directly from StorageService so setting
+        // changes apply immediately to subsequent loads and refreshes.
+        // --------------------------------------------------------------------
         const isInfinite = storage.getItem('pref:libraryPageSize') === 'unlimited';
         this.state.isInfinite = isInfinite;
         if (isInfinite) {
             this.state.limit = 100;
-        } else if (!this.state.limit || this.state.limit < 1) {
+        } else {
             this.state.limit = parseInt(storage.getItem('pref:libraryPageSize') || 50, 10);
         }
 

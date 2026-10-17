@@ -82,9 +82,15 @@ class LiveTvPage extends Page {
     setNavigationState(savedState) {
         if (!savedState) return;
 
-        this._currentTab = savedState.currentTab || storage.getItem('pref:defaultLiveTvTab') || 'suggestions';
-        this._startIndex = savedState.startIndex || 0;
-        this._limit = savedState.limit || Number(storage.getItem('pref:libraryPageSize')) || 50;
+        // Resolve active library page limit setting from storage
+        const activeLimit = Number(storage.getItem('pref:libraryPageSize')) || 50;
+        if (savedState.limit && savedState.limit !== activeLimit) {
+            this._startIndex = 0;
+            this._limit = activeLimit;
+        } else {
+            this._startIndex = savedState.startIndex || 0;
+            this._limit = savedState.limit || activeLimit;
+        }
 
         this._tabState.clear();
         if (savedState.tabStates) {

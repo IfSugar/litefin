@@ -12045,12 +12045,31 @@ class SettingsPage extends Page {
                              * When 'unlimited' is selected, reveal the alphabet scroll mode toggle;
                              * otherwise, hide it to maintain a clean minimal layout.
                              * ------------------------------------------------------------- */
+                            /* -------------------------------------------------------------
+                             * Dynamic Sub-Setting Visibility & Cache Invalidation for Library Page Size
+                             * When the page size changes, clear all cached library page states
+                             * and router history snapshots so returning to any library forces
+                             * a fresh fetch with the newly selected page limit.
+                             * ------------------------------------------------------------- */
                             if (settingConfig.key === 'pref:libraryPageSize') {
+                                log.info(`Invalidating library caches due to libraryPageSize change: ${newValue}`);
+
+                                // Invalidate all cached library state snapshots in StateManager
+                                state.clearByPrefix('library:state');
+
+                                // Clear cached page state across router history entries for library paths
+                                if (router && typeof router.clearHistoryState === 'function') {
+                                    router.clearHistoryState('/library');
+                                }
+
                                 const alphaScrollItem = this.$('#alpha-picker-scroll-mode-item');
                                 if (alphaScrollItem) {
                                     alphaScrollItem.style.display = String(newValue) === 'unlimited' ? '' : 'none';
                                     focusManager.invalidateCache('settings-content');
                                 }
+
+                                // Emit canonical change event on EventBus
+                                eventBus.emit('pref:libraryPageSize:changed', newValue);
                             }
 
                             if (settingConfig.key === 'pref:detailsLayout' || settingConfig.key === 'pref:seasonEpisodeDetailsLayout') {
