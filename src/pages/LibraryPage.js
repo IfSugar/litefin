@@ -60,7 +60,7 @@ class LibraryPage extends Page {
             limit:
                 storage.getItem('pref:libraryPageSize') === 'unlimited'
                     ? 100
-                    : parseInt(storage.getItem('pref:libraryPageSize') || 100, 10),
+                    : parseInt(storage.getItem('pref:libraryPageSize') || 50, 10),
             totalRecordCount: 0,
 
             // Data Cache
@@ -127,6 +127,10 @@ class LibraryPage extends Page {
 
         // Lifecycle destruction tracking flag
         this._isDestroyed = false;
+
+        // Progressive image chunk loading state for low-limit grids (< 60 items)
+        this._idleChunkId = null;
+        this._idleChunkType = null;
 
         // Debounce timer and navigation timestamp for decoupled image pre-warming
         this._preWarmTimer = null;
@@ -981,7 +985,7 @@ class LibraryPage extends Page {
             this._onLibraryPageSizeChanged = (newSize) => {
                 const isInfinite = newSize === 'unlimited';
                 this.state.isInfinite = isInfinite;
-                this.state.limit = isInfinite ? 100 : parseInt(newSize, 10) || 100;
+                this.state.limit = isInfinite ? 100 : parseInt(newSize, 10) || 50;
                 this.state.startIndex = 0;
                 this._loadItems();
             };
@@ -1239,6 +1243,9 @@ class LibraryPage extends Page {
             clearTimeout(this._focusRestoreSafetyTimeout);
             this._focusRestoreSafetyTimeout = null;
         }
+
+        // Cancel any pending progressive image idle chunk queue
+        this._cancelIdleChunkQueue();
 
         // Clean up alphabet selector position listener
         if (this._onAlphaPickerPositionChanged) {
@@ -1629,7 +1636,7 @@ class LibraryPage extends Page {
         if (isInfinite) {
             this.state.limit = 100;
         } else if (!this.state.limit || this.state.limit < 1) {
-            this.state.limit = parseInt(storage.getItem('pref:libraryPageSize') || 100, 10);
+            this.state.limit = parseInt(storage.getItem('pref:libraryPageSize') || 50, 10);
         }
 
         // Align limit to grid columns so the last rendered row is always full.
@@ -3255,7 +3262,15 @@ class LibraryPage extends Page {
         // Determine total mathematical rows and capacity for the active layout
         const totalRows = Math.ceil(items.length / columns);
         const isListView = this.state.viewMode === 'list';
-        const POOL_ROWS = isListView ? 22 : 10;
+        /*
+         * DIRECT RENDERING & SKIP LAZY LOADING MODE
+         * If the page limit is below 60 items (accommodating last-row alignment for 50 items),
+         * we bypass standard IntersectionObserver lazy loading and sliding row recycling.
+         * All rows are placed into the DOM upfront, allowing instant D-pad navigation
+         * and native GPU scrolling without continuous main-thread layout thrashing.
+         */
+        const isSkipLazy = !this.state.isInfinite && this.state.limit < 60;
+        const POOL_ROWS = isSkipLazy ? totalRows : (isListView ? 22 : 10);
         const poolRows = Math.min(totalRows, POOL_ROWS);
 
         // Reset virtual window and row tracking cursors
@@ -3295,14 +3310,14 @@ class LibraryPage extends Page {
         const cardLabelStyle = storage.getItem('pref:cardLabelStyle') || 'default';
         const skeletonHideLabels = cardLabelStyle === 'hidden';
 
-        // Build initial pool: eager rows receive full media cards, buffer rows receive skeleton tracks
+        // Build initial pool: in skip-lazy mode (< 60 items), render all rows with media cards upfront
         let rowsHtml = '';
         for (let r = 0; r < poolRows; r++) {
             const rowStart = r * columns;
             const rowEnd = Math.min(items.length, (r + 1) * columns);
             const rowItems = items.slice(rowStart, rowEnd);
 
-            if (r < eagerRowsCount) {
+            if (isSkipLazy || r < eagerRowsCount) {
                 rowsHtml += `<div class="virtual-grid-row" data-row-index="${r}">${this._buildGridChunkHtml(rowItems)}</div>`;
             } else {
                 rowsHtml += `<div class="virtual-grid-row" data-row-index="${r}" data-skeleton="true">${CardRenderer.createSkeletonHtml(rowItems.length, isLandscape, viewMode, skeletonHideLabels)}</div>`;
@@ -3322,53 +3337,94 @@ class LibraryPage extends Page {
         // Fix container height upfront to reflect total library geometry
         grid.style.height = `${totalRows * rowHeight}px`;
 
-        // Register initial eager cards with image observer and lazy loader (eagerLoad = true for viewport)
-        this._hookGridCards(grid.querySelectorAll('.virtual-grid-row:not([data-skeleton="true"]) .media-card'), true);
-
         // Cancel any pending progressive hydration from a previous render
         if (this._progressiveHydrationFrameId) {
             cancelAnimationFrame(this._progressiveHydrationFrameId);
             this._progressiveHydrationFrameId = null;
         }
 
-        // Progressively hydrate remaining buffer rows frame-by-frame
-        let nextHydrateRow = eagerRowsCount;
-        const hydrateNextChunk = () => {
-            if (this._isDestroyed || nextHydrateRow >= poolRows) return;
-            const rowsToHydrate = Math.min(2, poolRows - nextHydrateRow);
-            for (let i = 0; i < rowsToHydrate; i++) {
-                const r = nextHydrateRow + i;
-                const rowEl = grid.querySelector(`.virtual-grid-row[data-row-index="${r}"]`);
-                if (rowEl && rowEl.dataset.skeleton === 'true') {
-                    const rowStart = r * columns;
-                    const rowEnd = Math.min(items.length, (r + 1) * columns);
-                    const chunkItems = items.slice(rowStart, rowEnd);
-                    rowEl.innerHTML = this._buildGridChunkHtml(chunkItems);
-                    delete rowEl.dataset.skeleton;
-                    rowEl.removeAttribute('data-skeleton');
-                    this._hookGridCards(rowEl.querySelectorAll('.media-card'), false);
+        // Cancel any pending idle chunk queue from a previous render
+        this._cancelIdleChunkQueue();
+
+        if (isSkipLazy) {
+            /*
+             * =================================================================
+             * SKIP LAZY LOADING PIPELINE (LOW PAGE LIMIT < 60 ITEMS)
+             * =================================================================
+             * For small paginated batches (e.g. 50 items):
+             * 1. All cards exist in the DOM from Frame 1 for instant D-pad navigation.
+             * 2. Instead of dumping all 50 src attributes simultaneously (which would
+             *    flood sockets and cause a decoding freeze), load the first 14 items
+             *    (the visible screen) immediately on Frame 1.
+             * 3. Progressively load the remaining 36 items in chunks of 10 using
+             *    requestIdleCallback (or a 50ms setTimeout chain).
+             * 4. By the time the user scrolls down two rows, the rest of the page
+             *    is already loaded and decoded in GPU memory.
+             * 5. LazyLoader.observer is completely bypassed for the grid, allowing
+             *    butter-smooth native GPU scrolling with 0ms JavaScript overhead.
+             * =================================================================
+             */
+            const allCards = grid.querySelectorAll('.media-card');
+
+            // Hook shimmer observer for off-screen cards while bypassing LazyLoader.observer
+            this._hookGridCards(allCards, false);
+
+            // Immediately load visible viewport items (first 14 cards)
+            const initialCount = Math.min(14, allCards.length);
+            for (let i = 0; i < initialCount; i++) {
+                const img = allCards[i].querySelector('img[data-src]');
+                if (img) {
+                    lazyLoader.forceLoad(img, true);
                 }
             }
-            nextHydrateRow += rowsToHydrate;
+
+            // Schedule remaining cards in background idle chunks of 10
+            if (allCards.length > initialCount) {
+                this._scheduleIdleImageChunks(allCards, initialCount);
+            }
+        } else {
+            // Register initial eager cards with image observer and lazy loader (eagerLoad = true for viewport)
+            this._hookGridCards(grid.querySelectorAll('.virtual-grid-row:not([data-skeleton="true"]) .media-card'), true);
+
+            // Progressively hydrate remaining buffer rows frame-by-frame
+            let nextHydrateRow = eagerRowsCount;
+            const hydrateNextChunk = () => {
+                if (this._isDestroyed || nextHydrateRow >= poolRows) return;
+                const rowsToHydrate = Math.min(2, poolRows - nextHydrateRow);
+                for (let i = 0; i < rowsToHydrate; i++) {
+                    const r = nextHydrateRow + i;
+                    const rowEl = grid.querySelector(`.virtual-grid-row[data-row-index="${r}"]`);
+                    if (rowEl && rowEl.dataset.skeleton === 'true') {
+                        const rowStart = r * columns;
+                        const rowEnd = Math.min(items.length, (r + 1) * columns);
+                        const chunkItems = items.slice(rowStart, rowEnd);
+                        rowEl.innerHTML = this._buildGridChunkHtml(chunkItems);
+                        delete rowEl.dataset.skeleton;
+                        rowEl.removeAttribute('data-skeleton');
+                        this._hookGridCards(rowEl.querySelectorAll('.media-card'), false);
+                    }
+                }
+                nextHydrateRow += rowsToHydrate;
+                if (nextHydrateRow < poolRows) {
+                    this._progressiveHydrationFrameId = requestAnimationFrame(hydrateNextChunk);
+                } else {
+                    this._progressiveHydrationFrameId = null;
+                    focusManager.invalidateCache('library-grid');
+                    // Pool is fully hydrated: schedule lookahead image pre-warm & idle prefetch
+                    this._schedulePreWarm(poolRows, 1);
+                    if (this.state.isInfinite && this.state.items.length < (this.state.totalRecordCount || 0)) {
+                        this._scheduleLibraryIdlePrefetch(400);
+                    }
+                }
+            };
+
             if (nextHydrateRow < poolRows) {
                 this._progressiveHydrationFrameId = requestAnimationFrame(hydrateNextChunk);
             } else {
-                this._progressiveHydrationFrameId = null;
-                focusManager.invalidateCache('library-grid');
-                // Pool is fully hydrated: schedule lookahead image pre-warm & idle prefetch
                 this._schedulePreWarm(poolRows, 1);
                 if (this.state.isInfinite && this.state.items.length < (this.state.totalRecordCount || 0)) {
                     this._scheduleLibraryIdlePrefetch(400);
                 }
-            }
-        };
-
-        if (nextHydrateRow < poolRows) {
-            this._progressiveHydrationFrameId = requestAnimationFrame(hydrateNextChunk);
-        } else {
-            this._schedulePreWarm(poolRows, 1);
-            if (this.state.isInfinite && this.state.items.length < (this.state.totalRecordCount || 0)) {
-                this._scheduleLibraryIdlePrefetch(400);
             }
         }
 
@@ -3741,6 +3797,9 @@ class LibraryPage extends Page {
     _hookGridCards(newCards, eagerLoad = false) {
         if (!newCards || !newCards.length) return;
 
+        // Skip lazy loading when in direct/paginated mode (< 60 items)
+        const skipLazy = !this.state.isInfinite && this.state.limit < 60;
+
         /*
          * Iterate through all newly inserted card elements and connect them
          * to the lightweight observers without blocking critical navigation.
@@ -3752,7 +3811,7 @@ class LibraryPage extends Page {
                 if (eagerLoad) {
                     // Eagerly force-load initial visible cards on initial render
                     lazyLoader.forceLoad(img, true);
-                } else if (lazyLoader && lazyLoader.observer) {
+                } else if (!skipLazy && lazyLoader && lazyLoader.observer) {
                     // Observe through IntersectionObserver for smooth lookahead loading
                     lazyLoader.observer.observe(img);
                 }
@@ -4079,10 +4138,12 @@ class LibraryPage extends Page {
 
         const totalRows = Math.ceil(items.length / columns);
         const isListView = this.state.viewMode === 'list';
-        const POOL_ROWS = isListView ? 22 : 10;
+        const isSkipLazy = !this.state.isInfinite && this.state.limit < 60;
+        const POOL_ROWS = isSkipLazy ? totalRows : (isListView ? 22 : 10);
 
-        // If total rows fit entirely within the pool, all cards exist in the DOM
-        if (totalRows <= POOL_ROWS) {
+        // If total rows fit entirely within the pool (or skip lazy mode is active),
+        // all cards exist in the DOM and no row recycling is needed.
+        if (isSkipLazy || totalRows <= POOL_ROWS) {
             return;
         }
 
@@ -4930,7 +4991,9 @@ class LibraryPage extends Page {
             const img = allCards[i].querySelector('img[data-src]');
             if (img) lazyLoader.forceLoad(img);
         }
-        lazyLoader.observe(grid);
+        if (this.state.isInfinite || this.state.limit >= 60) {
+            lazyLoader.observe(grid);
+        }
 
         // Resolve target card either by computed index offset or unique item identifier
         let targetCard =
@@ -5388,6 +5451,107 @@ class LibraryPage extends Page {
 
             this._loadNextInfiniteBatch(true);
         }, delay);
+    }
+
+    /**
+     * =========================================================================
+     * SCHEDULE PROGRESSIVE IDLE IMAGE CHUNK LOADING
+     * =========================================================================
+     * When lazy loading is bypassed for low-page-size library grids (< 60 items),
+     * we avoid flooding the network socket pool and GPU texture decoder on Frame 1
+     * by loading the visible screen (first 14 cards) immediately and scheduling the
+     * remaining cards in progressive batches of 10 during idle browser intervals.
+     *
+     * Falls back to a 50ms timer chain on older smart TV engines lacking
+     * native window.requestIdleCallback support.
+     *
+     * @param {NodeList|HTMLElement[]} allCards - Array or NodeList of .media-card nodes
+     * @param {number} startIndex - Card index to begin progressive chunk loading from
+     * @private
+     * =========================================================================
+     */
+    _scheduleIdleImageChunks(allCards, startIndex = 14) {
+        if (!allCards || !allCards.length || this._isDestroyed) return;
+
+        // Cancel any existing chunk processing loop before scheduling a new one
+        this._cancelIdleChunkQueue();
+
+        const chunkSize = 10;
+        let currentIndex = startIndex;
+        const totalCards = allCards.length;
+
+        /*
+         * Recursive step function executing one chunk of 10 card images
+         * per idle slice or timer tick until the entire page is decoded.
+         */
+        const processNextChunk = () => {
+            // Guard against unmounted page or completed card processing
+            if (this._isDestroyed || currentIndex >= totalCards) {
+                this._idleChunkId = null;
+                this._idleChunkType = null;
+                return;
+            }
+
+            // Slice out the current chunk window (up to 10 cards)
+            const chunkEnd = Math.min(currentIndex + chunkSize, totalCards);
+            for (let i = currentIndex; i < chunkEnd; i++) {
+                const img = allCards[i].querySelector('img[data-src]');
+                if (img) {
+                    lazyLoader.forceLoad(img);
+                }
+            }
+            currentIndex = chunkEnd;
+
+            // If additional cards remain, schedule the next chunk
+            if (currentIndex < totalCards) {
+                if (typeof window.requestIdleCallback === 'function') {
+                    this._idleChunkType = 'idle';
+                    this._idleChunkId = window.requestIdleCallback(
+                        () => processNextChunk(),
+                        { timeout: 100 }
+                    );
+                } else {
+                    this._idleChunkType = 'timer';
+                    this._idleChunkId = setTimeout(processNextChunk, 50);
+                }
+            } else {
+                this._idleChunkId = null;
+                this._idleChunkType = null;
+            }
+        };
+
+        // Dispatch the initial deferred chunk right after initial render frame
+        if (typeof window.requestIdleCallback === 'function') {
+            this._idleChunkType = 'idle';
+            this._idleChunkId = window.requestIdleCallback(
+                () => processNextChunk(),
+                { timeout: 100 }
+            );
+        } else {
+            this._idleChunkType = 'timer';
+            this._idleChunkId = setTimeout(processNextChunk, 50);
+        }
+    }
+
+    /**
+     * =========================================================================
+     * CANCEL IDLE IMAGE CHUNK QUEUE
+     * =========================================================================
+     * Cancels any active idle callback or timer chain for progressive image loading.
+     * Prevents memory leaks or orphaned async operations on navigation.
+     * @private
+     * =========================================================================
+     */
+    _cancelIdleChunkQueue() {
+        if (this._idleChunkId !== null && this._idleChunkId !== undefined) {
+            if (this._idleChunkType === 'idle' && typeof window.cancelIdleCallback === 'function') {
+                window.cancelIdleCallback(this._idleChunkId);
+            } else {
+                clearTimeout(this._idleChunkId);
+            }
+            this._idleChunkId = null;
+            this._idleChunkType = null;
+        }
     }
 
     /**
@@ -7343,6 +7507,9 @@ class LibraryPage extends Page {
      */
     onDestroyed() {
         this._isDestroyed = true;
+
+        // Cancel any pending progressive image idle chunk queue
+        this._cancelIdleChunkQueue();
 
         // Cancel any pending scheduled pre-warm timers
         if (this._preWarmTimer) {

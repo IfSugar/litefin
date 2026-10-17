@@ -5704,13 +5704,13 @@ class SettingsPage extends Page {
             'library-page-size-select',
             [
                 { value: 25, label: '25' },
-                { value: 50, label: '50' },
+                { value: 50, label: '50 (Default)' },
                 { value: 75, label: '75' },
                 { value: 100, label: '100' },
                 { value: 150, label: '150' },
                 { value: 'unlimited', label: i18n.t('OptionUnlimited') || 'Unlimited (Infinite Scroll)' }
             ],
-            storage.getItem('pref:libraryPageSize') || 100
+            storage.getItem('pref:libraryPageSize') || 50
         )}
                     </div>
                 </div>
