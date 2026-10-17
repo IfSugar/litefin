@@ -24,8 +24,10 @@
     will-change: auto;
 }
 
+/* Container padding for home rows: Compact vertical bounds minimize scroll distance */
 .home-rows {
-    padding: 40px 0 80px 0;
+    /* 24px top padding clears hero banner, 60px bottom padding clears bottom edge */
+    padding: 24px 0 60px 0;
 }
 
 /* =========================================================================
@@ -134,8 +136,17 @@ html[data-layout-media-rows="modern-posters"] .media-row--skeleton .media-card.s
     opacity: 0.5;
 }
 
+/* =========================================================================
+ * Media Row Layout & Vertical Spacing Optimization
+ * =========================================================================
+ * Balanced 28px margin-bottom provides clear row distinction while keeping
+ * vertical scroll travel snappy. Paired with ScrollController's 40px top offset
+ * and row-items 38px bottom padding, this ensures preceding row card subtitles
+ * remain comfortably off-screen (40 - (28 + 38) = -26px).
+ * ========================================================================= */
 .media-row {
-    margin-bottom: 36px;
+    /* Balanced margin prevents preceding row subtitle peek-through */
+    margin-bottom: 28px;
     /* GPU layer for the row itself — enables composited scrolling of the parent */
     transform: translateZ(0);
     -webkit-transform: translateZ(0);
@@ -144,14 +155,23 @@ html[data-layout-media-rows="modern-posters"] .media-row--skeleton .media-card.s
        An invalid will-change value wastes compositor memory on Tizen hardware. */
 }
 
+/* Spacing for rows lacking text labels below cards */
 .media-row.library-no-labels {
-    margin-bottom: 20px;
+    /* Balanced spacing for label-free collections */
+    margin-bottom: 16px;
 }
 
+/* =========================================================================
+ * Row Section Header
+ * =========================================================================
+ * 14px margin-bottom gives the section title natural breathing room above
+ * the cards without excessive vertical separation.
+ * ========================================================================= */
 .row-title {
     font-size: 2.0rem;
     font-weight: 600;
-    margin-bottom: 16px;
+    /* Natural breathing room above media cards */
+    margin-bottom: 14px;
     padding: 0 60px;
     color: var(--jf-text-primary);
     letter-spacing: -0.5px;

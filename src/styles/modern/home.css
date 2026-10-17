@@ -9,15 +9,20 @@ html[data-layout-media-rows="expanding"] .home-rows {
     padding-bottom: var(--row-padding-bottom, 30px);
 }
 
-/* Add vertical clearance to row-items so scaled focus cards (1.05x) and outside subtitles never get clipped */
+/* 
+ * Vertical clearance for horizontal scroll rows across layout modes.
+ * 24px top padding gives comfortable room above media cards for the row title.
+ * 38px bottom padding (scaled by font preference) ensures subtitles are well-cleared
+ * and stay fully off-screen when lower rows are brought into focus.
+ */
 html[data-layout-media-rows="classic"] .row-items,
 html:not([data-layout-media-rows]) .row-items,
 html[data-layout-media-rows="modern"] .row-items,
 html[data-layout-media-rows="modern-posters"] .row-items,
 html[data-layout-media-rows="expanded"] .row-items,
 html[data-layout-media-rows="expanding"] .row-items {
-    padding-top: 32px;
-    padding-bottom: calc(52px * var(--card-title-font-scale, 1));
+    padding-top: 24px;
+    padding-bottom: calc(38px * var(--card-title-font-scale, 1));
 }
 
 /* =========================================================================
@@ -30,6 +35,7 @@ html[data-layout-media-rows="modern-posters"] .row-title,
 html[data-layout-media-rows="expanding"] .row-title {
     font-size: 2.4rem;
     font-weight: 800;
+    margin-bottom: 14px;
     padding: 0 60px;
     color: var(--jf-text-primary);
     letter-spacing: -0.5px;

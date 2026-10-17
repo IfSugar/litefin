@@ -2483,19 +2483,19 @@ html[data-loader-style="pulsing-grid"] .loading-spinner-small::after {
    Card Labels Spacing Adjustments
    ============================================================================ */
 
-/* Horizontal tracks spacing adjustments */
+/* Horizontal tracks spacing adjustments: Proportional reductions for compact row navigation */
 html[data-card-label-style="titleOnly"] .media-row {
-    margin-bottom: 28px !important;
+    margin-bottom: 22px !important;
 }
 html[data-card-label-style="hidden"] .media-row {
-    margin-bottom: 20px !important;
+    margin-bottom: 18px !important;
 }
 
 html[data-card-label-style="titleOnly"] .row-items {
-    padding-bottom: 18px !important;
+    padding-bottom: 22px !important;
 }
 html[data-card-label-style="hidden"] .row-items {
-    padding-bottom: 12px !important;
+    padding-bottom: 22px !important;
 }
 
 /* Grids: Poster view */

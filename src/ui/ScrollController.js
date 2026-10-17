@@ -46,8 +46,10 @@ const SCROLL_SNAP_THRESHOLD = 1;
 const ROW_CUTOFF_BUFFER = 40;
 
 // Default top offset (px) when aligning a row to the top of the viewport.
-// Creates breathing room above the focused row for a premium TV feel.
-const DEFAULT_SCROLL_OFFSET_TOP = 50;
+// Tuned to 40px to harmonize with .page-content's scroll-padding-top (40px)
+// while providing optimal headroom so the preceding row's bottom card subtitles
+// remain strictly off-screen above the viewport.
+const DEFAULT_SCROLL_OFFSET_TOP = 40;
 
 // Threshold (px) — if the row's top is already within this distance of
 // the ideal scroll position, skip scrolling. Prevents micro-jitter when
