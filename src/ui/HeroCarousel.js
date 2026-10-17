@@ -52,8 +52,8 @@ class HeroCarousel {
     render() {
         if (!this._items || this._items.length === 0) return '';
 
-        // Default carousel style is set to 'immersive' for a premium tvOS-style design.
-        const carouselStyle = storage.getItem('pref:heroCarouselStyle') || 'immersive';
+        // Default carousel style is set to 'immersive-performance' for high-performance rendering.
+        const carouselStyle = storage.getItem('pref:heroCarouselStyle') || 'immersive-performance';
 
         // Read the chosen indicator presentation style ('dots', 'lines', or 'progress')
         const indicatorStyle = storage.getItem('pref:heroCarouselIndicatorStyle') || 'dots';
@@ -631,7 +631,7 @@ class HeroCarousel {
         // ────────────────────────────────────────────────────────────────────
         // Exclusive to the Immersive (Performance) style and disabled by default.
         // Extracts ambient colors from BlurHash to fill any empty canvas area.
-        const carouselStyle = storage.getItem('pref:heroCarouselStyle') || 'immersive';
+        const carouselStyle = storage.getItem('pref:heroCarouselStyle') || 'immersive-performance';
         const isBlurhashFill = carouselStyle === 'immersive-performance' && storage.getItem('pref:heroCarouselBlurhashFill') === 'true';
         if (isBlurhashFill) {
             const activeSlide = this._container.querySelector('.hero-item.active');
@@ -895,7 +895,7 @@ class HeroCarousel {
         // ────────────────────────────────────────────────────────────────────
         // Prepares the background ambient gradient before the slide transitions into view.
         // Exclusive to the Immersive (Performance) carousel style (disabled by default).
-        const carouselStyle = storage.getItem('pref:heroCarouselStyle') || 'immersive';
+        const carouselStyle = storage.getItem('pref:heroCarouselStyle') || 'immersive-performance';
         const isBlurhashFill = carouselStyle === 'immersive-performance' && storage.getItem('pref:heroCarouselBlurhashFill') === 'true';
         if (isBlurhashFill) {
             this._decodeBlurhashFill(item);

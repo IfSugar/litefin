@@ -2905,8 +2905,8 @@ class SettingsPage extends Page {
                      */
                     { value: 'immersive-performance', label: i18n.t('StyleImmersivePerformance') || 'Immersive (Performance)' }
                 ],
-                // Default to 'immersive' style for the hero carousel selector
-                storage.getItem('pref:heroCarouselStyle') || 'immersive'
+                // Default to 'immersive-performance' style for the hero carousel selector
+                storage.getItem('pref:heroCarouselStyle') || 'immersive-performance'
             )}
                     </div>
                 </div>
@@ -3068,7 +3068,7 @@ class SettingsPage extends Page {
                     </div>
                 </div>
 
-                <div class="setting-item" id="hero-carousel-blurhash-fill-item" style="display: ${storage.getItem('pref:heroCarousel') !== 'false' && (storage.getItem('pref:heroCarouselStyle') || 'immersive') === 'immersive-performance' ? '' : 'none'}">
+                <div class="setting-item" id="hero-carousel-blurhash-fill-item" style="display: ${storage.getItem('pref:heroCarousel') !== 'false' && (storage.getItem('pref:heroCarouselStyle') || 'immersive-performance') === 'immersive-performance' ? '' : 'none'}">
                     <div class="setting-label">
                         <span class="setting-name" data-i18n="HeroCarouselBlurhashFill">${i18n.t('HeroCarouselBlurhashFill') || 'BlurHash Color Fill'}</span>
                         <span class="setting-description" data-i18n="HeroCarouselBlurhashFillDescription">${i18n.t('HeroCarouselBlurhashFillDescription') || 'Fill the rest of the hero carousel background with ambient colors extracted from the artwork BlurHash.'}</span>
@@ -8847,7 +8847,7 @@ class SettingsPage extends Page {
 
                 // Read current indicator and carousel styles to determine sub-setting visibility
                 const indicatorStyle = storage.getItem('pref:heroCarouselIndicatorStyle') || 'dots';
-                const currentCarouselStyle = storage.getItem('pref:heroCarouselStyle') || 'immersive';
+                const currentCarouselStyle = storage.getItem('pref:heroCarouselStyle') || 'immersive-performance';
 
                 // Apply transitions/display toggles based on the master toggle value.
                 if (textTitleItem) textTitleItem.style.display = newValue ? '' : 'none';

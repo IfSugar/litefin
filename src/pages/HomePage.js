@@ -2459,7 +2459,8 @@ class HomePage extends Page {
         const placeholder = this.$('#home-hero-placeholder');
         if (!placeholder) return;
 
-        const carouselStyle = storage.getItem('pref:heroCarouselStyle') || 'immersive';
+        // Fallback to high-performance immersive style by default for fluid TV navigation
+        const carouselStyle = storage.getItem('pref:heroCarouselStyle') || 'immersive-performance';
         const isCompact = storage.getItem('pref:heroCarouselCompact') !== 'false';
 
         placeholder.className = '';
@@ -2627,8 +2628,8 @@ class HomePage extends Page {
             const placeholder = this.$('#home-hero-placeholder');
             if (placeholder) {
                 // Determine current carousel style and compact settings
-                // Fallback to immersive style by default for premium home screen aesthetics.
-                const carouselStyle = storage.getItem('pref:heroCarouselStyle') || 'immersive';
+                // Fallback to high-performance immersive style by default for fluid TV navigation.
+                const carouselStyle = storage.getItem('pref:heroCarouselStyle') || 'immersive-performance';
                 const isCompact = storage.getItem('pref:heroCarouselCompact') !== 'false';
 
                 // Reset existing classes to prevent state leaking when settings change
@@ -3328,7 +3329,8 @@ class HomePage extends Page {
             const placeholder = this.$('#home-hero-placeholder');
             if (placeholder) {
                 // Read style prefs fresh — user may have changed them since the cache was written
-                const carouselStyle = storage.getItem('pref:heroCarouselStyle') || 'immersive';
+                // Fallback to high-performance immersive style by default for fluid TV navigation.
+                const carouselStyle = storage.getItem('pref:heroCarouselStyle') || 'immersive-performance';
                 const isCompact = storage.getItem('pref:heroCarouselCompact') !== 'false';
 
                 // Reset any stale classes before applying current style
