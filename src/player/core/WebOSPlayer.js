@@ -366,23 +366,25 @@ export class WebOSPlayer {
         // Reset fallback guard so new stream playback can attempt clean Hls.js recovery if needed
         this._hlsFallbackAttempted = false;
 
-        if (isHlsStream && this._shouldUseNativeHls()) {
+        if (isHlsStream && this._shouldUseNativeHls(options)) {
             /* ----------------------------------------------------------------
              * Path A: Native HLS
-             * WebOS's media engine handles HLS natively — just point the src
-             * at the manifest. Using the source element with a type hint
-             * ensures the OS routes it through the hardware decoder.
+             * WebOS's media engine handles HLS natively — point the src at the
+             * manifest. Using the source element with a type hint ensures the
+             * TV operating system routes it through the hardware decoder.
+             * Mandatory for Dolby Vision (ICtCp color mapping) and E-AC-3/AC-3.
              * ---------------------------------------------------------------- */
             log.info('WebOSPlayer: Using native HLS pipeline');
             await this._playNativeHls(video, options);
 
-        } else if (isHlsStream && Hls.isSupported()) {
+        } else if (isHlsStream && this._canUseHlsJs(options)) {
             /* ----------------------------------------------------------------
              * Path B: Hls.js fallback
-             * Only used on dev browsers / WebOS emulators where native HLS
-             * is not available. Production hardware should always take Path A.
+             * Used for standard SDR/H.264/AAC streams on webOS < 5 where native
+             * startup seeking is unreliable, or dev browsers/emulators without
+             * native media engine support.
              * ---------------------------------------------------------------- */
-            log.info('WebOSPlayer: Native HLS not available — using Hls.js fallback');
+            log.info('WebOSPlayer: Native HLS not selected — using Hls.js fallback');
             await this._playWithHlsJs(video, options);
 
         } else {
@@ -471,10 +473,123 @@ export class WebOSPlayer {
      * @private
      * @returns {boolean}
      */
-    _shouldUseNativeHls() {
+    /**
+     * Inspect stream metadata to determine if Hls.js can reliably handle the stream.
+     * The MSE pipeline has strict hardware and container limitations on TV browsers:
+     *
+     * 1. Dolby Vision (Profile 5, etc.): Profile 5 relies on ICtCp color space and
+     *    dynamic metadata (RPU). In MSE, the Chromium layer lacks the proprietary
+     *    color management hooks to signal the display processor, yielding a
+     *    green/purple tint. Native hardware video pipelines are required.
+     *
+     * 2. Non-AAC audio in MPEG-TS: The Hls.js TS demuxer parses ADTS AAC and MP3 only.
+     *    Encountering E-AC-3 (Dolby Digital Plus), AC-3, DTS, or TrueHD in MPEG-TS
+     *    chunks triggers fatal demuxer exceptions ("Unsupported EC-3 in M2TS found").
+     *
+     * 3. HEVC (H.265) / HDR: On older webOS (< 5), MSE lacks HEVC SourceBuffer support
+     *    and Hls.js cannot transmux HEVC from TS chunks.
+     *
+     * @private
+     * @param {Object} [options]
+     * @returns {boolean}
+     */
+    _canUseHlsJs(options = this._currentPlayOptions) {
+        // Ensure Hls.js library is loaded and MSE is supported by the environment
+        if (!Hls.isSupported()) {
+            return false;
+        }
+
+        // If options or media stream metadata is unavailable, allow default MSE support check
+        if (!options) {
+            return true;
+        }
+
+        const mediaStreams = options.mediaSource?.MediaStreams || [];
+
+        // ---------------------------------------------------------------------
+        // Check 1: Dolby Vision
+        // Profile 5 / 8 streams require the native TV hardware pipeline for ICtCp
+        // color space conversion. MSE cannot map these and produces distorted colors.
+        // ---------------------------------------------------------------------
+        const videoStream = mediaStreams.find(s => s.Type === 'Video');
+        const rangeType = (videoStream?.VideoRangeType || options.item?.VideoRangeType || '').toUpperCase();
+        const extendedRange = (videoStream?.ExtendedVideoRangeType || '').toUpperCase();
+        const itemRange = (options.item?.VideoRange || '').toUpperCase();
+        const isDoVi = rangeType.startsWith('DOVI') || extendedRange.startsWith('DOVI') ||
+                       rangeType.includes('DOVI') || itemRange.includes('DOVI');
+
+        if (isDoVi) {
+            log.info('WebOSPlayer: Dolby Vision stream detected — Hls.js MSE cannot process DV metadata, forcing native HLS');
+            return false;
+        }
+
+        // ---------------------------------------------------------------------
+        // Check 2: HEVC / H.265 video codec
+        // Hls.js TS demuxer only parses H.264 (AVC) in TS segments, and older webOS
+        // Chromium versions do not expose HEVC SourceBuffer decoding over MSE.
+        // ---------------------------------------------------------------------
+        const videoCodec = (videoStream?.Codec || '').toLowerCase();
+        if (videoCodec === 'hevc' || videoCodec === 'h265') {
+            log.info('WebOSPlayer: HEVC video stream detected — incompatible with Hls.js TS demuxer, forcing native HLS');
+            return false;
+        }
+
+        // ---------------------------------------------------------------------
+        // Check 3: HDR content (HDR10, HDR10+, HLG)
+        // Static and dynamic HDR metadata require direct hardware video decoders.
+        // ---------------------------------------------------------------------
+        const isHdr = rangeType.startsWith('HDR') || rangeType.startsWith('HLG') ||
+                      itemRange.startsWith('HDR') || itemRange.startsWith('HLG');
+        if (isHdr) {
+            log.info('WebOSPlayer: HDR stream detected — forcing native HLS');
+            return false;
+        }
+
+        // ---------------------------------------------------------------------
+        // Check 4: Audio codec compatibility in MPEG-TS
+        // The Hls.js TS demuxer only parses AAC and MP3 from MPEG-TS containers.
+        // E-AC-3 (Dolby Digital Plus), AC-3, DTS, or TrueHD in TS trigger fatal
+        // fragParsingError events that disrupt playback.
+        // ---------------------------------------------------------------------
+        const selectedAudioIndex = options.audioStreamIndex;
+        const audioStreams = mediaStreams.filter(s => s.Type === 'Audio');
+        const activeAudio = (selectedAudioIndex !== undefined && audioStreams.find(s => s.Index === selectedAudioIndex)) ||
+                            audioStreams.find(s => s.IsDefault) ||
+                            audioStreams[0];
+        const audioCodec = (activeAudio?.Codec || '').toLowerCase();
+        const unsupportedAudioCodecs = ['eac3', 'ac3', 'dolbydigitalplus', 'dts', 'dca', 'truehd', 'mlp'];
+
+        if (unsupportedAudioCodecs.includes(audioCodec)) {
+            log.info(`WebOSPlayer: Audio codec '${audioCodec}' unsupported by Hls.js TS demuxer — forcing native HLS`);
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * Detect whether the current environment supports and should use native HLS.
+     * On WebOS hardware, native HLS routes through the platform's hardware media engine.
+     *
+     * @private
+     * @param {Object} [options]
+     * @returns {boolean}
+     */
+    _shouldUseNativeHls(options = this._currentPlayOptions) {
         // Query TV hardware capabilities and webOS major version
         const caps = getDeviceCapabilities();
         const webosVersion = caps?.webosVersion || 1;
+
+        // ---------------------------------------------------------------------
+        // HARDWARE CODEC & CONTAINER COMPATIBILITY GATE:
+        // If the stream contains Dolby Vision, HEVC, HDR, or E-AC-3/AC-3 audio in TS,
+        // Hls.js MSE will either fail to demux or produce green/purple picture.
+        // These streams MUST use the native hardware HLS pipeline across all webOS versions.
+        // ---------------------------------------------------------------------
+        if (!this._canUseHlsJs(options)) {
+            log.info('WebOSPlayer: Stream requires native hardware decoder pipeline');
+            return true;
+        }
 
         // ---------------------------------------------------------------------
         // WEBOS VERSION COMPATIBILITY GATE:
@@ -482,11 +597,11 @@ export class WebOSPlayer {
         // are strictly disabled because older demuxers crash with MEDIA_ERR_DECODE.
         // Furthermore, the native webOS 3/4 HLS pipeline silently discards or snaps back
         // programmatic seeks into unbuffered HLS chunks at startup.
-        // If Hls.js is supported (MSE is available), prefer Hls.js MSE on webOS < 5
-        // so resume seeks land reliably at the target position instead of restarting from 0:00.
+        // For standard SDR/H.264/AAC streams where Hls.js MSE is fully supported,
+        // prefer Hls.js MSE on webOS < 5 so resume seeks land reliably at the target position.
         // ---------------------------------------------------------------------
         if (webosVersion < 5 && Hls.isSupported()) {
-            log.info(`WebOSPlayer: webOS ${webosVersion} (< 5) detected — preferring Hls.js MSE pipeline for reliable resume seek`);
+            log.info(`WebOSPlayer: webOS ${webosVersion} (< 5) detected with standard stream — preferring Hls.js MSE pipeline for reliable resume seek`);
             return false;
         }
 
@@ -559,8 +674,9 @@ export class WebOSPlayer {
                 const formatted = MediaHelper.formatMediaError(video.error);
                 log.error('WebOSPlayer: Native HLS source load error', formatted.message);
 
-                // If native HLS failed on this platform (common on webOS 4), fall back to Hls.js seamlessly
-                if (Hls.isSupported() && !this._hlsFallbackAttempted) {
+                // If native HLS failed on this platform, fall back to Hls.js seamlessly
+                // only if the stream format and codecs are verified to be compatible with Hls.js MSE
+                if (this._canUseHlsJs(options) && !this._hlsFallbackAttempted) {
                     log.info('WebOSPlayer: Native HLS load failed — attempting seamless fallback to Hls.js MSE pipeline');
                     this._hlsFallbackAttempted = true;
                     this._playWithHlsJs(video, options).then(resolve).catch(reject);
@@ -1175,7 +1291,8 @@ export class WebOSPlayer {
                     // exotic streams), seamlessly hand off to Hls.js MSE pipeline.
                     // Hls.js manages segments via MediaSource without relying on native #t=.
                     // ---------------------------------------------------------
-                    if (this._isHls && Hls.isSupported() && !this._hlsFallbackAttempted) {
+                    // Fall back to Hls.js only if the stream is safe for MSE demuxing (not Dolby Vision / E-AC-3)
+                    if (this._isHls && this._canUseHlsJs(this._currentPlayOptions) && !this._hlsFallbackAttempted) {
                         log.info('WebOSPlayer: Native HLS seek failed — attempting seamless fallback to Hls.js MSE pipeline');
                         this._hlsFallbackAttempted = true;
                         this._destroyHlsPlayer();
@@ -2578,7 +2695,7 @@ export class WebOSPlayer {
         // If native HLS playback triggered a decode error (code 3) or not supported (code 4)
         // and Hls.js is available in this environment, attempt seamless fallback to Hls.js
         const isHlsStream = this._currentPlayOptions?.isHls || (this._currentSrc && this._currentSrc.includes('.m3u8'));
-        if ((formatted.code === 3 || formatted.code === 4) && !this._hlsPlayer && isHlsStream && Hls.isSupported() && !this._hlsFallbackAttempted) {
+        if ((formatted.code === 3 || formatted.code === 4) && !this._hlsPlayer && isHlsStream && this._canUseHlsJs(this._currentPlayOptions) && !this._hlsFallbackAttempted) {
             log.warn('WebOSPlayer: Native HLS pipeline threw decode error. Attempting seamless Hls.js fallback...');
             this._hlsFallbackAttempted = true;
             this._playWithHlsJs(video, this._currentPlayOptions)
