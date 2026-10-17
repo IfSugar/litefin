@@ -22,7 +22,7 @@ import { playQueue } from '../core/PlayQueue.js';
 import { focusManager } from '../ui/FocusManager.js';
 import { layoutManager } from '../ui/LayoutManager.js';
 import OSDController from '../player/osd/OSDController.js';
-import { JellyfinPlayer, resolveBestAudioStream } from '../player/core/JellyfinPlayer.js';
+import { JellyfinPlayer, resolveBestAudioStream, resolveSubtitleStream } from '../player/core/JellyfinPlayer.js';
 import { MediaHelper } from '../player/core/MediaHelper.js';
 import SubtitleStyles from '../utils/SubtitleStyles.js';
 import FontLoader from '../utils/FontLoader.js';
@@ -1409,6 +1409,8 @@ class PlayerPage extends Page {
         // For TV shows, inherit preferred audio and subtitle languages established
         // on previous episodes across sessions without requiring active session state.
         // =========================================================================
+        const subtitleMode = PlayerSettings.get('subtitleMode') || 'Default';
+
         if (item?.SeriesId) {
             if (savedAudioIndex === undefined) {
                 const resolvedSeriesAudio = MediaHelper.resolveSeriesTrack(mediaSource, 'Audio', item.SeriesId);
@@ -1418,7 +1420,12 @@ class PlayerPage extends Page {
                 }
             }
 
-            if (savedSubtitleIndex === undefined) {
+            // ---------------------------------------------------------------------
+            // Series-Level Subtitle Memory Guard
+            // ---------------------------------------------------------------------
+            // Do not restore series-level subtitle preferences if the user has
+            // globally configured Subtitle Mode to 'None' or 'OnlyForced'.
+            if (savedSubtitleIndex === undefined && subtitleMode !== 'None' && subtitleMode !== 'OnlyForced') {
                 const resolvedSeriesSubtitle = MediaHelper.resolveSeriesTrack(mediaSource, 'Subtitle', item.SeriesId);
                 if (resolvedSeriesSubtitle !== undefined) {
                     savedSubtitleIndex = resolvedSeriesSubtitle;
@@ -1453,7 +1460,12 @@ class PlayerPage extends Page {
                 }
             }
 
-            if (savedSubtitleIndex === undefined) {
+            // -----------------------------------------------------------------
+            // Session-Scoped Subtitle Memory Guard
+            // -----------------------------------------------------------------
+            // Do not carry over session subtitle preferences if Subtitle Mode is
+            // configured to 'None' or 'OnlyForced'.
+            if (savedSubtitleIndex === undefined && subtitleMode !== 'None' && subtitleMode !== 'OnlyForced') {
                 const sessionSubtitleLang = storage.getItem('session:lastSubtitleLang');
                 const sessionSubtitleTitle = storage.getItem('session:lastSubtitleTitle');
                 if (sessionSubtitleLang) {
@@ -1503,7 +1515,17 @@ class PlayerPage extends Page {
             }
         }
 
-        // Note: We leave savedSubtitleIndex as undefined if unresolved, so JellyfinPlayer's SubtitleMode logic handles it.
+        // ---------------------------------------------------------------------
+        // Subtitle Mode Fallback Resolution
+        // ---------------------------------------------------------------------
+        // If savedSubtitleIndex is still unresolved, determine it from the active
+        // Subtitle Mode setting (Default, OnlyForced, Always, Smart, None).
+        if (savedSubtitleIndex === undefined && mediaSource?.MediaStreams) {
+            savedSubtitleIndex = resolveSubtitleStream(mediaSource, {
+                audioStreamIndex: savedAudioIndex
+            });
+            log.info(`[Track Resolution] Resolved subtitle track from Subtitle Mode (${subtitleMode}): Index ${savedSubtitleIndex}`);
+        }
 
         log.info('Starting playback with resolved preferences:', {
             audio: savedAudioIndex,

@@ -33,7 +33,7 @@ import { RichMetadataTable } from '../components/RichMetadataTable.js';
 
 import BackdropManager from '../utils/BackdropManager.js';
 import { PlayerSettings } from '../utils/PlayerSettings.js';
-import { resolveBestAudioStream } from '../player/core/JellyfinPlayer.js';
+import { resolveBestAudioStream, resolveSubtitleStream } from '../player/core/JellyfinPlayer.js';
 import { MediaHelper } from '../player/core/MediaHelper.js';
 import { lazyLoader } from '../utils/LazyLoader.js';
 import { prewarmManager } from '../player/core/PrewarmManager.js';
@@ -1207,6 +1207,12 @@ class DetailsPage extends Page {
         // =====================================================================
         // Restore subtitle selection, verifying identity through MediaHelper.
         const savedSubtitleTrack = storage.getItem(`track:subtitle:${this._itemId}`);
+        const subtitleMode = PlayerSettings.get('subtitleMode') || 'Default';
+
+        // ---------------------------------------------------------------------
+        // Subtitle Track Selection Resolution
+        // ---------------------------------------------------------------------
+        // 1. Check item-specific saved track override if one exists
         if (savedSubtitleTrack !== null && savedSubtitleTrack !== undefined) {
             const resolvedSubtitle = MediaHelper.resolveSavedTrack(source, 'Subtitle', savedSubtitleTrack, this._itemId);
             if (resolvedSubtitle !== undefined) {
@@ -1219,8 +1225,15 @@ class DetailsPage extends Page {
             this._selectedSubtitleIndex = undefined;
         }
 
-        // Check series-level subtitle preference for TV episodes if no item-level override exists
-        if (this._selectedSubtitleIndex === undefined && this._item?.SeriesId) {
+        // 2. Check series-level subtitle preference for TV episodes if no item-level override exists
+        // Guard: Do NOT restore series subtitle preferences if the user has globally set
+        // Subtitle Mode to 'None' or 'OnlyForced', which must strictly respect the mode.
+        if (
+            this._selectedSubtitleIndex === undefined &&
+            this._item?.SeriesId &&
+            subtitleMode !== 'None' &&
+            subtitleMode !== 'OnlyForced'
+        ) {
             const resolvedSeriesSubtitle = MediaHelper.resolveSeriesTrack(source, 'Subtitle', this._item.SeriesId);
             if (resolvedSeriesSubtitle !== undefined) {
                 this._selectedSubtitleIndex = resolvedSeriesSubtitle;
@@ -1228,6 +1241,16 @@ class DetailsPage extends Page {
                     `[DetailsPage] Restored series-level subtitle track for ${this._itemId}: ${resolvedSeriesSubtitle}`
                 );
             }
+        }
+
+        // 3. Fallback: If still unresolved, determine subtitle index from active Subtitle Mode setting
+        if (this._selectedSubtitleIndex === undefined && source?.MediaStreams) {
+            this._selectedSubtitleIndex = resolveSubtitleStream(source, {
+                audioStreamIndex: this._selectedAudioIndex
+            });
+            log.info(
+                `[DetailsPage] Resolved subtitle track from Subtitle Mode (${subtitleMode}): ${this._selectedSubtitleIndex}`
+            );
         }
 
         // =====================================================================
@@ -5249,11 +5272,16 @@ class DetailsPage extends Page {
             return true;
         });
 
-        // Determine current track selection index
+        // ---------------------------------------------------------------------
+        // Determine Current Track Selection Index
+        // ---------------------------------------------------------------------
+        // If a selection has not yet been locked in, resolve it according to the
+        // active Subtitle Mode preference (e.g. None, OnlyForced, Default, Always)
         let currentIndex = this._selectedSubtitleIndex;
         if (currentIndex === undefined) {
-            // Fallback to server default track index
-            currentIndex = mediaSource.DefaultSubtitleStreamIndex; // Can be -1/null
+            currentIndex = resolveSubtitleStream(mediaSource, {
+                audioStreamIndex: this._selectedAudioIndex
+            });
         }
 
         // Add "Off" option to the selection track list

@@ -704,7 +704,17 @@ export class TizenAVPlayer {
                     this._pendingSubtitleIndex = options.subtitleStreamIndex;
                     this._delayedSubtitleIndex = options.subtitleStreamIndex; // Used for Tizen 5.0 re-apply
                 }
-            } else if (isDirectPlay && options.subtitleStreamIndex === -1) {
+            } else if (isDirectPlay) {
+                // ---------------------------------------------------------------------
+                // Subtitle Silencing for DirectPlay
+                // ---------------------------------------------------------------------
+                // If subtitles are turned off (index === -1) or no subtitle stream was
+                // explicitly requested (null/undefined), AVPlay's hardware demuxer will
+                // automatically display internal subtitles flagged as 'default' unless
+                // explicitly instructed to remain silent via setSilentSubtitle(true).
+                //
+                // By marking _pendingSubtitleIndex as -1, we guarantee that the native
+                // AVPlay demuxer is instructed to silence subtitles during initial playback.
                 this._pendingSubtitleIndex = -1;
                 this._delayedSubtitleIndex = -1;
             } else {
@@ -798,8 +808,14 @@ export class TizenAVPlayer {
             // Metadata is now loaded, display is ready, and seek position is set.
             // If awaitTracksBeforePlayback is enabled, we set up a 2-second safety timeout
             // to bypass the track selection gate in case header parsing deadlocks the player.
+            // ---------------------------------------------------------------------
+            // Track Readiness Evaluation
+            // ---------------------------------------------------------------------
+            // If awaitTracksBeforePlayback is enabled, check if we are still waiting for audio/subtitle tracks to resolve.
+            // If they are pending and the safety timeout has not yet bypassed, we hold playback.
+            // Note: If subtitles are disabled (-1), track parsing is not required before playback starts.
             const awaitTracks = PlayerSettings.get('awaitTracksBeforePlayback');
-            const hasPending = this._pendingAudioIndex !== null || this._pendingSubtitleIndex !== null;
+            const hasPending = this._pendingAudioIndex !== null || (this._pendingSubtitleIndex !== null && this._pendingSubtitleIndex !== -1);
 
             if (awaitTracks && hasPending) {
                 log.info('Await tracks before playback is enabled. Setting 2s safety timeout.');
@@ -1596,10 +1612,14 @@ export class TizenAVPlayer {
         }
 
         if (this._isPlaying && this._isPrepared && this._bufferingComplete && !this._isTizenPlaying) {
+            // -----------------------------------------------------------------
+            // Gate Native Play on Active Track Readiness
+            // -----------------------------------------------------------------
             // If awaitTracksBeforePlayback is enabled, check if we are still waiting for audio/subtitle tracks to resolve.
             // If they are pending and the safety timeout has not yet bypassed, we hold playback.
+            // Note: If subtitles are disabled (-1), track parsing is not required before playback starts.
             const awaitTracks = PlayerSettings.get('awaitTracksBeforePlayback');
-            const hasPending = this._pendingAudioIndex !== null || this._pendingSubtitleIndex !== null;
+            const hasPending = this._pendingAudioIndex !== null || (this._pendingSubtitleIndex !== null && this._pendingSubtitleIndex !== -1);
 
             if (awaitTracks && hasPending && !this._forceTizenPlayPassed) {
                 log.info('_checkNativePlay(): deferring play() because tracks are pending');
