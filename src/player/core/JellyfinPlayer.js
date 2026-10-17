@@ -23,7 +23,7 @@ import { buildJellyfinProfile, getDeviceCapabilities } from '../../api/DevicePro
 import SubtitleManager, { DeliveryMethod } from './SubtitleManager.js';
 import { logger } from '../../utils/Logger.js';
 import { PlayerSettings } from '../../utils/PlayerSettings.js';
-import { api } from '../../api/index.js';
+import { api, auth } from '../../api/index.js';
 import { storage } from '../../utils/StorageService.js';
 import { prewarmManager } from './PrewarmManager.js';
 import { webCodecsProbe } from '../../utils/WebCodecsProbe.js';
@@ -449,20 +449,52 @@ export const isLanguageMatch = (trackLang, targetLanguage) => {
  * @param {Object} stream - Subtitle stream metadata object
  * @returns {boolean} True if the track is forced
  */
+/**
+ * Resolves the effective subtitle mode taking into account the server user's
+ * configured SubtitleMode when Litefin is set to 'Default' (Server Preference).
+ *
+ * @param {string} [mode] - Active client subtitle mode setting
+ * @returns {string} Effective subtitle mode ('None', 'OnlyForced', 'Default', 'Always', 'Smart')
+ */
+export function getEffectiveSubtitleMode(mode) {
+    // Retrieve currently active client subtitle playback mode
+    const activeMode = mode || PlayerSettings.get('subtitleMode') || 'Default';
+
+    // If client mode is 'Default' (Server Preference), defer to the server user's profile
+    if (activeMode === 'Default') {
+        const currentUser = auth?.getCurrentUser?.();
+        const serverMode = currentUser?.Configuration?.SubtitleMode;
+        if (serverMode && serverMode !== 'Default') {
+            return serverMode;
+        }
+    }
+    return activeMode;
+}
+
+/**
+ * Determine if a subtitle stream is flagged or designated as forced.
+ * Inspects Matroska / MP4 container disposition flags (IsForced, Forced) as well as
+ * track titles and localized display names for common 'forced' descriptor patterns.
+ *
+ * Note: Never test LocalizedForced as Jellyfin attaches static localized label tokens to all streams.
+ *
+ * @param {Object} stream - Subtitle stream metadata object
+ * @returns {boolean} True if the track is forced
+ */
 export function isForcedStream(stream) {
     // Guard against null or non-object stream representations
     if (!stream || typeof stream !== 'object') return false;
 
     // Container-level boolean disposition flags
-    if (stream.IsForced || stream.Forced) return true;
+    if (stream.IsForced === true || stream.Forced === true) return true;
 
-    // Word-boundary regex search across title, display title, and localized descriptors
-    const title = (stream.Title || '').toLowerCase();
-    const displayTitle = (stream.DisplayTitle || '').toLowerCase();
-    const locForced = (stream.LocalizedForced || '').toLowerCase();
+    // Word-boundary regex search across title and display title
+    // e.g. "English (Forced)", "Forced Subtitles", "French [Forced]"
+    const title = stream.Title || '';
+    const displayTitle = stream.DisplayTitle || '';
 
     // Word-boundary check ensures tracks with words like 'reinforce' aren't falsely flagged
-    return /\bforced\b/i.test(title) || /\bforced\b/i.test(displayTitle) || locForced.includes('forced');
+    return /\bforced\b/i.test(title) || /\bforced\b/i.test(displayTitle);
 }
 
 /**
@@ -493,7 +525,9 @@ export function resolveSubtitleStream(mediaSource, options = {}) {
     }
 
     // Retrieve user subtitle mode setting (None, Default, OnlyForced, Always, Smart)
-    const subtitleMode = options.subtitleMode || PlayerSettings.get('subtitleMode') || 'Default';
+    // Resolves server-level user preference when client is configured for 'Default' (Server Preference)
+    const rawMode = options.subtitleMode || PlayerSettings.get('subtitleMode') || 'Default';
+    const subtitleMode = getEffectiveSubtitleMode(rawMode);
 
     // Subtitle Mode 'None' strictly commands subtitles to remain off (-1)
     if (subtitleMode === 'None') {
@@ -581,7 +615,15 @@ export function resolveSubtitleStream(mediaSource, options = {}) {
     // 5. Context Language Extraction
     // -------------------------------------------------------------------------
     // Extract preferred subtitle language and active audio language to evaluate matches.
-    const prefLang = options.prefLang || storage.getItem('pref:subtitleLang') || 'none';
+    // Fall back to server user profile language if client has no specific language selected ('none').
+    let prefLang = options.prefLang || storage.getItem('pref:subtitleLang') || 'none';
+    if (!prefLang || prefLang === 'none') {
+        const currentUser = auth?.getCurrentUser?.();
+        const serverSubLang = currentUser?.Configuration?.SubtitleLanguagePreference;
+        if (serverSubLang) {
+            prefLang = serverSubLang;
+        }
+    }
 
     // Resolve audio stream to determine active spoken language
     const defaultAudioStream =
@@ -4429,6 +4471,15 @@ export class JellyfinPlayer extends EventEmitter {
      */
     resolveSubtitleStream(mediaSource, options = {}) {
         return resolveSubtitleStream(mediaSource, options);
+    }
+
+    /**
+     * Resolve effective subtitle mode taking server user configuration into account
+     * @param {string} [mode] - Optional mode override
+     * @returns {string} Effective subtitle mode
+     */
+    getEffectiveSubtitleMode(mode) {
+        return getEffectiveSubtitleMode(mode);
     }
 
     /**

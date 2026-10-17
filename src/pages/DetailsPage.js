@@ -33,7 +33,7 @@ import { RichMetadataTable } from '../components/RichMetadataTable.js';
 
 import BackdropManager from '../utils/BackdropManager.js';
 import { PlayerSettings } from '../utils/PlayerSettings.js';
-import { resolveBestAudioStream, resolveSubtitleStream } from '../player/core/JellyfinPlayer.js';
+import { resolveBestAudioStream, resolveSubtitleStream, isForcedStream, getEffectiveSubtitleMode } from '../player/core/JellyfinPlayer.js';
 import { MediaHelper } from '../player/core/MediaHelper.js';
 import { lazyLoader } from '../utils/LazyLoader.js';
 import { prewarmManager } from '../player/core/PrewarmManager.js';
@@ -1207,17 +1207,29 @@ class DetailsPage extends Page {
         // =====================================================================
         // Restore subtitle selection, verifying identity through MediaHelper.
         const savedSubtitleTrack = storage.getItem(`track:subtitle:${this._itemId}`);
-        const subtitleMode = PlayerSettings.get('subtitleMode') || 'Default';
+        const effectiveSubtitleMode = getEffectiveSubtitleMode();
 
         // ---------------------------------------------------------------------
         // Subtitle Track Selection Resolution
         // ---------------------------------------------------------------------
         // 1. Check item-specific saved track override if one exists
-        if (savedSubtitleTrack !== null && savedSubtitleTrack !== undefined) {
+        // Guard: If Subtitle Mode is 'None', never restore saved tracks.
+        // If Subtitle Mode is 'OnlyForced', only restore if the saved track is actually forced.
+        if (savedSubtitleTrack !== null && savedSubtitleTrack !== undefined && effectiveSubtitleMode !== 'None') {
             const resolvedSubtitle = MediaHelper.resolveSavedTrack(source, 'Subtitle', savedSubtitleTrack, this._itemId);
             if (resolvedSubtitle !== undefined) {
-                this._selectedSubtitleIndex = resolvedSubtitle;
-                log.info(`[DetailsPage] Restored saved subtitle track for ${this._itemId}: ${resolvedSubtitle}`);
+                if (effectiveSubtitleMode === 'OnlyForced') {
+                    const candidateStream = source.MediaStreams?.find((s) => s.Type === 'Subtitle' && s.Index === resolvedSubtitle);
+                    if (candidateStream && isForcedStream(candidateStream)) {
+                        this._selectedSubtitleIndex = resolvedSubtitle;
+                        log.info(`[DetailsPage] Restored saved forced subtitle track for ${this._itemId}: ${resolvedSubtitle}`);
+                    } else {
+                        this._selectedSubtitleIndex = undefined;
+                    }
+                } else {
+                    this._selectedSubtitleIndex = resolvedSubtitle;
+                    log.info(`[DetailsPage] Restored saved subtitle track for ${this._itemId}: ${resolvedSubtitle}`);
+                }
             } else {
                 this._selectedSubtitleIndex = undefined;
             }
@@ -1226,13 +1238,13 @@ class DetailsPage extends Page {
         }
 
         // 2. Check series-level subtitle preference for TV episodes if no item-level override exists
-        // Guard: Do NOT restore series subtitle preferences if the user has globally set
-        // Subtitle Mode to 'None' or 'OnlyForced', which must strictly respect the mode.
+        // Guard: Do NOT restore series subtitle preferences if the user has globally or
+        // server-side set Subtitle Mode to 'None' or 'OnlyForced'.
         if (
             this._selectedSubtitleIndex === undefined &&
             this._item?.SeriesId &&
-            subtitleMode !== 'None' &&
-            subtitleMode !== 'OnlyForced'
+            effectiveSubtitleMode !== 'None' &&
+            effectiveSubtitleMode !== 'OnlyForced'
         ) {
             const resolvedSeriesSubtitle = MediaHelper.resolveSeriesTrack(source, 'Subtitle', this._item.SeriesId);
             if (resolvedSeriesSubtitle !== undefined) {
@@ -1249,7 +1261,7 @@ class DetailsPage extends Page {
                 audioStreamIndex: this._selectedAudioIndex
             });
             log.info(
-                `[DetailsPage] Resolved subtitle track from Subtitle Mode (${subtitleMode}): ${this._selectedSubtitleIndex}`
+                `[DetailsPage] Resolved subtitle track from Subtitle Mode (${effectiveSubtitleMode}): ${this._selectedSubtitleIndex}`
             );
         }
 

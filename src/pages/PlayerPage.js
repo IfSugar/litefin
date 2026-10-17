@@ -22,7 +22,7 @@ import { playQueue } from '../core/PlayQueue.js';
 import { focusManager } from '../ui/FocusManager.js';
 import { layoutManager } from '../ui/LayoutManager.js';
 import OSDController from '../player/osd/OSDController.js';
-import { JellyfinPlayer, resolveBestAudioStream, resolveSubtitleStream } from '../player/core/JellyfinPlayer.js';
+import { JellyfinPlayer, resolveBestAudioStream, resolveSubtitleStream, isForcedStream, getEffectiveSubtitleMode } from '../player/core/JellyfinPlayer.js';
 import { MediaHelper } from '../player/core/MediaHelper.js';
 import SubtitleStyles from '../utils/SubtitleStyles.js';
 import FontLoader from '../utils/FontLoader.js';
@@ -1328,10 +1328,30 @@ class PlayerPage extends Page {
             : item.MediaSources?.[0];
 
         // 2. Resolve Tracks
+        const effectiveSubtitleMode = getEffectiveSubtitleMode();
+
         let savedAudioIndex =
             preSelectedAudio !== null && preSelectedAudio !== undefined ? preSelectedAudio : undefined;
         let savedSubtitleIndex =
             preSelectedSubtitle !== null && preSelectedSubtitle !== undefined ? preSelectedSubtitle : undefined;
+
+        // ---------------------------------------------------------------------
+        // Pre-Selected Subtitle Mode Guard
+        // ---------------------------------------------------------------------
+        // If subtitles are preSelected, guard against non-forced tracks in OnlyForced mode
+        // or any tracks when Subtitle Mode is None.
+        if (savedSubtitleIndex !== undefined) {
+            if (effectiveSubtitleMode === 'None') {
+                savedSubtitleIndex = -1;
+            } else if (effectiveSubtitleMode === 'OnlyForced' && savedSubtitleIndex !== -1) {
+                const streamMatch = mediaSource?.MediaStreams?.find(
+                    (s) => s.Type === 'Subtitle' && s.Index === savedSubtitleIndex
+                );
+                if (streamMatch && !isForcedStream(streamMatch)) {
+                    savedSubtitleIndex = undefined;
+                }
+            }
+        }
 
         // If preSelectedAudio was passed, verify against persisted item track memory
         // to guard against index drift if external tracks were added/deleted before player launch
@@ -1385,19 +1405,31 @@ class PlayerPage extends Page {
 
         if (savedSubtitleIndex === undefined && item?.Id) {
             const savedItemSubtitle = storage.getItem(`track:subtitle:${item.Id}`);
-            if (savedItemSubtitle !== null && savedItemSubtitle !== undefined) {
+            if (savedItemSubtitle !== null && savedItemSubtitle !== undefined && effectiveSubtitleMode !== 'None') {
                 const resolvedSubtitle = MediaHelper.resolveSavedTrack(mediaSource, 'Subtitle', savedItemSubtitle, item.Id);
                 if (resolvedSubtitle !== undefined) {
-                    savedSubtitleIndex = resolvedSubtitle;
-                    if (savedSubtitleIndex === -1) {
-                        log.info(`[Track Memory] Restored item-specific subtitle track: Off (-1)`);
-                    } else {
+                    if (effectiveSubtitleMode === 'OnlyForced') {
                         const streamMatch = mediaSource?.MediaStreams?.find(
-                            (s) => s.Type === 'Subtitle' && s.Index === savedSubtitleIndex
+                            (s) => s.Type === 'Subtitle' && s.Index === resolvedSubtitle
                         );
-                        log.info(
-                            `[Track Memory] Restored item-specific subtitle track: Index ${savedSubtitleIndex} (${streamMatch?.DisplayTitle || streamMatch?.Title || streamMatch?.Language})`
-                        );
+                        if (streamMatch && isForcedStream(streamMatch)) {
+                            savedSubtitleIndex = resolvedSubtitle;
+                        }
+                    } else {
+                        savedSubtitleIndex = resolvedSubtitle;
+                    }
+
+                    if (savedSubtitleIndex !== undefined) {
+                        if (savedSubtitleIndex === -1) {
+                            log.info(`[Track Memory] Restored item-specific subtitle track: Off (-1)`);
+                        } else {
+                            const streamMatch = mediaSource?.MediaStreams?.find(
+                                (s) => s.Type === 'Subtitle' && s.Index === savedSubtitleIndex
+                            );
+                            log.info(
+                                `[Track Memory] Restored item-specific subtitle track: Index ${savedSubtitleIndex} (${streamMatch?.DisplayTitle || streamMatch?.Title || streamMatch?.Language})`
+                            );
+                        }
                     }
                 }
             }
@@ -1409,8 +1441,6 @@ class PlayerPage extends Page {
         // For TV shows, inherit preferred audio and subtitle languages established
         // on previous episodes across sessions without requiring active session state.
         // =========================================================================
-        const subtitleMode = PlayerSettings.get('subtitleMode') || 'Default';
-
         if (item?.SeriesId) {
             if (savedAudioIndex === undefined) {
                 const resolvedSeriesAudio = MediaHelper.resolveSeriesTrack(mediaSource, 'Audio', item.SeriesId);
@@ -1424,8 +1454,8 @@ class PlayerPage extends Page {
             // Series-Level Subtitle Memory Guard
             // ---------------------------------------------------------------------
             // Do not restore series-level subtitle preferences if the user has
-            // globally configured Subtitle Mode to 'None' or 'OnlyForced'.
-            if (savedSubtitleIndex === undefined && subtitleMode !== 'None' && subtitleMode !== 'OnlyForced') {
+            // globally or server-side configured Subtitle Mode to 'None' or 'OnlyForced'.
+            if (savedSubtitleIndex === undefined && effectiveSubtitleMode !== 'None' && effectiveSubtitleMode !== 'OnlyForced') {
                 const resolvedSeriesSubtitle = MediaHelper.resolveSeriesTrack(mediaSource, 'Subtitle', item.SeriesId);
                 if (resolvedSeriesSubtitle !== undefined) {
                     savedSubtitleIndex = resolvedSeriesSubtitle;
@@ -1465,7 +1495,7 @@ class PlayerPage extends Page {
             // -----------------------------------------------------------------
             // Do not carry over session subtitle preferences if Subtitle Mode is
             // configured to 'None' or 'OnlyForced'.
-            if (savedSubtitleIndex === undefined && subtitleMode !== 'None' && subtitleMode !== 'OnlyForced') {
+            if (savedSubtitleIndex === undefined && effectiveSubtitleMode !== 'None' && effectiveSubtitleMode !== 'OnlyForced') {
                 const sessionSubtitleLang = storage.getItem('session:lastSubtitleLang');
                 const sessionSubtitleTitle = storage.getItem('session:lastSubtitleTitle');
                 if (sessionSubtitleLang) {
@@ -1524,7 +1554,7 @@ class PlayerPage extends Page {
             savedSubtitleIndex = resolveSubtitleStream(mediaSource, {
                 audioStreamIndex: savedAudioIndex
             });
-            log.info(`[Track Resolution] Resolved subtitle track from Subtitle Mode (${subtitleMode}): Index ${savedSubtitleIndex}`);
+            log.info(`[Track Resolution] Resolved subtitle track from Subtitle Mode (${effectiveSubtitleMode}): Index ${savedSubtitleIndex}`);
         }
 
         log.info('Starting playback with resolved preferences:', {
