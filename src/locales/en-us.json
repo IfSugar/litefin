@@ -18,7 +18,7 @@
     "AudioSettings": "Audio Settings",
     "AudioTracks": "Audio Tracks",
     "AwaitTracksBeforePlayback": "Await Tracks Before Playback",
-    "AwaitTracksBeforePlaybackDescription": "Fully await audio and subtitle tracks to load before starting playback and hiding the loading screen. could increase initial loading time significantly for somefiles.",
+    "AwaitTracksBeforePlaybackDescription": "Fully await audio and subtitle tracks to load before starting playback and hiding the loading screen. could increase initial loading time significantly for some files.",
     "BadgeStyle": "Badge Style",
     "BadgeStyleAuto": "Auto (Follow Layout)",
     "BadgeStyleDark": "Translucent Dark",
