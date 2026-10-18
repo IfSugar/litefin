@@ -1210,17 +1210,23 @@ export function buildJellyfinProfile(options = {}) {
     // of DOVI MKVs causes the native player to stall and crash due to the way the
     // raw MKV byte stream is fed to the hardware decoder over HTTP.
     //
-    // The correct fix: add a CodecProfile scoped to Container:'mkv' with no Codec
-    // restriction (so it applies universally to every video codec). The NotEquals
+    // The correct fix: add a CodecProfile scoped to Container:'mkv' and to the
+    // HEVC/H.264 codecs (AV1 is excluded, see below). The NotEquals
     // conditions tell the Jellyfin server "DOVI is not supported for direct-play in
     // this container" — causing it to immediately fall back to an fMP4 HLS Remux,
     // which packages the identical stream into segments the TV handles flawlessly.
     //
     // WebOS >= 25 handles DOVI MKV natively, so we skip this block for those devices.
+    //
+    // AV1 (DoVi profile 10) is left out: the HLS transcoding profiles carry only
+    // h264/hevc, so the "remux" would turn into a full software re-encode of the
+    // video. A raw-src DirectPlay of AV1 DoVi MKV plays on its HDR10 base layer
+    // (verified on webOS 6, LG UP80), as long as no dvh1 hint is attached.
     if (enableDolbyVision && caps.webosVersion < 25) {
         codecProfiles.push({
             Type: 'Video',
-            // No Codec field = applies to ALL video codecs (hevc, h264, av1, vp9, etc.)
+            // HEVC (DoVi profiles 5/7/8) and H.264 (profile 9); not AV1 (profile 10).
+            Codec: 'hevc,h264',
             Container: 'mkv',
             Conditions: [
                 { Condition: 'NotEquals', Property: 'VideoRangeType', Value: 'DOVI', IsRequired: false },

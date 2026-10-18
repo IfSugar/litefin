@@ -708,10 +708,14 @@ export class WebOSPlayer {
      * Chromium layer to silently reject it before the media pipeline sees it.
      *
      * DOLBY VISION EXCEPTION:
-     * For DoVi content we provide a <source> element with the codec hint
+     * For HEVC DoVi content we provide a <source> element with the codec hint
      * `video/mp4; codecs="dvh1"`. This is the same in-band parameter-set
      * codec tag that WebOS uses to activate its Dolby Vision hardware decoder
      * pipeline (see the hvc1|dvh1|hev1 CodecProfile gate in WebOSProfile.js).
+     *
+     * DoVi in other codecs (AV1 profile 10) takes the standard path: dvh1
+     * names HEVC, so the pipeline rejects the hinted source outright, while a
+     * raw src plays it on its HDR10 base layer.
      *
      * Without this hint the WebOS decoder initialises the standard HEVC
      * pipeline. When it later encounters DoVi RPU NAL units (type 62) it
@@ -755,8 +759,13 @@ export class WebOSPlayer {
         const rangeType = videoStream?.VideoRangeType || '';
         const isDoVi = rangeType.startsWith('DOVI') || rangeType === 'DOVIWithHDR10' ||
                        rangeType === 'DOVIWithHLG' || rangeType === 'DOVIWithSDR';
+        // dvh1 names HEVC-based Dolby Vision. DoVi carried in another codec (AV1
+        // profile 10) makes the native pipeline reject the hinted source outright,
+        // while the plain src plays it on its HDR10 base layer.
+        const videoCodec = (videoStream?.Codec || '').toLowerCase();
+        const isHevc = videoCodec === 'hevc' || videoCodec === 'h265';
 
-        if (isDoVi) {
+        if (isDoVi && isHevc) {
             // The 'dvh1' codec string tells WebOS to activate the DV hardware
             // decoder pipeline. We use video/mp4 as the MIME wrapper because
             // WebOS Chromium validates codec tags against MP4 codec strings
@@ -771,6 +780,18 @@ export class WebOSPlayer {
                 const source = document.createElement('source');
                 source.src  = url;
                 source.type = dvHint;
+                // A rejected <source> fires 'error' on the source element, not on the
+                // video, so the load would otherwise only fail via the startup
+                // watchdog (and escalate to a transcode). Retry once with a raw src.
+                const onSourceError = () => {
+                    source.removeEventListener('error', onSourceError);
+                    if (source.parentNode !== video) return;
+                    log.warn('WebOSPlayer: dvh1-hinted source rejected — retrying with raw src');
+                    video.removeChild(source);
+                    video.src = url;
+                    video.load();
+                };
+                source.addEventListener('error', onSourceError);
                 video.appendChild(source);
             } else {
                 // canPlayType rejected the codec — fall back to raw src so
