@@ -5236,8 +5236,10 @@ class SettingsPage extends Page {
 
                 <div class="setting-item">
                     <div class="setting-label">
-                        <span class="setting-name" data-i18n="OverrideSubtitleColors">${i18n.t('OverrideSubtitleColors') || 'Override Embedded Subtitle Colors'}</span>
-                        <span class="setting-description" data-i18n="OverrideSubtitleColorsDescription">${i18n.t('OverrideSubtitleColorsDescription') || 'Override author-specified colors in subtitles with your selected subtitle color.'}</span>
+                        <!-- Use canonical SubtitleOverrideColors key matching all locale files and tests -->
+                        <span class="setting-name" data-i18n="SubtitleOverrideColors">${i18n.t('SubtitleOverrideColors')}</span>
+                        <!-- Use canonical SubtitleOverrideColorsDesc key matching all locale files and tests -->
+                        <span class="setting-description" data-i18n="SubtitleOverrideColorsDesc">${i18n.t('SubtitleOverrideColorsDesc')}</span>
                     </div>
                     <div class="setting-control">
                          <button class="toggle-switch ${PlayerSettings.get('subtitleOverrideColors') ? 'active' : ''}" 
