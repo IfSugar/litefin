@@ -22,7 +22,7 @@ import { playQueue } from '../core/PlayQueue.js';
 import { focusManager } from '../ui/FocusManager.js';
 import { layoutManager } from '../ui/LayoutManager.js';
 import OSDController from '../player/osd/OSDController.js';
-import { JellyfinPlayer, resolveBestAudioStream } from '../player/core/JellyfinPlayer.js';
+import { JellyfinPlayer, resolveBestAudioStream, resolveSubtitleStream, isForcedStream, getEffectiveSubtitleMode } from '../player/core/JellyfinPlayer.js';
 import { MediaHelper } from '../player/core/MediaHelper.js';
 import SubtitleStyles from '../utils/SubtitleStyles.js';
 import FontLoader from '../utils/FontLoader.js';
@@ -39,6 +39,7 @@ import { osdIcons } from '../utils/Icons.js';
 import { sanitizeSubtitleText } from '../utils/Utils.js';
 import { prewarmManager } from '../player/core/PrewarmManager.js';
 import BackdropManager from '../utils/BackdropManager.js';
+import { imageService } from '../utils/ImageService.js';
 
 const log = logger.create('Player');
 
@@ -186,13 +187,13 @@ class PlayerPage extends Page {
                 <!-- OSD Overlay (controlled by jellyfin-player-osd.js) -->
                 <div id="osd-overlay" class="player-osd"></div>
 
-                <!-- Primary Subtitle Overlay (Bottom) -->
-                <div id="subtitle-overlay" class="subtitle-overlay"></div>
+                <!-- Primary Subtitle Overlay (Bottom standard default) -->
+                <div id="subtitle-overlay" class="subtitle-overlay pos-bottom"></div>
 
-                <!-- Secondary Subtitle Overlay (Top) -->
+                <!-- Secondary Subtitle Overlay (Top standard default) -->
                 <!-- Positioned via CSS .subtitle-overlay.secondary (top: 10%) -->
                 <!-- Styles are inherited from primary, only size/position are independent -->
-                <div id="secondary-subtitle-overlay" class="subtitle-overlay secondary hidden"></div>
+                <div id="secondary-subtitle-overlay" class="subtitle-overlay secondary pos-top hidden"></div>
 
                 <!-- Playback Screen/Input Lock Overlay (Premium Dark Mode Aesthetic) -->
                 <div id="lock-overlay" class="lock-overlay">
@@ -298,6 +299,11 @@ class PlayerPage extends Page {
             // Enter immersive fullscreen mode during video playback on mobile
             if (platformInfo.isAndroid) {
                 androidAdapter.setFullscreen(true);
+                // Prevent Android system screensaver / display sleep during active playback
+                androidAdapter.setKeepScreenOn(true);
+            } else if (platformInfo.isWebOS) {
+                // Prevent LG webOS system screensaver / display sleep during active playback
+                webosAdapter.setKeepScreenOn(true);
             }
 
             // Automatically switch mobile viewport to landscape orientation for video playback
@@ -338,7 +344,18 @@ class PlayerPage extends Page {
 
             // If initial backdrop wasn't pre-cached in state, attempt fallback resolution from item metadata
             if (!this._loadingBackdrop && this.el?.classList.contains('loading')) {
-                const itemBackdropUrl = BackdropManager.getBackdropUrl(itemResult, { maxWidth: 1920 });
+                // =============================================================
+                // Dynamic Backdrop Loading Quality Resolution
+                // =============================================================
+                // Rather than hardcoding 1920 with missing quality (which causes
+                // blurry/pixelated artifacts on 4K displays and ignores user prefs),
+                // query imageService for full-screen details-backdrop parameters.
+                // =============================================================
+                const backdropParams = imageService.getParams('details-backdrop');
+                const itemBackdropUrl = BackdropManager.getBackdropUrl(itemResult, {
+                    maxWidth: backdropParams.maxWidth,
+                    quality: backdropParams.quality
+                });
                 if (itemBackdropUrl) {
                     this._applyLoadingBackdrop(itemBackdropUrl);
                 }
@@ -843,8 +860,8 @@ class PlayerPage extends Page {
                 }
 
                 // Touch UX: on touchscreen devices (Android phones & tablets), tapping the video
-                // should reveal or dismiss the On-Screen Display controls gracefully, following
-                // Apple Human Interface Guidelines for video playback rather than abruptly pausing.
+                // should reveal or dismiss the On-Screen Display controls gracefully
+                // rather than abruptly pausing playback.
                 if (document.documentElement.hasAttribute('data-litefin-touch') && !window.matchMedia('(pointer: fine)').matches) {
                     if (this._osd) {
                         if (this._osd.isOsdVisible) {
@@ -1200,6 +1217,24 @@ class PlayerPage extends Page {
         // This ensures subsequent video loads or queue transitions start clean.
         this._isPlaybackEnded = false;
 
+        /*
+         * ====================================================================
+         * Clean Subtitle & OSD State on Playback Launch
+         * ====================================================================
+         * Strip any lingering 'osd-active' state from previous sessions or
+         * startup transitions to prevent subtitles from dodging an invisible OSD.
+         * Subtitles must start anchored at baseline.
+         * ====================================================================
+         */
+        const initialPageEl = this.el || document.querySelector('.player-page');
+        if (initialPageEl) {
+            initialPageEl.classList.remove('osd-active');
+        }
+        const initialContainerEl = document.getElementById('player-container');
+        if (initialContainerEl) {
+            initialContainerEl.classList.remove('osd-active');
+        }
+
         // Clear cached play method so we never bleed the previous item's value
         // into the new session (relevant for queue auto-advance where onInit
         // is not called between items).
@@ -1296,10 +1331,36 @@ class PlayerPage extends Page {
             : item.MediaSources?.[0];
 
         // 2. Resolve Tracks
+        const effectiveSubtitleMode = getEffectiveSubtitleMode();
+
         let savedAudioIndex =
             preSelectedAudio !== null && preSelectedAudio !== undefined ? preSelectedAudio : undefined;
         let savedSubtitleIndex =
             preSelectedSubtitle !== null && preSelectedSubtitle !== undefined ? preSelectedSubtitle : undefined;
+
+        // ---------------------------------------------------------------------
+        // Pre-Selected Subtitle Mode Guard
+        // ---------------------------------------------------------------------
+        // Pre-Selected Subtitle Mode Guard
+        // ---------------------------------------------------------------------
+        // If subtitles are preSelected, guard against non-forced tracks in OnlyForced mode,
+        // any tracks when Subtitle Mode is None, or Off (-1) tracks in Always mode.
+        if (savedSubtitleIndex !== undefined) {
+            if (effectiveSubtitleMode === 'None') {
+                savedSubtitleIndex = -1;
+            } else if (effectiveSubtitleMode === 'OnlyForced' && savedSubtitleIndex !== -1) {
+                const streamMatch = mediaSource?.MediaStreams?.find(
+                    (s) => s.Type === 'Subtitle' && s.Index === savedSubtitleIndex
+                );
+                if (streamMatch && !isForcedStream(streamMatch)) {
+                    savedSubtitleIndex = undefined;
+                }
+            } else if (effectiveSubtitleMode === 'Always' && savedSubtitleIndex === -1) {
+                // In Always mode, subtitles must never start off. Discard preselected -1 so
+                // resolution runs and picks the user's preferred language.
+                savedSubtitleIndex = undefined;
+            }
+        }
 
         // If preSelectedAudio was passed, verify against persisted item track memory
         // to guard against index drift if external tracks were added/deleted before player launch
@@ -1353,19 +1414,34 @@ class PlayerPage extends Page {
 
         if (savedSubtitleIndex === undefined && item?.Id) {
             const savedItemSubtitle = storage.getItem(`track:subtitle:${item.Id}`);
-            if (savedItemSubtitle !== null && savedItemSubtitle !== undefined) {
+            if (savedItemSubtitle !== null && savedItemSubtitle !== undefined && effectiveSubtitleMode !== 'None') {
                 const resolvedSubtitle = MediaHelper.resolveSavedTrack(mediaSource, 'Subtitle', savedItemSubtitle, item.Id);
                 if (resolvedSubtitle !== undefined) {
-                    savedSubtitleIndex = resolvedSubtitle;
-                    if (savedSubtitleIndex === -1) {
-                        log.info(`[Track Memory] Restored item-specific subtitle track: Off (-1)`);
-                    } else {
+                    if (effectiveSubtitleMode === 'OnlyForced') {
                         const streamMatch = mediaSource?.MediaStreams?.find(
-                            (s) => s.Type === 'Subtitle' && s.Index === savedSubtitleIndex
+                            (s) => s.Type === 'Subtitle' && s.Index === resolvedSubtitle
                         );
-                        log.info(
-                            `[Track Memory] Restored item-specific subtitle track: Index ${savedSubtitleIndex} (${streamMatch?.DisplayTitle || streamMatch?.Title || streamMatch?.Language})`
-                        );
+                        if (streamMatch && isForcedStream(streamMatch)) {
+                            savedSubtitleIndex = resolvedSubtitle;
+                        }
+                    } else if (effectiveSubtitleMode === 'Always' && resolvedSubtitle === -1) {
+                        // In Always mode, do not restore an Off (-1) state from past playback
+                        savedSubtitleIndex = undefined;
+                    } else {
+                        savedSubtitleIndex = resolvedSubtitle;
+                    }
+
+                    if (savedSubtitleIndex !== undefined) {
+                        if (savedSubtitleIndex === -1) {
+                            log.info(`[Track Memory] Restored item-specific subtitle track: Off (-1)`);
+                        } else {
+                            const streamMatch = mediaSource?.MediaStreams?.find(
+                                (s) => s.Type === 'Subtitle' && s.Index === savedSubtitleIndex
+                            );
+                            log.info(
+                                `[Track Memory] Restored item-specific subtitle track: Index ${savedSubtitleIndex} (${streamMatch?.DisplayTitle || streamMatch?.Title || streamMatch?.Language})`
+                            );
+                        }
                     }
                 }
             }
@@ -1386,11 +1462,21 @@ class PlayerPage extends Page {
                 }
             }
 
-            if (savedSubtitleIndex === undefined) {
+            // ---------------------------------------------------------------------
+            // Series-Level Subtitle Memory Guard
+            // ---------------------------------------------------------------------
+            // Do not restore series-level subtitle preferences if the user has
+            // globally or server-side configured Subtitle Mode to 'None' or 'OnlyForced'.
+            if (savedSubtitleIndex === undefined && effectiveSubtitleMode !== 'None' && effectiveSubtitleMode !== 'OnlyForced') {
                 const resolvedSeriesSubtitle = MediaHelper.resolveSeriesTrack(mediaSource, 'Subtitle', item.SeriesId);
                 if (resolvedSeriesSubtitle !== undefined) {
-                    savedSubtitleIndex = resolvedSeriesSubtitle;
-                    log.info(`[Track Memory] Restored series-level subtitle track: Index ${savedSubtitleIndex}`);
+                    if (effectiveSubtitleMode === 'Always' && resolvedSeriesSubtitle === -1) {
+                        // In Always mode, do not inherit an Off state from series memory
+                        savedSubtitleIndex = undefined;
+                    } else {
+                        savedSubtitleIndex = resolvedSeriesSubtitle;
+                        log.info(`[Track Memory] Restored series-level subtitle track: Index ${savedSubtitleIndex}`);
+                    }
                 }
             }
         }
@@ -1421,21 +1507,35 @@ class PlayerPage extends Page {
                 }
             }
 
-            if (savedSubtitleIndex === undefined) {
+            // -----------------------------------------------------------------
+            // Session-Scoped Subtitle Memory Guard
+            // -----------------------------------------------------------------
+            // Do not carry over session subtitle preferences if Subtitle Mode is
+            // configured to 'None' or 'OnlyForced'. In Always mode, do not carry over 'none'.
+            if (savedSubtitleIndex === undefined && effectiveSubtitleMode !== 'None' && effectiveSubtitleMode !== 'OnlyForced') {
                 const sessionSubtitleLang = storage.getItem('session:lastSubtitleLang');
                 const sessionSubtitleTitle = storage.getItem('session:lastSubtitleTitle');
                 if (sessionSubtitleLang) {
-                    const resolvedSubtitle = this._resolveTrackByLang(
-                        mediaSource,
-                        'Subtitle',
-                        sessionSubtitleLang,
-                        sessionSubtitleTitle
-                    );
-                    if (resolvedSubtitle !== undefined) {
-                        savedSubtitleIndex = resolvedSubtitle;
-                        log.info(
-                            `[Track Memory] Restored Subtitle: ${sessionSubtitleLang} - ${sessionSubtitleTitle} -> Index ${resolvedSubtitle}`
+                    if (effectiveSubtitleMode === 'Always' && sessionSubtitleLang === 'none') {
+                        // In Always mode, do not carry over 'none' from session memory
+                    } else {
+                        const resolvedSubtitle = this._resolveTrackByLang(
+                            mediaSource,
+                            'Subtitle',
+                            sessionSubtitleLang,
+                            sessionSubtitleTitle
                         );
+                        if (resolvedSubtitle !== undefined) {
+                            if (effectiveSubtitleMode === 'Always' && resolvedSubtitle === -1) {
+                                // In Always mode, do not restore an Off state
+                                savedSubtitleIndex = undefined;
+                            } else {
+                                savedSubtitleIndex = resolvedSubtitle;
+                                log.info(
+                                    `[Track Memory] Restored Subtitle: ${sessionSubtitleLang} - ${sessionSubtitleTitle} -> Index ${resolvedSubtitle}`
+                                );
+                            }
+                        }
                     }
                 }
             }
@@ -1471,7 +1571,17 @@ class PlayerPage extends Page {
             }
         }
 
-        // Note: We leave savedSubtitleIndex as undefined if unresolved, so JellyfinPlayer's SubtitleMode logic handles it.
+        // ---------------------------------------------------------------------
+        // Subtitle Mode Fallback Resolution
+        // ---------------------------------------------------------------------
+        // If savedSubtitleIndex is still unresolved, determine it from the active
+        // Subtitle Mode setting (Default, OnlyForced, Always, Smart, None).
+        if (savedSubtitleIndex === undefined && mediaSource?.MediaStreams) {
+            savedSubtitleIndex = resolveSubtitleStream(mediaSource, {
+                audioStreamIndex: savedAudioIndex
+            });
+            log.info(`[Track Resolution] Resolved subtitle track from Subtitle Mode (${effectiveSubtitleMode}): Index ${savedSubtitleIndex}`);
+        }
 
         log.info('Starting playback with resolved preferences:', {
             audio: savedAudioIndex,
@@ -1550,36 +1660,39 @@ class PlayerPage extends Page {
         }
 
         // ====================================================================
-        // WebOS Media Session (System Controls & Metadata)
+        // OS Media Session (System Controls & Remote Transport Buttons)
         // ====================================================================
-        // Update the OS-level media session. This enables the Magic Remote
-        // media controls and provides metadata to the LG system overlay.
+        // Update the OS-level media session. This enables TV remote playback
+        // controls (Play, Pause, FastForward, Rewind, Next, Prev) on WebOS and
+        // Android TV / Google TV, routing physical buttons to our handlers.
+        const mediaSessionMetadata = {
+            title: item.Name,
+            artist: item.ProductionYear ? item.ProductionYear.toString() : '',
+            album: item.SeriesName || 'Litefin',
+            artworkUrl: api.getImageUrl(item.Id, 'Primary', { maxWidth: 400 })
+        };
+        const mediaSessionCallbacks = {
+            onPlay: () => this._onRemotePlay(),
+            onPause: () => this._onRemotePause(),
+            onStop: () => this._onRemoteStop(),
+            onNext: () => this._onRemoteNext(),
+            onPrevious: () => this._onRemotePrevious(),
+            onSeekForward: () => {
+                // Route seeking through debounced OSD controller if present
+                if (this._osd) this._osd._executeAction('fastForward');
+                else if (this._player) this._player.seekRelative(30000);
+            },
+            onSeekBackward: () => {
+                // Route seeking through debounced OSD controller if present
+                if (this._osd) this._osd._executeAction('rewind');
+                else if (this._player) this._player.seekRelative(-10000);
+            }
+        };
+
         if (platformInfo.isWebOS) {
-            webosAdapter.updateMediaSession(
-                {
-                    title: item.Name,
-                    artist: item.ProductionYear ? item.ProductionYear.toString() : '',
-                    album: item.SeriesName || 'Litefin',
-                    artworkUrl: api.getImageUrl(item.Id, 'Primary', { maxWidth: 400 })
-                },
-                {
-                    onPlay: () => this._onRemotePlay(),
-                    onPause: () => this._onRemotePause(),
-                    onStop: () => this._onRemoteStop(),
-                    onNext: () => this._onRemoteNext(),
-                    onPrevious: () => this._onRemotePrevious(),
-                    onSeekForward: () => {
-                        // Route seeking through debounced OSD controller if present
-                        if (this._osd) this._osd._executeAction('fastForward');
-                        else if (this._player) this._player.seekRelative(30000);
-                    },
-                    onSeekBackward: () => {
-                        // Route seeking through debounced OSD controller if present
-                        if (this._osd) this._osd._executeAction('rewind');
-                        else if (this._player) this._player.seekRelative(-10000);
-                    }
-                }
-            );
+            webosAdapter.updateMediaSession(mediaSessionMetadata, mediaSessionCallbacks);
+        } else if (platformInfo.isAndroid) {
+            androidAdapter.updateMediaSession(mediaSessionMetadata, mediaSessionCallbacks);
         }
 
         // ====================================================================
@@ -2027,6 +2140,25 @@ class PlayerPage extends Page {
         // Sync OSD track state (especially important for queue switches)
         if (this._osd) {
             this._osd.syncTracks();
+        }
+
+        /*
+         * ====================================================================
+         * Subtitle Baseline Verification on Active Playback
+         * ====================================================================
+         * When playback begins rendering frames, ensure the subtitles remain at
+         * baseline unless the On-Screen Display controls are actively showing.
+         * ====================================================================
+         */
+        if (!this._osd || !this._osd.isOsdVisible) {
+            const pageEl = this.el || document.querySelector('.player-page');
+            if (pageEl) {
+                pageEl.classList.remove('osd-active');
+            }
+            const playerContainer = document.getElementById('player-container');
+            if (playerContainer) {
+                playerContainer.classList.remove('osd-active');
+            }
         }
 
         // Report progress (Start/Unpause)
@@ -3437,6 +3569,44 @@ class PlayerPage extends Page {
         const isDodgingEnabled = PlayerSettings.get('subtitleOsdDodging') !== false;
         if (pageEl) pageEl.classList.toggle('osd-dodging-disabled', !isDodgingEnabled);
         if (playerContainer) playerContainer.classList.toggle('osd-dodging-disabled', !isDodgingEnabled);
+
+        /*
+         * ====================================================================
+         * Smart Directional Subtitle Shifting State
+         * ====================================================================
+         * Inspect user-configured vertical positioning for primary and
+         * secondary subtitle tracks to determine screen hemisphere placement.
+         * Subtitles in the bottom half dodge UP when OSD controls appear;
+         * subtitles in the top half dodge DOWN to clear the top header bar.
+         * ====================================================================
+         */
+        const isPrimBottom = SubtitleStyles.isPrimarySubtitleInBottomHalf();
+        if (primaryOverlay) {
+            primaryOverlay.classList.toggle('pos-bottom', isPrimBottom);
+            primaryOverlay.classList.toggle('pos-top', !isPrimBottom);
+        }
+
+        const isSecBottom = SubtitleStyles.isSecondarySubtitleInBottomHalf();
+        if (secondaryOverlay) {
+            secondaryOverlay.classList.toggle('pos-bottom', isSecBottom);
+            secondaryOverlay.classList.toggle('pos-top', !isSecBottom);
+        }
+
+        /*
+         * ====================================================================
+         * Dynamic Subtitle OSD Dodging Synchronization
+         * ====================================================================
+         * Verify whether the OSD controls layer is truly visible on screen.
+         * If the OSD is hidden, unmounted, or dismissed, ensure 'osd-active' is
+         * stripped immediately so text subtitles render strictly at the bottom
+         * baseline rather than floating prematurely in the middle of the display.
+         * ====================================================================
+         */
+        const isOsdVisible = !!(this._osd && this._osd.isOsdVisible);
+        if (!isOsdVisible) {
+            if (pageEl) pageEl.classList.remove('osd-active');
+            if (playerContainer) playerContainer.classList.remove('osd-active');
+        }
     }
 
     _onMediaStreamsChange(data) {
@@ -3505,68 +3675,81 @@ class PlayerPage extends Page {
 
         // Refresh primary overlay
         const overlay = document.getElementById('subtitle-overlay');
-        if (overlay && !overlay.classList.contains('hidden')) {
-            /* -------------------------------------------------------------
-               Re-render the active primary cue through sanitizeSubtitleText
-               so that dynamic tag formatting adjustments (such as toggling
-               subtitleOverrideColors in the OSD) take effect immediately.
-               ------------------------------------------------------------- */
-            if (this._currentSubtitleData && this._currentSubtitleData.text) {
-                overlay.innerHTML = `<span class="subtitle-line">${sanitizeSubtitleText(this._currentSubtitleData.text)}</span>`;
-            }
+        if (overlay) {
+            const isPrimBottom = SubtitleStyles.isPrimarySubtitleInBottomHalf();
+            overlay.classList.toggle('pos-bottom', isPrimBottom);
+            overlay.classList.toggle('pos-top', !isPrimBottom);
 
-            const span = overlay.querySelector('.subtitle-line');
-            if (span) {
-                log.debug('Refreshing primary subtitle styles');
+            // Re-apply container styles (position/window) unconditionally
+            const windowStyles = SubtitleStyles.getWindowStyles();
+            SubtitleStyles.applyStyles(overlay, windowStyles);
 
-                // Re-apply text styles with current HDR status
-                const styles = SubtitleStyles.getTextStyles(isHdr);
-                SubtitleStyles.applyStyles(span, styles);
+            if (!overlay.classList.contains('hidden')) {
+                /* -------------------------------------------------------------
+                   Re-render the active primary cue through sanitizeSubtitleText
+                   so that dynamic tag formatting adjustments (such as toggling
+                   subtitleOverrideColors in the OSD) take effect immediately.
+                   ------------------------------------------------------------- */
+                if (this._currentSubtitleData && this._currentSubtitleData.text) {
+                    overlay.innerHTML = `<span class="subtitle-line">${sanitizeSubtitleText(this._currentSubtitleData.text)}</span>`;
+                }
 
-                // Re-apply container styles (position/window)
-                const windowStyles = SubtitleStyles.getWindowStyles();
-                SubtitleStyles.applyStyles(overlay, windowStyles);
+                const span = overlay.querySelector('.subtitle-line');
+                if (span) {
+                    log.debug('Refreshing primary subtitle styles');
 
-                // Handle font loading if changed by user settings
-                const fontId = SubtitleStyles.getCurrentFontId();
-                if (fontId) {
-                    FontLoader.loadFont(fontId, true).then((loaded) => {
-                        if (loaded) {
-                            SubtitleStyles.applyStyles(span, styles);
-                        }
-                    });
+                    // Re-apply text styles with current HDR status
+                    const styles = SubtitleStyles.getTextStyles(isHdr);
+                    SubtitleStyles.applyStyles(span, styles);
+
+                    // Handle font loading if changed by user settings
+                    const fontId = SubtitleStyles.getCurrentFontId();
+                    if (fontId) {
+                        FontLoader.loadFont(fontId, true).then((loaded) => {
+                            if (loaded) {
+                                SubtitleStyles.applyStyles(span, styles);
+                            }
+                        });
+                    }
                 }
             }
         }
 
         // Refresh secondary overlay (inherits primary appearance — always re-apply on any change)
         const secondaryOverlay = document.getElementById('secondary-subtitle-overlay');
-        if (secondaryOverlay && !secondaryOverlay.classList.contains('hidden')) {
-            /* -------------------------------------------------------------
-               Re-render active secondary cue text through sanitizeSubtitleText.
-               ------------------------------------------------------------- */
-            if (this._currentSecondarySubtitleData && this._currentSecondarySubtitleData.text) {
-                secondaryOverlay.innerHTML = `<span class="subtitle-line">${sanitizeSubtitleText(this._currentSecondarySubtitleData.text)}</span>`;
-            }
+        if (secondaryOverlay) {
+            const isSecBottom = SubtitleStyles.isSecondarySubtitleInBottomHalf();
+            secondaryOverlay.classList.toggle('pos-bottom', isSecBottom);
+            secondaryOverlay.classList.toggle('pos-top', !isSecBottom);
 
-            const span = secondaryOverlay.querySelector('.subtitle-line');
-            if (span) {
-                log.debug('Refreshing secondary subtitle styles');
+            // Re-apply secondary window/position styles unconditionally
+            const secondaryWindowStyles = SubtitleStyles.getSecondaryWindowStyles();
+            SubtitleStyles.applyStyles(secondaryOverlay, secondaryWindowStyles);
 
-                // Secondary uses inherited styles with its own size override and respects HDR opacity settings
-                const styles = SubtitleStyles.getSecondaryTextStyles(isHdr);
-                SubtitleStyles.applyStyles(span, styles);
+            if (!secondaryOverlay.classList.contains('hidden')) {
+                /* -------------------------------------------------------------
+                   Re-render active secondary cue text through sanitizeSubtitleText.
+                   ------------------------------------------------------------- */
+                if (this._currentSecondarySubtitleData && this._currentSecondarySubtitleData.text) {
+                    secondaryOverlay.innerHTML = `<span class="subtitle-line">${sanitizeSubtitleText(this._currentSecondarySubtitleData.text)}</span>`;
+                }
 
-                const windowStyles = SubtitleStyles.getSecondaryWindowStyles();
-                SubtitleStyles.applyStyles(secondaryOverlay, windowStyles);
+                const span = secondaryOverlay.querySelector('.subtitle-line');
+                if (span) {
+                    log.debug('Refreshing secondary subtitle styles');
 
-                const fontId = SubtitleStyles.getCurrentFontId();
-                if (fontId) {
-                    FontLoader.loadFont(fontId, true).then((loaded) => {
-                        if (loaded) {
-                            SubtitleStyles.applyStyles(span, styles);
-                        }
-                    });
+                    // Secondary uses inherited styles with its own size override and respects HDR opacity settings
+                    const styles = SubtitleStyles.getSecondaryTextStyles(isHdr);
+                    SubtitleStyles.applyStyles(span, styles);
+
+                    const fontId = SubtitleStyles.getCurrentFontId();
+                    if (fontId) {
+                        FontLoader.loadFont(fontId, true).then((loaded) => {
+                            if (loaded) {
+                                SubtitleStyles.applyStyles(span, styles);
+                            }
+                        });
+                    }
                 }
             }
         }
@@ -5285,9 +5468,24 @@ class PlayerPage extends Page {
         document.body.classList.remove('player-active', 'lyrics-active');
         document.documentElement.classList.remove('player-active');
 
-        // Maintain immersive fullscreen mode across all views
+        // ---------------------------------------------------------------------
+        // Restore Android Window & Fullscreen Configuration
+        // ---------------------------------------------------------------------
+        // Video playback runs locked to immersive fullscreen. Upon exit, restore
+        // the user's mobile preference (or maintain fullscreen on dedicated TVs).
+        // ---------------------------------------------------------------------
         if (platformInfo.isAndroid) {
-            androidAdapter.setFullscreen(true);
+            const shouldBeFs = androidAdapter.isAndroidTv || androidAdapter.isMobileFullscreenEnabled();
+            androidAdapter.setFullscreen(shouldBeFs);
+            
+            // Release keep-screen-on wake lock upon exiting player view
+            androidAdapter.setKeepScreenOn(false);
+            
+            // Clear registered MediaSession action handlers and reset system transport state
+            androidAdapter.clearMediaSession();
+        } else if (platformInfo.isWebOS) {
+            // Release webOS screensaver suppression and power keepalive
+            webosAdapter.setKeepScreenOn(false);
         }
 
         // Restore natural screen auto-rotation upon exiting the video player

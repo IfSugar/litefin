@@ -504,13 +504,34 @@ export class ApiClient {
                 return null;
             }
 
-            // Parse response based on content type
+            // -----------------------------------------------------------------
+            // Dynamic Response Body Parsing
+            // -----------------------------------------------------------------
+            // Inspect the response Content-Type header to decide the parsing strategy.
+            // Jellyfin and Emby endpoints primarily return JSON payloads, but certain
+            // reverse proxies (Nginx, Traefik, Caddy, Cloudflare) or specialized setups
+            // may omit the header or advertise 'text/plain' or 'text/json' instead of
+            // 'application/json'. We handle both standard JSON headers and fallback to
+            // parsing raw text if it looks like a valid JSON object or array.
+            // -----------------------------------------------------------------
             const contentType = response.headers.get('content-type');
             let body;
-            if (contentType && contentType.includes('application/json')) {
+            if (contentType && (contentType.includes('application/json') || contentType.includes('text/json'))) {
                 body = await response.json();
             } else {
                 body = await response.text();
+                // If the response body was read as raw text, check if it contains
+                // a serialized JSON array or object and parse it accordingly.
+                if (typeof body === 'string' && body.length > 0) {
+                    const trimmed = body.trim();
+                    if ((trimmed.startsWith('{') && trimmed.endsWith('}')) || (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
+                        try {
+                            body = JSON.parse(trimmed);
+                        } catch {
+                            // If parsing fails, preserve raw string text without throwing
+                        }
+                    }
+                }
             }
 
             // Cache ETag for GET requests so subsequent calls can use
@@ -626,10 +647,14 @@ export class ApiClient {
                     const data = JSON.parse(bodyText);
                     message = data.message || data.Message || message;
                 } catch {
-                    // Not JSON — use raw text as the error message (trim to 200 chars max)
-                    const trimmed = (bodyText || '').trim();
-                    if (trimmed) {
-                        message = trimmed.length > 200 ? trimmed.slice(0, 200) + '…' : trimmed;
+                    // Not JSON — check if HTML response and extract readable text
+                    let cleaned = (bodyText || '').trim();
+                    if (cleaned.startsWith('<')) {
+                        // Strip HTML markup and collapse whitespace
+                        cleaned = cleaned.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+                    }
+                    if (cleaned) {
+                        message = cleaned.length > 200 ? cleaned.slice(0, 200) + '…' : cleaned;
                     }
                 }
             }
@@ -768,10 +793,48 @@ export class ApiClient {
 
     /**
      * Get list of public users (for login screen)
-     * Returns users with HasPassword field
+     * Returns users with HasPassword field.
+     * Ensures an Array is always returned even if the response is wrapped
+     * inside a query container (e.g. Items / Users) or returned as serialized text.
+     *
+     * @returns {Promise<Array>} Public users array
      */
     async getPublicUsers() {
-        return this.get('Users/Public');
+        // =====================================================================
+        // Fetch Public Users Endpoint
+        // =====================================================================
+        // Query the Jellyfin/Emby public users route which lists accounts
+        // configured to display on visual login selection screens.
+        // =====================================================================
+        const result = await this.get('Users/Public');
+
+        // Direct array response (standard Jellyfin & Emby behavior)
+        if (Array.isArray(result)) {
+            return result;
+        }
+
+        // Response wrapped inside standard container objects (e.g. Items or Users)
+        if (result && Array.isArray(result.Items)) {
+            return result.Items;
+        }
+        if (result && Array.isArray(result.Users)) {
+            return result.Users;
+        }
+
+        // Safety fallback: if the body was returned as a JSON string, attempt to parse
+        if (typeof result === 'string') {
+            try {
+                const parsed = JSON.parse(result);
+                if (Array.isArray(parsed)) return parsed;
+                if (parsed && Array.isArray(parsed.Items)) return parsed.Items;
+                if (parsed && Array.isArray(parsed.Users)) return parsed.Users;
+            } catch {
+                // Ignore parsing errors for non-JSON strings (e.g. HTML error pages)
+            }
+        }
+
+        // Always return an array to prevent downstream .map() or .length errors
+        return [];
     }
 
     // ========================================================================
@@ -1620,35 +1683,19 @@ export class ApiClient {
     /**
      * Get all album artists in the library.
      *
-     * JF12+ canonical: GET /Persons?personTypes=AlbumArtist&userId=...
-     *   (The /Artists/AlbumArtists endpoint is marked [Obsolete("Use GetPersons")]
-     *    in JF12 source — ArtistsController.cs.)
+     * In Jellyfin 10.x, 11.x, and 12.x+, the dedicated endpoint for album artists is:
+     * GET /Artists/AlbumArtists
      *
-     * Legacy (pre-12):  GET /Artists/AlbumArtists?UserId=...
-     *
-     * Note: /Persons uses the lowercase `userId` param; /Artists used `UserId`.
+     * In ArtistsController.cs on Jellyfin 12, GetAlbumArtists remains fully active,
+     * delegating directly to LibraryManager.GetAlbumArtists() on the music repository.
+     * The /Persons endpoint only queries the video Peoples table and does not return
+     * music library artists.
      *
      * @param {Object} [params] - Additional query params (Limit, ParentId, etc.)
+     * @returns {Promise<any>}
      */
     async getAlbumArtists(params = {}) {
-        if (this.isJF12Plus()) {
-            /*
-             * /Persons?personTypes=AlbumArtist is the recommended replacement.
-             * We strip out ItemCounts from Fields since /Persons doesn't support
-             * that field and would silently ignore it.
-             */
-            const defaults = {
-                userId: this._userId,
-                personTypes: 'AlbumArtist',
-                Recursive: true,
-                SortBy: 'SortName',
-                SortOrder: 'Ascending',
-                EnableTotalRecordCount: true
-            };
-            return this.get('/Persons', { ...defaults, ...params, personTypes: 'AlbumArtist' });
-        }
-
-        // Legacy path for JF 10.10 / 10.11
+        // Configure standard query defaults for album artists
         const defaults = {
             UserId: this._userId,
             Recursive: true,
@@ -1657,34 +1704,26 @@ export class ApiClient {
             SortOrder: 'Ascending',
             EnableTotalRecordCount: true
         };
+
+        // Execute request to the dedicated /Artists/AlbumArtists endpoint
         return this.get('/Artists/AlbumArtists', { ...defaults, ...params });
     }
 
     /**
      * Get all music artists in the library.
      *
-     * JF12+ canonical: GET /Persons?personTypes=Artist&userId=...
-     *   (The /Artists endpoint is marked [Obsolete("Use GetPersons")]
-     *    in JF12 source — ArtistsController.cs.)
+     * In Jellyfin 10.x, 11.x, and 12.x+, the dedicated endpoint for music artists is:
+     * GET /Artists
      *
-     * Legacy (pre-12):  GET /Artists?UserId=...
+     * In ArtistsController.cs on Jellyfin 12, GetArtists remains fully active,
+     * querying LibraryManager.GetArtists() to return MusicArtist items with counts.
+     * Official clients (including jellyfin-web) query this endpoint for music artists.
      *
      * @param {Object} [params] - Additional query params
+     * @returns {Promise<any>}
      */
     async getMusicArtists(params = {}) {
-        if (this.isJF12Plus()) {
-            const defaults = {
-                userId: this._userId,
-                personTypes: 'Artist',
-                Recursive: true,
-                SortBy: 'SortName',
-                SortOrder: 'Ascending',
-                EnableTotalRecordCount: true
-            };
-            return this.get('/Persons', { ...defaults, ...params, personTypes: 'Artist' });
-        }
-
-        // Legacy path for JF 10.10 / 10.11
+        // Configure standard query defaults for music artists
         const defaults = {
             UserId: this._userId,
             Recursive: true,
@@ -1693,6 +1732,8 @@ export class ApiClient {
             SortOrder: 'Ascending',
             EnableTotalRecordCount: true
         };
+
+        // Execute request to the dedicated /Artists endpoint
         return this.get('/Artists', { ...defaults, ...params });
     }
 

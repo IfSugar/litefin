@@ -28,12 +28,27 @@ import { platformInfo } from '../utils/PlatformInfo.js';
 // Constants — all tunable values in one place for easy TV hardware tweaking
 // ============================================================================
 
-// Default animation duration (ms) for vertical smooth scrolling
-// INCREASED from 150→200ms for smoother scrolls: 200ms at 60fps gives 12
-// frames instead of 9, so each frame's position delta is smaller and the
-// final arrival jump is ~1.5px instead of ~3px, eliminating the perceptible
-// "nudge" in the last 10% of the animation.
-const SCROLL_DURATION_VERTICAL = 200;
+/**
+ * Resolves the base vertical scroll animation duration (in ms) based on user preference and platform:
+ * - 'instant': 0ms (snaps immediately with no motion)
+ * - 'current' (default): Snappy platform default (130ms on desktop/web, 180ms on TV)
+ * - 'smooth': Balanced smoothness (200ms on desktop/web, 240ms on TV)
+ * - 'slower': Relaxed, cinematic smooth (280ms on desktop/web, 340ms on TV)
+ *
+ * @returns {number} Duration in milliseconds
+ */
+function getBaseVerticalDuration() {
+    const pref = storage.getItem('pref:scrollSmoothingDuration') || 'current';
+    if (pref === 'instant') return 0;
+    const isDesktop = platformInfo.isDesktop || platformInfo.isWeb;
+    if (pref === 'slower') return isDesktop ? 280 : 340;
+    if (pref === 'smooth') return isDesktop ? 200 : 240;
+    return isDesktop ? 130 : 180;
+}
+
+// Default animation duration (ms) for vertical smooth scrolling.
+// Dynamically evaluates user preference (instant, current, smooth, slower) and active platform.
+const SCROLL_DURATION_VERTICAL = () => getBaseVerticalDuration();
 
 // Animation duration (ms) for horizontal card-centering scrolls
 const SCROLL_DURATION_HORIZONTAL = 120;
@@ -46,8 +61,10 @@ const SCROLL_SNAP_THRESHOLD = 1;
 const ROW_CUTOFF_BUFFER = 40;
 
 // Default top offset (px) when aligning a row to the top of the viewport.
-// Creates breathing room above the focused row for a premium TV feel.
-const DEFAULT_SCROLL_OFFSET_TOP = 50;
+// Tuned to 40px to harmonize with .page-content's scroll-padding-top (40px)
+// while providing optimal headroom so the preceding row's bottom card subtitles
+// remain strictly off-screen above the viewport.
+const DEFAULT_SCROLL_OFFSET_TOP = 40;
 
 // Threshold (px) — if the row's top is already within this distance of
 // the ideal scroll position, skip scrolling. Prevents micro-jitter when
@@ -290,31 +307,44 @@ class ScrollController {
      * Uses a time-based animation with proper easing curve.
      * If called again while an animation is in progress for the same
      * direction, the target is updated and timing resets from the
+    /**
+     * Resolves the current base vertical scroll animation duration (ms) based on user preference and platform.
+     * @returns {number}
+     */
+    getVerticalScrollDuration() {
+        return getBaseVerticalDuration();
+    }
+
+    /**
+     * Smooth scroll with easeOutQuad easing and retarget support.
+     *
+     * Uses a time-based animation with proper easing curve.
+     * If called again while an animation is in progress for the same
+     * direction, the target is updated and timing resets from the
      * current position (retargeting), avoiding jarring jumps.
      *
      * @param {HTMLElement} container - The scrollable container element
      * @param {number} targetScroll - Target scroll position in px
-     * @param {number} [duration=200] - Animation duration in ms
+     * @param {number|Function|null} [duration=null] - Animation duration in ms (resolves to getVerticalScrollDuration if null)
      * @param {'vertical'|'horizontal'} [direction='vertical'] - Scroll axis
      */
-    smoothScrollTo(container, targetScroll, duration = SCROLL_DURATION_VERTICAL, direction = 'vertical') {
+    smoothScrollTo(container, targetScroll, duration = null, direction = 'vertical') {
         const isVertical = direction === 'vertical';
         const stateKey = isVertical ? '_verticalScrollState' : '_horizontalScrollState';
         const animIdKey = isVertical ? '_verticalScrollAnimationId' : '_horizontalScrollAnimationId';
 
-        // Resolve active scroll mode from stored user preferences.
+        // Resolve active scroll mode and duration preference from stored user preferences.
         const scrollMode = isVertical ? storage.getItem('pref:verticalScrollMode') || 'native' : 'current';
+        const durationPref = storage.getItem('pref:scrollSmoothingDuration') || 'current';
 
         /* ====================================================================
          * 🚀 INSTANT SCROLL NAVIGATION OVERRIDE
          * ====================================================================
-         * we allow users to opt for an "Instant" snapping scroll behavior.
-         * If 'pref:verticalScrollMode' is set to 'instant', we override the scroll
-         * duration parameter to 0, which immediately diverts the execution flow
-         * into the optimized instant coordinates snapping branch.
+         * Snaps content immediately without animation if verticalScrollMode or
+         * scrollSmoothingDuration is configured to 'instant'.
          * ==================================================================== */
-        let durationToUse = duration;
-        if (isVertical && scrollMode === 'instant') {
+        let durationToUse = duration !== null ? (typeof duration === 'function' ? duration() : duration) : (isVertical ? this.getVerticalScrollDuration() : SCROLL_DURATION_HORIZONTAL);
+        if (isVertical && (scrollMode === 'instant' || durationPref === 'instant')) {
             durationToUse = 0;
         }
 
@@ -353,18 +383,21 @@ class ScrollController {
         const currentScroll = isVertical ? this.getVerticalScroll(container) : container.scrollLeft;
 
         // ----------------------------------------------------------------
-        // DYNAMIC VELOCITY ADAPTATION 
+        // DYNAMIC VELOCITY ADAPTATION (Hero Carousel & Long Leaps)
         // ----------------------------------------------------------------
-        // Standard row-to-row transitions (~250px) utilize the base 200ms duration.
-        // For large vertical transitions (e.g. hero carousel ↔ first content row
-        // at 450-700px), scale duration gently (up to 260ms max). This keeps motion
-        // brisk and responsive for TV D-pad navigation while giving the compositor
-        // adequate budget to glide with natural weight without dropping frames.
+        // Standard row-to-row navigation (~350-450px) uses the snappy base duration
+        // (130ms on desktop, 180ms on TV). Only massive transitions (e.g. hero carousel ↔
+        // first content row at >550px) scale smoothly to prevent compositor hitching.
         // ----------------------------------------------------------------
         if (isVertical && durationToUse > 0) {
+            // Measure the absolute travel distance across the vertical axis
             const distance = Math.abs(targetScroll - currentScroll);
-            if (distance > 400) {
-                durationToUse = Math.min(260, Math.round(durationToUse * (1 + (distance - 400) / 800)));
+
+            // True large vertical transitions (e.g. hero carousel ↔ content rows at >550px)
+            if (distance > 550) {
+                const minFloor = Math.round(durationToUse * 1.25);
+                const maxCap = Math.round(durationToUse * 1.75);
+                durationToUse = Math.min(maxCap, Math.max(minFloor, Math.round(durationToUse * (1 + (distance - 550) / 400))));
             }
         }
 
@@ -463,7 +496,7 @@ class ScrollController {
                 // a fluid minimum duration floor to prevent premature fast-scroll rush.
                 const remainingDistance = Math.abs(targetScroll - currentScroll);
                 const originalDistance = Math.abs(targetScroll - this[stateKey].startScroll) || 1;
-                const scaledDuration = Math.round(duration * Math.min(remainingDistance / originalDistance, 1));
+                const scaledDuration = Math.round(durationToUse * Math.min(remainingDistance / originalDistance, 1));
 
                 // ------------------------------------------------------------
                 // MOMENTUM CONTINUITY FLOOR
@@ -473,16 +506,23 @@ class ScrollController {
                 // like an uncontrollable fast-scroll hair-trigger).
                 // Clamping the minimum retarget duration to 75% of base duration
                 // (~150ms for 200ms vertical scrolls) guarantees that deliberate
+                // multi-taps preserve fluid visual momentum.
                 // ------------------------------------------------------------
-                const minDurationFloor = Math.round(duration * 0.75);
+                const minDurationFloor = Math.round(durationToUse * 0.75);
 
+                // Update runtime tracking state to retarget from current position
                 this[stateKey].startScroll = currentScroll;
                 this[stateKey].target = targetScroll;
                 this[stateKey].startTime = null; // Will reset on next RAF
                 this[stateKey].duration = Math.max(minDurationFloor, scaledDuration);
+                this[stateKey].isLargeScroll = isVertical && Math.abs(targetScroll - currentScroll) > 320;
                 return;
             }
         }
+
+        // Flag transitions that cover substantial vertical distance (e.g. hero ↔ row)
+        // to use an S-curve easing profile rather than pure deceleration
+        const isLargeScroll = isVertical && Math.abs(targetScroll - currentScroll) > 320;
 
         // Create new animation state
         this[stateKey] = {
@@ -491,11 +531,17 @@ class ScrollController {
             startScroll: currentScroll,
             target: targetScroll,
             startTime: null, // Initialized in first RAF frame
-            duration: durationToUse
+            duration: durationToUse,
+            isLargeScroll
         };
 
-        // easeOutQuad: fast start, smooth deceleration (t * (2 - t))
+        // Standard easeOutQuad: fast start, smooth deceleration (t * (2 - t))
         const easeOutQuad = (t) => t * (2 - t);
+
+        // Smoothstep S-curve for large vertical transitions (e.g. hero carousel ↔ first content row):
+        // Starts with a gentle acceleration ramp (zero initial jerk) so frame 1 doesn't spike
+        // on TV compositors, cruises smoothly, and decelerates into landing without frame drops.
+        const easeSmoothStep = (t) => t * t * (3 - 2 * t);
 
         // SMOOTH ARRIVAL BLEND: For the last 15% of animation time, rescale
         // easeOutQuad over the remaining distance. This maintains velocity
@@ -520,11 +566,12 @@ class ScrollController {
             const elapsed = time - state.startTime;
             const progress = Math.min(elapsed / state.duration, 1);
 
-            // Unified deceleration curve: initiates instantly on frame 1 for snappy
-            // D-pad tactile response, cruises with continuous momentum, and smoothly
-            // settles to velocity = 0 at the arrival point.
-            const eased =
-                progress < EASE_BLEND
+            // For large vertical transitions (e.g. hero carousel ↔ first row), use the gentle
+            // smoothstep curve to keep initial velocity safe for TV compositing. For standard
+            // row-to-row navigation, use blended easeOutQuad for maximum responsiveness.
+            const eased = state.isLargeScroll
+                ? easeSmoothStep(progress)
+                : progress < EASE_BLEND
                     ? easeOutQuad(progress)
                     : blendAt + blendRemaining * easeOutQuad((progress - EASE_BLEND) / blendDuration);
 
@@ -741,7 +788,7 @@ class ScrollController {
                 const snapEnabled = storage.getItem('pref:snapLargeScrolls') === 'true';
                 const forceInstant = snapEnabled && scrollDelta > viewHeight * LARGE_SCROLL_SNAP_FRACTION;
 
-                this.smoothScrollTo(pageContent, 0, options.instantScroll || forceInstant ? 0 : SCROLL_DURATION_VERTICAL);
+                this.smoothScrollTo(pageContent, 0, options.instantScroll || forceInstant ? 0 : this.getVerticalScrollDuration());
             }
             return;
         }
@@ -844,7 +891,7 @@ class ScrollController {
                 this.smoothScrollTo(
                     pageContent,
                     targetScroll,
-                    options.instantScroll ? 0 : SCROLL_DURATION_VERTICAL
+                    options.instantScroll ? 0 : this.getVerticalScrollDuration()
                 );
             }
             return;
@@ -874,7 +921,7 @@ class ScrollController {
                 const snapEnabled = storage.getItem('pref:snapLargeScrolls') === 'true';
                 const forceInstant = snapEnabled && scrollDelta > viewHeight * LARGE_SCROLL_SNAP_FRACTION;
 
-                this.smoothScrollTo(pageContent, 0, options.instantScroll || forceInstant ? 0 : SCROLL_DURATION_VERTICAL);
+                this.smoothScrollTo(pageContent, 0, options.instantScroll || forceInstant ? 0 : this.getVerticalScrollDuration());
                 // Disable further row-based alignment logic and generic vertical scroll
                 useRowScroll = false;
                 activePageContent = null;
@@ -922,14 +969,14 @@ class ScrollController {
             // If already browsing near the top of the details page, stay grounded at 0
             if (currentScroll < 350) {
                 if (currentScroll > 0) {
-                    this.smoothScrollTo(pageContent, 0, options.instantScroll ? 0 : SCROLL_DURATION_VERTICAL);
+                    this.smoothScrollTo(pageContent, 0, options.instantScroll ? 0 : this.getVerticalScrollDuration());
                 }
             } else {
                 // If entering rich metadata from deep rows below (e.g. episodes or seasons),
                 // smoothly glide back to the top to reveal the hero and metadata table together
                 const snapEnabled = storage.getItem('pref:snapLargeScrolls') === 'true';
                 const forceInstant = snapEnabled && scrollDelta > viewHeight * LARGE_SCROLL_SNAP_FRACTION;
-                this.smoothScrollTo(pageContent, 0, options.instantScroll || forceInstant ? 0 : SCROLL_DURATION_VERTICAL);
+                this.smoothScrollTo(pageContent, 0, options.instantScroll || forceInstant ? 0 : this.getVerticalScrollDuration());
             }
 
             // Grounding complete — bypass row-based and generic scroll-into-view
@@ -1020,7 +1067,7 @@ class ScrollController {
                 this.smoothScrollTo(
                     pageContent,
                     targetScroll,
-                    options.instantScroll || forceInstant ? 0 : SCROLL_DURATION_VERTICAL
+                    options.instantScroll || forceInstant ? 0 : this.getVerticalScrollDuration()
                 );
             }
         }
@@ -1054,7 +1101,7 @@ class ScrollController {
                         this.smoothScrollTo(
                             pageContent,
                             Math.max(0, targetScroll),
-                            options.instantScroll ? 0 : SCROLL_DURATION_VERTICAL
+                            options.instantScroll ? 0 : this.getVerticalScrollDuration()
                         );
                     }
                 }
@@ -1324,7 +1371,7 @@ class ScrollController {
                     this.smoothScrollTo(
                         activePageContent,
                         finalScrollTop,
-                        options.instantScroll || forceInstant ? 0 : SCROLL_DURATION_VERTICAL
+                        options.instantScroll || forceInstant ? 0 : this.getVerticalScrollDuration()
                     );
                 }
             }

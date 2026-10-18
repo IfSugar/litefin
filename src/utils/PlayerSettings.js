@@ -692,8 +692,8 @@ const DEFAULTS = {
     resetSeekSpeedOnDirectionChange: false,
 
     // Enable mouse/magic cursor support in the OSD (hover and click)
-    // Disabled by default on Tizen due to cursor interaction bugs
-    enableMagicCursor: !platformInfo.isTizen,
+    // Enabled by default across all platforms whenever a pointer/mouse is active
+    enableMagicCursor: true,
 
     // Show timestamp and trickplay images on hover with mouse
     enableHoverTrickplay: false,

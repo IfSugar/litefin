@@ -269,9 +269,24 @@ html[data-layout-tier="ultra-legacy"] .settings-menu-btn .menu-icon {
     border: 1px solid transparent;
 }
 
-.setting-item:focus-within,
+/*
+ * Setting row focus background highlight.
+ * Note: :focus-within is strictly separated from .focused-row selector.
+ * In Chromium versions prior to 63 (legacy and ultra-legacy webviews), grouping an
+ * unsupported pseudo-class like :focus-within in a comma-separated selector causes
+ * the browser's CSS parser to drop the entire rule, preventing .focused-row from applying.
+ */
+.setting-item:focus-within {
+    background-color: rgba(var(--jf-accent-rgb, 0, 164, 220), 0.15);
+}
+
+/*
+ * Explicit class-based row highlight applied by FocusManager during spatial navigation.
+ * Includes a solid static translucent fallback before CSS variable evaluation for older runtimes.
+ */
 .setting-item.focused-row {
-    background-color: rgba(var(--jf-accent-rgb), 0.15);
+    background-color: rgba(255, 255, 255, 0.08);
+    background-color: rgba(var(--jf-accent-rgb, 0, 164, 220), 0.15);
 }
 
 .setting-label {
@@ -1528,7 +1543,8 @@ html[data-layout-tier="ultra-legacy"] .toggle-switch.active::after {
     background: var(--jf-accent-content-color, #fff) !important; /* Contrast when focused */
 }
 
-/* Ensure track remains visible when item is focused */
+/* Ensure slider track remains visible when item row is focused via FocusManager */
+.setting-item.focused-row .slider-track,
 .setting-item.focused .slider-track {
     background: rgba(var(--jf-accent-content-color-rgb, 255, 255, 255), 0.2);
 }

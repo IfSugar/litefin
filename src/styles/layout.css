@@ -53,17 +53,22 @@ html[data-display-scale] .trailer-player-overlay {
  * completely in lockstep with the card rows.
  */
 html[data-display-scale] .hero-carousel-container.immersive .hero-carousel,
-html[data-display-scale] .hero-carousel-container.immersive.compact .hero-carousel {
+html[data-display-scale] .hero-carousel-container.immersive.compact .hero-carousel,
+html[data-display-scale] .hero-carousel-container.immersive-performance .hero-carousel,
+html[data-display-scale] .hero-carousel-container.immersive-performance.compact .hero-carousel {
+    /* Full immersive canvas height maintained across display-scaled viewports */
     height: var(--hero-carousel-height-immersive, 972px) !important;
     min-height: 0 !important;
 }
 
-html[data-display-scale] .hero-carousel-container:not(.immersive):not(.banner) .hero-carousel {
+html[data-display-scale] .hero-carousel-container:not(.immersive):not(.immersive-performance):not(.banner) .hero-carousel {
+    /* Fallback height reserved strictly for standard semi-immersive mode */
     height: var(--hero-carousel-height-semi, 756px) !important;
     min-height: 0 !important;
 }
 
-html[data-display-scale] .hero-carousel-container:not(.immersive):not(.banner).compact .hero-carousel {
+html[data-display-scale] .hero-carousel-container:not(.immersive):not(.immersive-performance):not(.banner).compact .hero-carousel {
+    /* Compact canvas height reserved strictly for semi-immersive mode */
     height: var(--hero-carousel-height-semi-compact, 540px) !important;
     min-height: 0 !important;
 }
@@ -78,27 +83,39 @@ html[data-display-scale] .hero-carousel-container.banner.compact .hero-carousel 
     min-height: 0 !important;
 }
 
-html[data-display-scale] #home-hero-placeholder.style-immersive + .home-rows {
+html[data-display-scale] #home-hero-placeholder.style-immersive + .home-rows,
+html[data-display-scale] #home-hero-placeholder.style-immersive-performance + .home-rows {
+    /* Deep media row upward overlap behind both standard and performance immersive backdrops */
     margin-top: var(--hero-carousel-overlap-immersive, -450px) !important;
 }
 
-html[data-display-scale] #home-hero-placeholder.style-immersive.style-compact + .home-rows {
+html[data-display-scale] #home-hero-placeholder.style-immersive.style-compact + .home-rows,
+html[data-display-scale] #home-hero-placeholder.style-immersive-performance.style-compact + .home-rows {
+    /* Compact deep upward overlap */
     margin-top: var(--hero-carousel-overlap-compact, -550px) !important;
 }
 
-html[data-display-scale] .hero-carousel-container.immersive .hero-item {
+html[data-display-scale] .hero-carousel-container.immersive .hero-item,
+html[data-display-scale] .hero-carousel-container.immersive-performance .hero-item {
+    /* Elevated text padding matching deep row overlap */
     padding-bottom: var(--hero-carousel-padding-immersive, 470px) !important;
 }
 
-html[data-display-scale] .hero-carousel-container.immersive.compact .hero-item {
+html[data-display-scale] .hero-carousel-container.immersive.compact .hero-item,
+html[data-display-scale] .hero-carousel-container.immersive-performance.compact .hero-item {
+    /* Compact elevated text padding */
     padding-bottom: var(--hero-carousel-padding-compact, 570px) !important;
 }
 
-html[data-display-scale] .hero-carousel-container.immersive .hero-indicators {
+html[data-display-scale] .hero-carousel-container.immersive .hero-indicators,
+html[data-display-scale] .hero-carousel-container.immersive-performance .hero-indicators {
+    /* Indicator bottom offset aligned with text baseline */
     bottom: var(--hero-carousel-indicators-immersive, 430px) !important;
 }
 
-html[data-display-scale] .hero-carousel-container.immersive.compact .hero-indicators {
+html[data-display-scale] .hero-carousel-container.immersive.compact .hero-indicators,
+html[data-display-scale] .hero-carousel-container.immersive-performance.compact .hero-indicators {
+    /* Compact indicator bottom offset */
     bottom: var(--hero-carousel-indicators-compact, 530px) !important;
 }
 
@@ -309,8 +326,15 @@ html[data-layout-tier="ultra-legacy"] .header-nav > *:last-child {
     display: block; 
     overflow: hidden; /* Hide scrollbars, disable native scrolling */
     
-    /* CRITICAL: Vertical padding prevents scaled focus cards and subtitles from clipping */
-    padding: 32px 0 calc(52px * var(--card-title-font-scale, 1)); 
+    /* 
+     * VERTICAL CLEARANCE & CLIPPING PREVENTION:
+     * 24px top padding provides generous breathing room for the row title above
+     * and prevents focus card scaling (1.05x-1.08x) from clipping against the container.
+     * 38px bottom padding (scaled by font preference) ensures card subtitles have
+     * complete clearance, while working with 28px row margin to keep subtitles
+     * completely off-screen above the viewport when subsequent rows are focused.
+     */
+    padding: 24px 0 calc(38px * var(--card-title-font-scale, 1)); 
     
     /* PERFORMANCE: Isolate horizontal rows */
     contain: layout paint style;
@@ -330,7 +354,7 @@ html[data-layout-tier="ultra-legacy"] .header-nav > *:last-child {
     transition: transform 150ms cubic-bezier(0.25, 0.46, 0.45, 0.94);
 }
 
-/* Web/WebOS Scroll Arrows — hidden by default, revealed on hover or Magic Remote */
+/* Media Row Scroll Navigation Arrows — hidden by default, revealed smoothly on hover */
 .row-scroll-arrows {
     position: absolute;
     top: 0;
@@ -338,6 +362,7 @@ html[data-layout-tier="ultra-legacy"] .header-nav > *:last-child {
     display: flex;
     z-index: 10;
     opacity: 0;
+    pointer-events: none;
     transition: opacity 0.3s ease;
 }
 
@@ -350,9 +375,10 @@ html[data-layout-tier="ultra-legacy"] .header-nav > *:last-child {
     margin-left: 12px;
 }
 
-/* Reveal on hover over the parent row section */
+/* Reveal on hover over the parent row section across all platforms */
 .media-row:hover .row-scroll-arrows {
     opacity: 1;
+    pointer-events: auto;
 }
 
 [dir="rtl"] .row-scroll-arrows {

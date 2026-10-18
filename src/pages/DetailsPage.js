@@ -33,7 +33,7 @@ import { RichMetadataTable } from '../components/RichMetadataTable.js';
 
 import BackdropManager from '../utils/BackdropManager.js';
 import { PlayerSettings } from '../utils/PlayerSettings.js';
-import { resolveBestAudioStream } from '../player/core/JellyfinPlayer.js';
+import { resolveBestAudioStream, resolveSubtitleStream, isForcedStream, getEffectiveSubtitleMode } from '../player/core/JellyfinPlayer.js';
 import { MediaHelper } from '../player/core/MediaHelper.js';
 import { lazyLoader } from '../utils/LazyLoader.js';
 import { prewarmManager } from '../player/core/PrewarmManager.js';
@@ -65,6 +65,15 @@ class DetailsPage extends Page {
 
         this._similar = null;
         this._seerrRecommendations = null;
+
+        // ====================================================================
+        // Backdrop Image Cache Preservation
+        // ====================================================================
+        // Cache the exact backdrop URL loaded during _loadImages to guarantee
+        // an instant browser cache hit and 100% parameter parity when launching
+        // playback or trailers into PlayerPage.
+        // ====================================================================
+        this._backdropUrl = null;
 
         // Track/Version selection state
         this._selectedMediaSourceId = null;
@@ -1198,11 +1207,33 @@ class DetailsPage extends Page {
         // =====================================================================
         // Restore subtitle selection, verifying identity through MediaHelper.
         const savedSubtitleTrack = storage.getItem(`track:subtitle:${this._itemId}`);
-        if (savedSubtitleTrack !== null && savedSubtitleTrack !== undefined) {
+        const effectiveSubtitleMode = getEffectiveSubtitleMode();
+
+        // ---------------------------------------------------------------------
+        // Subtitle Track Selection Resolution
+        // ---------------------------------------------------------------------
+        // 1. Check item-specific saved track override if one exists
+        // Guard: If Subtitle Mode is 'None', never restore saved tracks.
+        // If Subtitle Mode is 'OnlyForced', only restore if the saved track is actually forced.
+        if (savedSubtitleTrack !== null && savedSubtitleTrack !== undefined && effectiveSubtitleMode !== 'None') {
             const resolvedSubtitle = MediaHelper.resolveSavedTrack(source, 'Subtitle', savedSubtitleTrack, this._itemId);
             if (resolvedSubtitle !== undefined) {
-                this._selectedSubtitleIndex = resolvedSubtitle;
-                log.info(`[DetailsPage] Restored saved subtitle track for ${this._itemId}: ${resolvedSubtitle}`);
+                if (effectiveSubtitleMode === 'OnlyForced') {
+                    const candidateStream = source.MediaStreams?.find((s) => s.Type === 'Subtitle' && s.Index === resolvedSubtitle);
+                    if (candidateStream && isForcedStream(candidateStream)) {
+                        this._selectedSubtitleIndex = resolvedSubtitle;
+                        log.info(`[DetailsPage] Restored saved forced subtitle track for ${this._itemId}: ${resolvedSubtitle}`);
+                    } else {
+                        this._selectedSubtitleIndex = undefined;
+                    }
+                } else if (effectiveSubtitleMode === 'Always' && resolvedSubtitle === -1) {
+                    // In Always mode, do not restore an Off (-1) state from previous sessions.
+                    // Subtitles must always display; leave undefined so automatic language resolution runs.
+                    this._selectedSubtitleIndex = undefined;
+                } else {
+                    this._selectedSubtitleIndex = resolvedSubtitle;
+                    log.info(`[DetailsPage] Restored saved subtitle track for ${this._itemId}: ${resolvedSubtitle}`);
+                }
             } else {
                 this._selectedSubtitleIndex = undefined;
             }
@@ -1210,15 +1241,37 @@ class DetailsPage extends Page {
             this._selectedSubtitleIndex = undefined;
         }
 
-        // Check series-level subtitle preference for TV episodes if no item-level override exists
-        if (this._selectedSubtitleIndex === undefined && this._item?.SeriesId) {
+        // 2. Check series-level subtitle preference for TV episodes if no item-level override exists
+        // Guard: Do NOT restore series subtitle preferences if the user has globally or
+        // server-side set Subtitle Mode to 'None' or 'OnlyForced'.
+        if (
+            this._selectedSubtitleIndex === undefined &&
+            this._item?.SeriesId &&
+            effectiveSubtitleMode !== 'None' &&
+            effectiveSubtitleMode !== 'OnlyForced'
+        ) {
             const resolvedSeriesSubtitle = MediaHelper.resolveSeriesTrack(source, 'Subtitle', this._item.SeriesId);
             if (resolvedSeriesSubtitle !== undefined) {
-                this._selectedSubtitleIndex = resolvedSeriesSubtitle;
-                log.info(
-                    `[DetailsPage] Restored series-level subtitle track for ${this._itemId}: ${resolvedSeriesSubtitle}`
-                );
+                if (effectiveSubtitleMode === 'Always' && resolvedSeriesSubtitle === -1) {
+                    // In Always mode, do not inherit an Off state from series track memory
+                    this._selectedSubtitleIndex = undefined;
+                } else {
+                    this._selectedSubtitleIndex = resolvedSeriesSubtitle;
+                    log.info(
+                        `[DetailsPage] Restored series-level subtitle track for ${this._itemId}: ${resolvedSeriesSubtitle}`
+                    );
+                }
             }
+        }
+
+        // 3. Fallback: If still unresolved, determine subtitle index from active Subtitle Mode setting
+        if (this._selectedSubtitleIndex === undefined && source?.MediaStreams) {
+            this._selectedSubtitleIndex = resolveSubtitleStream(source, {
+                audioStreamIndex: this._selectedAudioIndex
+            });
+            log.info(
+                `[DetailsPage] Resolved subtitle track from Subtitle Mode (${effectiveSubtitleMode}): ${this._selectedSubtitleIndex}`
+            );
         }
 
         // =====================================================================
@@ -1417,12 +1470,19 @@ class DetailsPage extends Page {
             posterContainer.innerHTML = CardRenderer.getFallbackHtml(item, isLandscape);
         }
 
-        // Backdrop (Fire and forget, via Manager)
+        // ====================================================================
+        // Backdrop Presentation & Transition Sync
+        // ====================================================================
+        // Resolve backdrop URL using user's configured details quality profile.
+        // Store on instance so playback transitions can reuse the identical URL,
+        // avoiding duplicate server re-encodes and cache misses.
+        // ====================================================================
         const params = imageService.getParams('details-backdrop');
         const backdropUrl = BackdropManager.getBackdropUrl(item, {
             maxWidth: params.maxWidth,
             quality: params.quality
         });
+        this._backdropUrl = backdropUrl;
 
         // Resolve Backdrop BlurHash
         let backdropBlurHash = '';
@@ -5113,11 +5173,21 @@ class DetailsPage extends Page {
             itemToPlay.contextId = this._item.Id;
         }
 
-        // FORCE HIGH QUALITY for Player transition (must match _loadImages params)
-        const backdropUrl = BackdropManager.getBackdropUrl(this._item, {
-            maxWidth: 3840,
-            quality: 90
-        });
+        // ====================================================================
+        // Player Transition Backdrop Reuse
+        // ====================================================================
+        // Reuse the exact cached backdrop URL rendered in _loadImages() to
+        // ensure an immediate browser cache hit without forcing the server to
+        // perform on-the-fly 4K bilinear upscaling or lossy recompression.
+        // Falls back to imageService details-backdrop settings if called early.
+        // ====================================================================
+        const backdropParams = imageService.getParams('details-backdrop');
+        const backdropUrl =
+            this._backdropUrl ||
+            BackdropManager.getBackdropUrl(this._item, {
+                maxWidth: backdropParams.maxWidth,
+                quality: backdropParams.quality
+            });
 
         eventBus.emit('player:play', {
             item: itemToPlay,
@@ -5223,11 +5293,17 @@ class DetailsPage extends Page {
             return true;
         });
 
-        // Determine current track selection index
+        // ---------------------------------------------------------------------
+        // Determine Current Track Selection Index
+        // ---------------------------------------------------------------------
+        // If a selection has not yet been locked in, resolve it according to the
+        // active Subtitle Mode preference (e.g. None, OnlyForced, Default, Always)
         let currentIndex = this._selectedSubtitleIndex;
-        if (currentIndex === undefined) {
-            // Fallback to server default track index
-            currentIndex = mediaSource.DefaultSubtitleStreamIndex; // Can be -1/null
+        const effectiveSubMode = getEffectiveSubtitleMode();
+        if (currentIndex === undefined || (effectiveSubMode === 'Always' && currentIndex === -1)) {
+            currentIndex = resolveSubtitleStream(mediaSource, {
+                audioStreamIndex: this._selectedAudioIndex
+            });
         }
 
         // Add "Off" option to the selection track list
@@ -6593,11 +6669,19 @@ class DetailsPage extends Page {
 
             log.info(`Playing local trailer "${trailerItem.Name}" (${trailerItem.Id})`);
 
-            // Reuse the backdrop from the parent item for a smooth visual transition
-            const backdropUrl = BackdropManager.getBackdropUrl(this._item, {
-                maxWidth: 3840,
-                quality: 90
-            });
+            // ================================================================
+            // Local Trailer Backdrop Alignment
+            // ================================================================
+            // Match the exact _loadImages parameters and pre-cached image URL
+            // so the loading screen seamlessly displays the parent background.
+            // ================================================================
+            const backdropParams = imageService.getParams('details-backdrop');
+            const backdropUrl =
+                this._backdropUrl ||
+                BackdropManager.getBackdropUrl(this._item, {
+                    maxWidth: backdropParams.maxWidth,
+                    quality: backdropParams.quality
+                });
 
             // Emit the standard player:play event — same path as normal item playback.
             // No resume position, no audio/subtitle override.
@@ -6670,10 +6754,18 @@ class DetailsPage extends Page {
 
             log.info(`[AutoChain] Playing local trailer "${trailerItem.Name}" (${trailerItem.Id}), remote will follow`);
 
-            const backdropUrl = BackdropManager.getBackdropUrl(this._item, {
-                maxWidth: 3840,
-                quality: 90
-            });
+            // ================================================================
+            // Auto-Chain Trailer Backdrop Alignment
+            // ================================================================
+            // Ensure identical parameters to _loadImages for instant cache hit.
+            // ================================================================
+            const backdropParams = imageService.getParams('details-backdrop');
+            const backdropUrl =
+                this._backdropUrl ||
+                BackdropManager.getBackdropUrl(this._item, {
+                    maxWidth: backdropParams.maxWidth,
+                    quality: backdropParams.quality
+                });
 
             // ----------------------------------------------------------------
             // Write the chain intent to persistent in-memory state BEFORE
@@ -6971,6 +7063,9 @@ class DetailsPage extends Page {
             this._favBtn.destroy();
             this._favBtn = null;
         }
+
+        // Release cached backdrop URL reference
+        this._backdropUrl = null;
 
         if (this._isRichMetaActive) {
             this._deactivateRichMeta();

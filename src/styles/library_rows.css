@@ -1,11 +1,11 @@
 /* --- Horizontal Rows (Suggestions / Hubs) --- */
 .library-rows-container {
     width: 100%;
-    padding-bottom: 40px;
+    padding-bottom: 30px;
     display: flex;
     flex-direction: column;
-    grid-gap: 40px; /* Legacy fallback for Tizen 5.0 */
-    gap: 40px;
+    grid-gap: 28px; /* Balanced row gap for smooth TV scrolling */
+    gap: 28px;
 }
 
 .library-row {

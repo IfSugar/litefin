@@ -24,6 +24,7 @@ import Hls from 'hls.js';
 import { MediaHelper } from './MediaHelper.js';
 import { logger } from '../../utils/Logger.js';
 import { PlayerSettings } from '../../utils/PlayerSettings.js';
+import { platformInfo } from '../../utils/PlatformInfo.js';
 import { getDeviceCapabilities } from '../../api/DeviceProfile.js';
 
 const log = logger.create('WebOSPlayer');
@@ -122,6 +123,13 @@ export class WebOSPlayer {
         // ---- Aspect ratio mode ('auto' | 'zoom' | 'stretch') ----
         this._aspectMode = 'auto';
 
+        // ---- TV video window override for old webOS (see _applyOutputWindow) ----
+        this._outputWindowState = 'unknown'; // 'unknown' | 'ok' | 'failed'
+        this._outputWindowActive = false;
+        this._outputWindowFailures = 0;
+        this._outputWindowRetryTimer = null;
+        this._outputWindowRefreshTimer = null;
+
         /** @type {ResizeObserver|null} Refits the video box when the container resizes */
         this._containerObserver = null;
 
@@ -201,6 +209,13 @@ export class WebOSPlayer {
         video.preload = 'metadata';
         video.volume = MediaHelper.getSavedVolume();
 
+        // ------------------------------------------------------------------
+        // Start visually hidden: prevent any stale frame cached in the GPU
+        // surface from flashing when a new playback session initializes.
+        // ------------------------------------------------------------------
+        video.style.opacity = '0';
+        video.style.visibility = 'hidden';
+
         // Ensure the container exists before we try to append
         if (!this.container) {
             this.container = document.createElement('div');
@@ -256,6 +271,8 @@ export class WebOSPlayer {
             seeked:        this._onSeeked.bind(this),
             volumechange:  this._onVolumeChange.bind(this),
             loadedmetadata: this._onLoadedMetadata.bind(this),
+            // Re-evaluate video bounding box once canplay fires (critical on webOS 5 where dimensions can be 0 at loadedmetadata)
+            canplay:       this._fitVideoBox.bind(this),
             // Fires when the intrinsic size changes, e.g. an HLS variant switch
             resize:        this._fitVideoBox.bind(this),
             // 'progress' = buffered range updates — useful for stall detection
@@ -357,23 +374,25 @@ export class WebOSPlayer {
         // Reset fallback guard so new stream playback can attempt clean Hls.js recovery if needed
         this._hlsFallbackAttempted = false;
 
-        if (isHlsStream && this._shouldUseNativeHls()) {
+        if (isHlsStream && this._shouldUseNativeHls(options)) {
             /* ----------------------------------------------------------------
              * Path A: Native HLS
-             * WebOS's media engine handles HLS natively — just point the src
-             * at the manifest. Using the source element with a type hint
-             * ensures the OS routes it through the hardware decoder.
+             * WebOS's media engine handles HLS natively — point the src at the
+             * manifest. Using the source element with a type hint ensures the
+             * TV operating system routes it through the hardware decoder.
+             * Mandatory for Dolby Vision (ICtCp color mapping) and E-AC-3/AC-3.
              * ---------------------------------------------------------------- */
             log.info('WebOSPlayer: Using native HLS pipeline');
             await this._playNativeHls(video, options);
 
-        } else if (isHlsStream && Hls.isSupported()) {
+        } else if (isHlsStream && this._canUseHlsJs(options)) {
             /* ----------------------------------------------------------------
              * Path B: Hls.js fallback
-             * Only used on dev browsers / WebOS emulators where native HLS
-             * is not available. Production hardware should always take Path A.
+             * Used for standard SDR/H.264/AAC streams on webOS < 5 where native
+             * startup seeking is unreliable, or dev browsers/emulators without
+             * native media engine support.
              * ---------------------------------------------------------------- */
-            log.info('WebOSPlayer: Native HLS not available — using Hls.js fallback');
+            log.info('WebOSPlayer: Native HLS not selected — using Hls.js fallback');
             await this._playWithHlsJs(video, options);
 
         } else {
@@ -462,10 +481,123 @@ export class WebOSPlayer {
      * @private
      * @returns {boolean}
      */
-    _shouldUseNativeHls() {
+    /**
+     * Inspect stream metadata to determine if Hls.js can reliably handle the stream.
+     * The MSE pipeline has strict hardware and container limitations on TV browsers:
+     *
+     * 1. Dolby Vision (Profile 5, etc.): Profile 5 relies on ICtCp color space and
+     *    dynamic metadata (RPU). In MSE, the Chromium layer lacks the proprietary
+     *    color management hooks to signal the display processor, yielding a
+     *    green/purple tint. Native hardware video pipelines are required.
+     *
+     * 2. Non-AAC audio in MPEG-TS: The Hls.js TS demuxer parses ADTS AAC and MP3 only.
+     *    Encountering E-AC-3 (Dolby Digital Plus), AC-3, DTS, or TrueHD in MPEG-TS
+     *    chunks triggers fatal demuxer exceptions ("Unsupported EC-3 in M2TS found").
+     *
+     * 3. HEVC (H.265) / HDR: On older webOS (< 5), MSE lacks HEVC SourceBuffer support
+     *    and Hls.js cannot transmux HEVC from TS chunks.
+     *
+     * @private
+     * @param {Object} [options]
+     * @returns {boolean}
+     */
+    _canUseHlsJs(options = this._currentPlayOptions) {
+        // Ensure Hls.js library is loaded and MSE is supported by the environment
+        if (!Hls.isSupported()) {
+            return false;
+        }
+
+        // If options or media stream metadata is unavailable, allow default MSE support check
+        if (!options) {
+            return true;
+        }
+
+        const mediaStreams = options.mediaSource?.MediaStreams || [];
+
+        // ---------------------------------------------------------------------
+        // Check 1: Dolby Vision
+        // Profile 5 / 8 streams require the native TV hardware pipeline for ICtCp
+        // color space conversion. MSE cannot map these and produces distorted colors.
+        // ---------------------------------------------------------------------
+        const videoStream = mediaStreams.find(s => s.Type === 'Video');
+        const rangeType = (videoStream?.VideoRangeType || options.item?.VideoRangeType || '').toUpperCase();
+        const extendedRange = (videoStream?.ExtendedVideoRangeType || '').toUpperCase();
+        const itemRange = (options.item?.VideoRange || '').toUpperCase();
+        const isDoVi = rangeType.startsWith('DOVI') || extendedRange.startsWith('DOVI') ||
+                       rangeType.includes('DOVI') || itemRange.includes('DOVI');
+
+        if (isDoVi) {
+            log.info('WebOSPlayer: Dolby Vision stream detected — Hls.js MSE cannot process DV metadata, forcing native HLS');
+            return false;
+        }
+
+        // ---------------------------------------------------------------------
+        // Check 2: HEVC / H.265 video codec
+        // Hls.js TS demuxer only parses H.264 (AVC) in TS segments, and older webOS
+        // Chromium versions do not expose HEVC SourceBuffer decoding over MSE.
+        // ---------------------------------------------------------------------
+        const videoCodec = (videoStream?.Codec || '').toLowerCase();
+        if (videoCodec === 'hevc' || videoCodec === 'h265') {
+            log.info('WebOSPlayer: HEVC video stream detected — incompatible with Hls.js TS demuxer, forcing native HLS');
+            return false;
+        }
+
+        // ---------------------------------------------------------------------
+        // Check 3: HDR content (HDR10, HDR10+, HLG)
+        // Static and dynamic HDR metadata require direct hardware video decoders.
+        // ---------------------------------------------------------------------
+        const isHdr = rangeType.startsWith('HDR') || rangeType.startsWith('HLG') ||
+                      itemRange.startsWith('HDR') || itemRange.startsWith('HLG');
+        if (isHdr) {
+            log.info('WebOSPlayer: HDR stream detected — forcing native HLS');
+            return false;
+        }
+
+        // ---------------------------------------------------------------------
+        // Check 4: Audio codec compatibility in MPEG-TS
+        // The Hls.js TS demuxer only parses AAC and MP3 from MPEG-TS containers.
+        // E-AC-3 (Dolby Digital Plus), AC-3, DTS, or TrueHD in TS trigger fatal
+        // fragParsingError events that disrupt playback.
+        // ---------------------------------------------------------------------
+        const selectedAudioIndex = options.audioStreamIndex;
+        const audioStreams = mediaStreams.filter(s => s.Type === 'Audio');
+        const activeAudio = (selectedAudioIndex !== undefined && audioStreams.find(s => s.Index === selectedAudioIndex)) ||
+                            audioStreams.find(s => s.IsDefault) ||
+                            audioStreams[0];
+        const audioCodec = (activeAudio?.Codec || '').toLowerCase();
+        const unsupportedAudioCodecs = ['eac3', 'ac3', 'dolbydigitalplus', 'dts', 'dca', 'truehd', 'mlp'];
+
+        if (unsupportedAudioCodecs.includes(audioCodec)) {
+            log.info(`WebOSPlayer: Audio codec '${audioCodec}' unsupported by Hls.js TS demuxer — forcing native HLS`);
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * Detect whether the current environment supports and should use native HLS.
+     * On WebOS hardware, native HLS routes through the platform's hardware media engine.
+     *
+     * @private
+     * @param {Object} [options]
+     * @returns {boolean}
+     */
+    _shouldUseNativeHls(options = this._currentPlayOptions) {
         // Query TV hardware capabilities and webOS major version
         const caps = getDeviceCapabilities();
         const webosVersion = caps?.webosVersion || 1;
+
+        // ---------------------------------------------------------------------
+        // HARDWARE CODEC & CONTAINER COMPATIBILITY GATE:
+        // If the stream contains Dolby Vision, HEVC, HDR, or E-AC-3/AC-3 audio in TS,
+        // Hls.js MSE will either fail to demux or produce green/purple picture.
+        // These streams MUST use the native hardware HLS pipeline across all webOS versions.
+        // ---------------------------------------------------------------------
+        if (!this._canUseHlsJs(options)) {
+            log.info('WebOSPlayer: Stream requires native hardware decoder pipeline');
+            return true;
+        }
 
         // ---------------------------------------------------------------------
         // WEBOS VERSION COMPATIBILITY GATE:
@@ -473,11 +605,11 @@ export class WebOSPlayer {
         // are strictly disabled because older demuxers crash with MEDIA_ERR_DECODE.
         // Furthermore, the native webOS 3/4 HLS pipeline silently discards or snaps back
         // programmatic seeks into unbuffered HLS chunks at startup.
-        // If Hls.js is supported (MSE is available), prefer Hls.js MSE on webOS < 5
-        // so resume seeks land reliably at the target position instead of restarting from 0:00.
+        // For standard SDR/H.264/AAC streams where Hls.js MSE is fully supported,
+        // prefer Hls.js MSE on webOS < 5 so resume seeks land reliably at the target position.
         // ---------------------------------------------------------------------
         if (webosVersion < 5 && Hls.isSupported()) {
-            log.info(`WebOSPlayer: webOS ${webosVersion} (< 5) detected — preferring Hls.js MSE pipeline for reliable resume seek`);
+            log.info(`WebOSPlayer: webOS ${webosVersion} (< 5) detected with standard stream — preferring Hls.js MSE pipeline for reliable resume seek`);
             return false;
         }
 
@@ -550,8 +682,9 @@ export class WebOSPlayer {
                 const formatted = MediaHelper.formatMediaError(video.error);
                 log.error('WebOSPlayer: Native HLS source load error', formatted.message);
 
-                // If native HLS failed on this platform (common on webOS 4), fall back to Hls.js seamlessly
-                if (Hls.isSupported() && !this._hlsFallbackAttempted) {
+                // If native HLS failed on this platform, fall back to Hls.js seamlessly
+                // only if the stream format and codecs are verified to be compatible with Hls.js MSE
+                if (this._canUseHlsJs(options) && !this._hlsFallbackAttempted) {
                     log.info('WebOSPlayer: Native HLS load failed — attempting seamless fallback to Hls.js MSE pipeline');
                     this._hlsFallbackAttempted = true;
                     this._playWithHlsJs(video, options).then(resolve).catch(reject);
@@ -738,9 +871,19 @@ export class WebOSPlayer {
                 reject(reason);
             };
 
+            // Calculate target resume position in seconds
+            const resumeSeconds = (options.playerStartPositionTicks || 0) / 10000000;
+
             const startPlayback = () => {
-                // Restore visual presentation once Hls.js is ready to render playback
-                this._restoreVideoAfterResume(video);
+                // -----------------------------------------------------------------
+                // Visual presentation restoration:
+                // Only restore immediately if playing from timestamp 0 (not resuming).
+                // On resume (resumeSeconds > 0), maintain suppression until _onPlaying
+                // confirms that the decoder has actively landed on the target frame.
+                // -----------------------------------------------------------------
+                if (!resumeSeconds || resumeSeconds <= 0) {
+                    this._restoreVideoAfterResume(video);
+                }
                 const playPromise = video.play();
                 if (playPromise !== undefined && typeof playPromise.then === 'function') {
                     playPromise
@@ -750,9 +893,6 @@ export class WebOSPlayer {
                     resolveOnce();
                 }
             };
-
-            // Calculate target resume position in seconds
-            const resumeSeconds = (options.playerStartPositionTicks || 0) / 10000000;
 
             // -----------------------------------------------------------------
             // Buffer-Readiness Gate with Resume Stabilization:
@@ -1083,6 +1223,19 @@ export class WebOSPlayer {
 
         log.info('WebOSPlayer: Applying robust resume seek to', time, 's');
 
+        // --------------------------------------------------------------------
+        // Suppress video visibility and mute audio during the retry loop.
+        // Prevents leaking visible playback or audio if the playhead snapped
+        // back to 0:00 while the decoder processes the re-seek.
+        // --------------------------------------------------------------------
+        if (video) {
+            this._suppressVideoForResume(video);
+            if (!video.muted) {
+                video.muted = true;
+                this._resumeAudioSuppressed = true;
+            }
+        }
+
         const attempt = () => {
             if (this._cancelRobustResume) {
                 this._robustSeekPending = false;
@@ -1102,11 +1255,9 @@ export class WebOSPlayer {
             //
             // We use a 15-second acceptance window to safely cover standard
             // 24fps 240/250-frame GOP keyframe intervals (~10.4s) on hardware TV
-            // decoders plus ~3s of forward playback advancement during the wait.
+            // decoders plus forward playback advancement during the wait.
             //
-            // Acceptance conditions:
-            //   1. Playhead landed within 15s drift of target, OR
-            //   2. Playhead has advanced past (target - 15s) playing forward.
+            // Guard against false positives at 0:00 when target is small (< 15s).
             // ----------------------------------------------------------------
             setTimeout(() => {
                 if (this._cancelRobustResume) return;
@@ -1114,7 +1265,8 @@ export class WebOSPlayer {
                 // Measure how far currentTime landed from our requested target.
                 const currentPos = video.currentTime || 0;
                 const drift = Math.abs(currentPos - time);
-                const isNearTarget = drift < 15 || currentPos >= (time - 15);
+                const isStuckAtZero = time >= 3 && currentPos < 0.5;
+                const isNearTarget = !isStuckAtZero && (drift < 15 || (currentPos >= time && currentPos <= time + 15));
 
                 if (isNearTarget) {
                     // Within 15s of target or playing forward — seek landed on a valid keyframe boundary.
@@ -1132,13 +1284,23 @@ export class WebOSPlayer {
                     this._robustSeekPending = false;
                     this._robustSeekTarget = null;
 
+                    // Unmute and restore video presentation if retries exhausted
+                    if (this._resumeAudioSuppressed && video) {
+                        this._resumeAudioSuppressed = false;
+                        this.setMuted(false);
+                    }
+                    if (this._resumeVideoSuppressed && video) {
+                        this._restoreVideoAfterResume(video);
+                    }
+
                     // ---------------------------------------------------------
                     // SEAMLESS HLS.JS FALLBACK ON NATIVE HLS SEEK FAILURE:
                     // If native HLS seeking failed to land (common on older hardware or
                     // exotic streams), seamlessly hand off to Hls.js MSE pipeline.
                     // Hls.js manages segments via MediaSource without relying on native #t=.
                     // ---------------------------------------------------------
-                    if (this._isHls && Hls.isSupported() && !this._hlsFallbackAttempted) {
+                    // Fall back to Hls.js only if the stream is safe for MSE demuxing (not Dolby Vision / E-AC-3)
+                    if (this._isHls && this._canUseHlsJs(this._currentPlayOptions) && !this._hlsFallbackAttempted) {
                         log.info('WebOSPlayer: Native HLS seek failed — attempting seamless fallback to Hls.js MSE pipeline');
                         this._hlsFallbackAttempted = true;
                         this._destroyHlsPlayer();
@@ -1192,11 +1354,11 @@ export class WebOSPlayer {
              try {
                  const currentPos = video.currentTime || 0;
                  const drift = Math.abs(currentPos - resumeSeconds);
-                 // Ensure currentPos is genuinely advanced (> 0.5s) to avoid false positive when at 0:00
-                 if (currentPos > 0.5 && (drift < 15 || currentPos >= (resumeSeconds - 15))) {
+                 const isStuckAtZero = resumeSeconds >= 3 && currentPos < 0.5;
+                 const isNearTarget = !isStuckAtZero && (drift < 15 || (currentPos >= resumeSeconds && currentPos <= resumeSeconds + 15));
+                 if (isNearTarget) {
                      log.info('WebOSPlayer: Media fragment already positioned the playhead — skipping explicit seek.');
-                     // Media fragment landed natively at resume point; reveal video surface
-                     this._restoreVideoAfterResume(video);
+                     // Defer unhiding video element until _onPlaying confirms active presentation
                      this._doPlayWithResume(video, options, resolve, reject);
                      return;
                  }
@@ -1220,9 +1382,9 @@ export class WebOSPlayer {
                  if (seekTimeout) clearTimeout(seekTimeout);
                  seekCompleted = true;
                  log.debug('WebOSPlayer: Explicit seek completed');
-                 // The native seek completed and the actual target resume frame is decoded;
-                 // safely restore video element visibility before kicking playback.
-                 this._restoreVideoAfterResume(video);
+                 // The DOM 'seeked' event signals command acceptance, but the hardware decoder
+                 // has not yet painted the target frame texture. We keep video suppressed
+                 // until _onPlaying confirms active playback at the target position.
                  this._doPlayWithResume(video, options, resolve, reject);
              };
 
@@ -1235,14 +1397,12 @@ export class WebOSPlayer {
                  log.error('WebOSPlayer: Setting currentTime threw during resume seek', e);
              }
 
-             // Shorter safety net: 3s is sufficient on most devices and avoids
+             // Shorter safety net: 3.5s is sufficient on most devices and avoids
              // long UI freezes when the media fragment already worked.
              seekTimeout = setTimeout(() => {
                  video.removeEventListener('seeked', onSeeked);
                  if (!seekCompleted) {
-                     log.warn('WebOSPlayer: Explicit seek timed out (3s) — starting playback from current position');
-                     // Ensure video visibility is restored even if seek timed out
-                     this._restoreVideoAfterResume(video);
+                     log.warn('WebOSPlayer: Explicit seek timed out (3.5s) — starting playback from current position');
                      this._doPlayWithResume(video, options, resolve, reject);
                  }
              }, 3500);
@@ -1318,7 +1478,6 @@ export class WebOSPlayer {
      * @param {HTMLVideoElement} [video] - The HTML5 video element (optional, defaults to _videoElement)
      */
     _restoreVideoAfterResume(video) {
-        if (!this._resumeVideoSuppressed) return;
         this._resumeVideoSuppressed = false;
         const targetVideo = video || this._videoElement;
         if (targetVideo) {
@@ -1398,6 +1557,9 @@ export class WebOSPlayer {
         }
         this._clearStallCheck();
         this._destroyHlsPlayer();
+        this._stopOutputWindowTimers();
+        this._outputWindowActive = false;
+        this._outputWindowFailures = 0;
 
         const video = this._videoElement;
 
@@ -1407,9 +1569,13 @@ export class WebOSPlayer {
 
         this._resumeAudioSuppressed = false;
 
-        // Restore video element presentation if stopped while resume was in flight
-        if (this._resumeVideoSuppressed && video) {
-            this._restoreVideoAfterResume(video);
+        // --------------------------------------------------------------------
+        // Keep the stopped video element visually suppressed so any decoded frame
+        // lingering in the hardware buffer is not shown before the next session.
+        // --------------------------------------------------------------------
+        if (video) {
+            video.style.opacity = '0';
+            video.style.visibility = 'hidden';
         }
         this._resumeVideoSuppressed = false;
 
@@ -2133,6 +2299,7 @@ export class WebOSPlayer {
      * @param {'auto'|'zoom'|'stretch'} mode
      */
     setAspectRatio(mode) {
+        // Fallback safely to auto if an invalid or empty mode is passed
         const targetMode = mode || 'auto';
 
         // --------------------------------------------------------------------
@@ -2141,11 +2308,10 @@ export class WebOSPlayer {
         // If previous mode was 'stretch' (or any non-default mode), reset the
         // layout box to 'auto' first so residual stretch styling is cleared before
         // computing and applying the oversized zoom bounding box.
-        if (targetMode === 'zoom') {
+        if (targetMode === 'zoom' && !this._canUseOutputWindow()) {
             log.info('WebOSPlayer: Resetting aspect ratio to auto prior to applying zoom');
             this._aspectMode = 'auto';
             if (this._videoElement) {
-                this._videoElement.style.objectFit = 'fill';
                 this._fitVideoBox();
             }
         }
@@ -2155,9 +2321,6 @@ export class WebOSPlayer {
         if (!this._videoElement) return;
 
         log.info('WebOSPlayer: Setting aspect ratio mode:', this._aspectMode);
-
-        // Keep object-fit set to fill so the element box and video rasterizer stay in sync
-        this._videoElement.style.objectFit = 'fill';
 
         // Recalculate and apply explicit layout coordinates for the hardware punch-through window
         this._fitVideoBox();
@@ -2169,6 +2332,121 @@ export class WebOSPlayer {
      */
     getAspectRatio() {
         return this._aspectMode || 'auto';
+    }
+
+    /**
+     * Resolve intrinsic video stream dimensions with comprehensive fallback hierarchy.
+     *
+     * On webOS TV (particularly webOS 5 and native HLS demuxers), the <video> element
+     * often returns 0 for videoWidth/videoHeight around loadedmetadata, or delays dimension
+     * reporting until active frame rendering begins. Furthermore, 1080p stream containers
+     * may package letterboxed cinemascope (e.g. 2.40:1) content where videoWidth/videoHeight
+     * report 1920x1080 despite the actual content aspect ratio being wide.
+     *
+     * Resolution hierarchy:
+     *   1. Direct HTML5 video element intrinsic dimensions (videoWidth / videoHeight)
+     *   2. HLS.js current variant level dimensions if MSE pipeline is running
+     *   3. Jellyfin playback options MediaStreams (Type === 'Video')
+     *   4. MediaSource container width/height fallback
+     *   5. Item metadata width/height fallback
+     *   6. AspectRatio string evaluation for letterboxed or anamorphic content
+     *
+     * @private
+     * @returns {{ width: number, height: number } | null}
+     */
+    _getVideoDimensions() {
+        const video = this._videoElement;
+
+        // 1. Direct HTML5 video element intrinsic dimensions
+        let vw = video?.videoWidth || 0;
+        let vh = video?.videoHeight || 0;
+
+        // 2. HLS.js variant level dimensions if MSE pipeline is running
+        if ((!vw || !vh) && this._hlsPlayer) {
+            const level = this._hlsPlayer.levels?.[this._hlsPlayer.currentLevel];
+            if (level?.width && level?.height) {
+                vw = level.width;
+                vh = level.height;
+            }
+        }
+
+        // 3. Jellyfin MediaStreams video stream metadata
+        const mediaSource = this._currentPlayOptions?.mediaSource;
+        const videoStream = mediaSource?.MediaStreams?.find((s) => s.Type === 'Video');
+        if ((!vw || !vh) && videoStream) {
+            vw = videoStream.Width || 0;
+            vh = videoStream.Height || 0;
+        }
+
+        // 4. MediaSource container width/height fallback
+        if ((!vw || !vh) && mediaSource) {
+            vw = mediaSource.Width || 0;
+            vh = mediaSource.Height || 0;
+        }
+
+        // 5. Item width/height fallback
+        const item = this._currentPlayOptions?.item;
+        if ((!vw || !vh) && item) {
+            vw = item.Width || 0;
+            vh = item.Height || 0;
+        }
+
+        // 6. Content dimensions accounting for baked letterbox / pillarbox bars
+        let contentWidth = vw;
+        let contentHeight = vh;
+
+        // AspectRatio string evaluation for letterboxed or anamorphic content
+        const aspectStr = videoStream?.AspectRatio || item?.AspectRatio || '';
+        if (aspectStr && typeof aspectStr === 'string') {
+            let parsedRatio = 0;
+            if (aspectStr.includes(':')) {
+                const parts = aspectStr.split(':');
+                const num = parseFloat(parts[0]);
+                const den = parseFloat(parts[1]);
+                if (num > 0 && den > 0) {
+                    parsedRatio = num / den;
+                }
+            } else {
+                const val = parseFloat(aspectStr);
+                if (!isNaN(val) && val > 0) {
+                    parsedRatio = val;
+                }
+            }
+
+            if (parsedRatio > 0) {
+                // If dimensions are currently absent, synthesize baseline dimensions
+                if (!vw || !vh) {
+                    vw = 1920;
+                    vh = Math.round(1920 / parsedRatio);
+                    contentWidth = vw;
+                    contentHeight = vh;
+                } else {
+                    // Check if content aspect ratio differs from container aspect ratio
+                    const containerRatio = vw / vh;
+                    if (Math.abs(containerRatio - parsedRatio) > 0.05) {
+                        if (parsedRatio > containerRatio) {
+                            // Ultra-wide cinemascope in 16:9 container (e.g. 2.40:1 in 1080p)
+                            contentHeight = Math.round(vw / parsedRatio);
+                        } else {
+                            // 4:3 pillarbox in 16:9 container
+                            contentWidth = Math.round(vh * parsedRatio);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Verify positive integer dimensions before returning
+        if (vw > 0 && vh > 0) {
+            return {
+                width: vw,
+                height: vh,
+                contentWidth: contentWidth || vw,
+                contentHeight: contentHeight || vh
+            };
+        }
+
+        return null;
     }
 
     /**
@@ -2203,6 +2481,20 @@ export class WebOSPlayer {
         style.right = '';
         style.bottom = '';
 
+        // The TV crops via _applyOutputWindow. The box covers the screen because the TV clips the
+        // picture (and the OSD over it) to the box when the page is composited above the video.
+        if (this._canUseOutputWindow()) {
+            style.left = '0px';
+            style.top = '0px';
+            style.right = '0px';
+            style.bottom = '0px';
+            style.width = `${cw}px`;
+            style.height = `${ch}px`;
+            style.objectFit = 'fill';
+            this._applyOutputWindow();
+            return;
+        }
+
         // ====================================================================
         // Mode 1: Fullscreen Stretch
         // ====================================================================
@@ -2214,14 +2506,18 @@ export class WebOSPlayer {
             style.bottom = '0px';
             style.width = `${cw}px`;
             style.height = `${ch}px`;
+            style.objectFit = 'fill';
             return;
         }
 
-        // Intrinsic video stream dimensions
-        const vw = video.videoWidth;
-        const vh = video.videoHeight;
+        // Intrinsic video stream dimensions with comprehensive fallback chain
+        const dims = this._getVideoDimensions();
+        const vw = dims?.width || 0;
+        const vh = dims?.height || 0;
+        const cwContent = dims?.contentWidth || vw;
+        const chContent = dims?.contentHeight || vh;
 
-        // If metadata has not loaded yet, default to full viewport until loadedmetadata fires
+        // If metadata has not loaded yet, default to full viewport until metadata/playback initializes
         if (!vw || !vh) {
             style.left = '0px';
             style.top = '0px';
@@ -2229,6 +2525,7 @@ export class WebOSPlayer {
             style.bottom = '0px';
             style.width = `${cw}px`;
             style.height = `${ch}px`;
+            style.objectFit = 'contain';
             return;
         }
 
@@ -2237,19 +2534,23 @@ export class WebOSPlayer {
         // ====================================================================
         // Scale by maximum factor to cover the full viewport, cropping overflowing edges
         if (this._aspectMode === 'zoom') {
-            const scale = Math.max(cw / vw, ch / vh);
+            const scale = Math.max(cw / cwContent, ch / chContent);
             const w = Math.round(vw * scale);
             const h = Math.round(vh * scale);
+
             // Center the cropped frame symmetrically using negative offsets
             const left = Math.round((cw - w) / 2);
             const top = Math.round((ch - h) / 2);
 
+            // Apply explicit bounding coordinates and cover fit
             style.left = `${left}px`;
             style.top = `${top}px`;
             style.right = '';
             style.bottom = '';
             style.width = `${w}px`;
             style.height = `${h}px`;
+            style.objectFit = 'cover';
+            style.objectPosition = 'center';
             return;
         }
 
@@ -2260,16 +2561,167 @@ export class WebOSPlayer {
         const scale = Math.min(cw / vw, ch / vh);
         const w = Math.round(vw * scale);
         const h = Math.round(vh * scale);
+
         // Center the letterboxed/pillarboxed video inside the screen
         const left = Math.round((cw - w) / 2);
         const top = Math.round((ch - h) / 2);
 
+        // Apply explicit bounding coordinates and contain fit
         style.left = `${left}px`;
         style.top = `${top}px`;
         style.right = '';
         style.bottom = '';
         style.width = `${w}px`;
         style.height = `${h}px`;
+        style.objectFit = 'contain';
+        style.objectPosition = 'center';
+    }
+
+    /** Old webOS (Chromium < 79) cannot crop centered via the box, so the TV's video output service does it. */
+    _canUseOutputWindow() {
+        return platformInfo.chromeVersion < 79 &&
+            this._outputWindowState !== 'failed' &&
+            typeof window.PalmServiceBridge !== 'undefined';
+    }
+
+    _callLuna(uri, params) {
+        return new Promise((resolve) => {
+            let bridge = null;
+            let timer = null;
+            const done = (reply) => {
+                clearTimeout(timer);
+                try { if (bridge) bridge.cancel(); } catch (e) { /* ignore */ }
+                resolve(reply);
+            };
+            try {
+                bridge = new window.PalmServiceBridge();
+                bridge.onservicecallback = (msg) => {
+                    try { done(JSON.parse(msg)); } catch (e) { done({ returnValue: false }); }
+                };
+                timer = setTimeout(() => done({ returnValue: false }), 5000);
+                bridge.call(uri, JSON.stringify(params));
+            } catch (e) {
+                done({ returnValue: false });
+            }
+        });
+    }
+
+    /** Source crop (video px) and target rectangle (screen px) for the video output service. */
+    _computeOutputWindow(mode, vw, vh, sw, sh) {
+        const full = { x: 0, y: 0, width: vw, height: vh };
+        const screenRect = { x: 0, y: 0, width: sw, height: sh };
+
+        if (mode === 'stretch') {
+            // A source with the screen's aspect ratio leaves nothing to letterbox
+            const declared = { x: 0, y: 0, width: vw, height: Math.round((vw * sh) / sw) };
+            return { original: declared, source: declared, output: screenRect };
+        }
+
+        if (mode === 'zoom') {
+            if (vw / vh < sw / sh) {
+                const h = Math.round((vw * sh) / sw);
+                return {
+                    original: full,
+                    source: { x: 0, y: Math.round((vh - h) / 2), width: vw, height: h },
+                    output: screenRect
+                };
+            }
+            const w = Math.round((vh * sw) / sh);
+            return {
+                original: full,
+                source: { x: Math.round((vw - w) / 2), y: 0, width: w, height: vh },
+                output: screenRect
+            };
+        }
+
+        const scale = Math.min(sw / vw, sh / vh);
+        const w = Math.round(vw * scale);
+        const h = Math.round(vh * scale);
+        return {
+            original: full,
+            source: full,
+            output: { x: Math.round((sw - w) / 2), y: Math.round((sh - h) / 2), width: w, height: h }
+        };
+    }
+
+    /** Send the aspect mode to the TV (once per load plus a slow refresh), else fall back to the box geometry. */
+    async _applyOutputWindow() {
+        const video = this._videoElement;
+        if (!video) return;
+
+        const mode = this._aspectMode;
+        if (mode === 'auto' && !this._outputWindowActive) {
+            this._stopOutputWindowTimers();
+            return;
+        }
+
+        const vw = video.videoWidth;
+        const vh = video.videoHeight;
+        // No metadata yet, loadedmetadata/resize will fit the box again
+        if (!vw || !vh) return;
+
+        const mediaId = video.mediaId;
+        let ok = false;
+        // A new pipeline registers with the service a few seconds after load (errorCode 53 until then)
+        let pending = !mediaId;
+
+        if (mediaId) {
+            const sw = window.screen.width || window.innerWidth || 1920;
+            const sh = window.screen.height || window.innerHeight || 1080;
+            const rects = this._computeOutputWindow(mode, vw, vh, sw, sh);
+
+            const reply = await this._callLuna('luna://com.webos.service.videooutput/display/setDisplayWindow', {
+                context: mediaId,
+                sourcePort: 3,
+                originalInput: rects.original,
+                sourceInput: rects.source,
+                displayOutput: rects.output,
+                fullScreen: false
+            });
+
+            // The mode or the element changed while the call was in flight
+            if (mode !== this._aspectMode || video !== this._videoElement) return;
+            ok = Boolean(reply && reply.returnValue);
+            pending = Boolean(reply && reply.errorCode === 53);
+        }
+
+        if (ok) {
+            if (this._outputWindowState !== 'ok') {
+                log.info('WebOSPlayer: video output window accepted by the TV for mode', mode);
+            }
+            this._outputWindowState = 'ok';
+            this._outputWindowFailures = 0;
+            this._outputWindowActive = mode !== 'auto';
+
+            if (mode === 'auto') {
+                this._stopOutputWindowTimers();
+            } else if (!this._outputWindowRefreshTimer) {
+                this._outputWindowRefreshTimer = setInterval(() => this._applyOutputWindow(), 3000);
+            }
+            return;
+        }
+
+        this._outputWindowFailures++;
+        if (this._outputWindowFailures < (pending ? 40 : 5)) {
+            clearTimeout(this._outputWindowRetryTimer);
+            this._outputWindowRetryTimer = setTimeout(() => this._applyOutputWindow(), 500);
+            return;
+        }
+
+        log.warn('WebOSPlayer: TV rejected the video output window, using layout geometry instead');
+        this._outputWindowState = 'failed';
+        this._outputWindowActive = false;
+        this._stopOutputWindowTimers();
+        this._fitVideoBox();
+    }
+
+    _stopOutputWindowTimers() {
+        clearTimeout(this._outputWindowRetryTimer);
+        this._outputWindowRetryTimer = null;
+        if (this._outputWindowRefreshTimer) {
+            clearInterval(this._outputWindowRefreshTimer);
+            this._outputWindowRefreshTimer = null;
+        }
     }
 
     // ========================================================================
@@ -2415,7 +2867,7 @@ export class WebOSPlayer {
         // If native HLS playback triggered a decode error (code 3) or not supported (code 4)
         // and Hls.js is available in this environment, attempt seamless fallback to Hls.js
         const isHlsStream = this._currentPlayOptions?.isHls || (this._currentSrc && this._currentSrc.includes('.m3u8'));
-        if ((formatted.code === 3 || formatted.code === 4) && !this._hlsPlayer && isHlsStream && Hls.isSupported() && !this._hlsFallbackAttempted) {
+        if ((formatted.code === 3 || formatted.code === 4) && !this._hlsPlayer && isHlsStream && this._canUseHlsJs(this._currentPlayOptions) && !this._hlsFallbackAttempted) {
             log.warn('WebOSPlayer: Native HLS pipeline threw decode error. Attempting seamless Hls.js fallback...');
             this._hlsFallbackAttempted = true;
             this._playWithHlsJs(video, this._currentPlayOptions)
@@ -2457,16 +2909,15 @@ export class WebOSPlayer {
             const target = this._robustSeekTarget;
             const current = this.getCurrentTime();
             const drift   = Math.abs(current - target);
-            const isNearTarget = drift < 15 || current >= (target - 15);
 
             // ----------------------------------------------------------------
-            // Drift gate: use a 15-second window to accommodate standard 24fps
-            // 240/250-frame GOP keyframe distances on TV hardware decoders.
-            //
-            // If the video is within 15s of target or playing forward, accept.
-            // Only escalate to _seekWithRetry when the playhead is genuinely
-            // stuck (e.g. video stuck at 0s when target was 420s).
+            // Drift gate: ensure the playhead has genuinely landed near target.
+            // Accommodate standard 24fps GOP keyframe distances (~10.4s) while
+            // guarding against false positives at 0:00 when target is small (< 15s).
             // ----------------------------------------------------------------
+            const isStuckAtZero = target >= 3 && current < 0.5;
+            const isNearTarget = !isStuckAtZero && (drift < 15 || (current >= target && current <= target + 15));
+
             if (!isNearTarget) {
                 log.info(`WebOSPlayer: Detected position drift (current: ${current.toFixed(2)}s, expected: ${target}s, drift: ${drift.toFixed(2)}s) — applying robust seek`);
                 this._seekWithRetry(target);
@@ -2488,10 +2939,16 @@ export class WebOSPlayer {
             this.setMuted(false);
         }
 
-        // Resume is confirmed safe. Ensure video element presentation is fully restored.
-        if (this._resumeVideoSuppressed) {
-            this._restoreVideoAfterResume(this._videoElement);
-        }
+        // Playhead is confirmed at target. Restore video presentation smoothly.
+        this._restoreVideoAfterResume(this._videoElement);
+
+        // --------------------------------------------------------------------
+        // Refit Video Layout Geometry on First Decoded Frame
+        // --------------------------------------------------------------------
+        // On webOS (especially webOS 5), intrinsic dimensions may evaluate to 0
+        // until the initial video frame is decoded. Re-evaluating geometry here
+        // guarantees that aspect ratio cropping / letterboxing is applied immediately.
+        this._fitVideoBox();
 
         if (!this._started) {
             this._started = true;

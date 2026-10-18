@@ -376,6 +376,40 @@ class Router {
     }
 
     /**
+     * ========================================================================
+     * CLEAR HISTORY PAGE STATE BY ROUTE PREFIX
+     * ========================================================================
+     * Purges captured page state (scroll offset, focus index, cached batch data)
+     * from history entries matching a specific route prefix (e.g. '/library').
+     *
+     * Essential when global layout or pagination preferences change (such as
+     * items-per-page limit or infinite scroll mode) so returning to preceding
+     * pages via back navigation forces a fresh fetch rather than restoring
+     * obsolete item collections.
+     * ========================================================================
+     * @param {string} pathPrefix - Route prefix to invalidate (e.g. '/library')
+     */
+    clearHistoryState(pathPrefix) {
+        if (!Array.isArray(this._history) || !pathPrefix) return;
+
+        // Iterate through all recorded history entries
+        for (let i = 0; i < this._history.length; i++) {
+            const entry = this._history[i];
+            // If the history route starts with the target prefix, drop its cached state
+            if (entry && entry.path && entry.path.startsWith(pathPrefix)) {
+                entry.state = null;
+            }
+        }
+
+        // Also clear pending restoration snapshot if current route matches prefix
+        if (this._pendingRestoreState && this.getCurrentPath().startsWith(pathPrefix)) {
+            this._pendingRestoreState = null;
+        }
+
+        log.info(`Cleared navigation history state for routes matching prefix: "${pathPrefix}"`);
+    }
+
+    /**
      * Set or seed the navigation history stack with predetermined routes.
      *
      * Essential for deep-link scenarios (such as Samsung Smart Hub preview tiles)

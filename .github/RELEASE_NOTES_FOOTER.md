@@ -61,19 +61,25 @@ Native desktop builds powered by Tauri v2 with low resource usage and hardware-a
 | **Linux**   | `*.AppImage`, `*.deb`, `*.rpm`      | Universal standalone (AppImage), Debian/Ubuntu (.deb), or Fedora/RHEL/openSUSE (.rpm).   |
 | **macOS**   | `*.dmg`                             | Drag-and-drop disk image installer.                                                      |
 
+**Notes**: For the macOS build, I don't have an Apple Developer account, so it's not signed. To run it, open Terminal and run:
+
+```text
+xattr -cr /Applications/Litefin.app
+```
+
 #### ⌨️ Keyboard Controls (Desktop & Web)
 
-| Key / Shortcut | Action |
-| :------------- | :----- |
-| **`Space`** / **`K`** | Play / Pause toggle |
-| **`J`** / **`L`** | Seek backward / forward 10 seconds |
-| **`←`** / **`→`** | Navigate UI items or seek timeline during playback |
-| **`↑`** / **`↓`** | Navigate UI items, menus, and OSD controls |
-| **`Enter`** | Select / Activate focused item or reveal OSD |
-| **`Esc`** / **`Backspace`** | Go back / Close modal / Exit player |
-| **`F`** / **`F11`** | Toggle Fullscreen |
-| **`M`** | Mute / Unmute audio |
-| **Media Keys** | Hardware Play, Pause, Next, Previous, Stop |
+| Key / Shortcut              | Action                                             |
+| :-------------------------- | :------------------------------------------------- |
+| **`Space`** / **`K`**       | Play / Pause toggle                                |
+| **`J`** / **`L`**           | Seek backward / forward 10 seconds                 |
+| **`←`** / **`→`**           | Navigate UI items or seek timeline during playback |
+| **`↑`** / **`↓`**           | Navigate UI items, menus, and OSD controls         |
+| **`Enter`**                 | Select / Activate focused item or reveal OSD       |
+| **`Esc`** / **`Backspace`** | Go back / Close modal / Exit player                |
+| **`F`** / **`F11`**         | Toggle Fullscreen                                  |
+| **`M`**                     | Mute / Unmute audio                                |
+| **Media Keys**              | Hardware Play, Pause, Next, Previous, Stop         |
 
 ---
 
