@@ -1336,6 +1336,8 @@
     "PreferredAudioLanguageDescription": "오디오 트랙의 기본 언어",
     "PreferredSubtitleLanguage": "선호하는 자막 언어",
     "PreferredSubtitleLanguageDescription": "자막의 기본 언어",
+    "PreventScreensaverOnPlayback": "재생 중 화면 보호기 방지",
+    "PreventScreensaverOnPlaybackDescription": "비디오가 재생되는 동안 화면을 켜진 상태로 유지하고 시스템 화면 보호기를 비활성화합니다",
     "PreviousEpisode": "이전 에피소드",
     "ProductionTeam": "제작 팀",
     "ProfilePin": "프로필 PIN",

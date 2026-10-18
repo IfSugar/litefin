@@ -1336,6 +1336,8 @@
     "PreferredAudioLanguageDescription": "音轨的默认语言",
     "PreferredSubtitleLanguage": "首选字幕语言",
     "PreferredSubtitleLanguageDescription": "字幕的默认语言",
+    "PreventScreensaverOnPlayback": "播放期间防止屏幕保护",
+    "PreventScreensaverOnPlaybackDescription": "在视频播放时保持屏幕常亮并阻止系统屏幕保护程序启动",
     "PreviousEpisode": "上一集",
     "ProductionTeam": "制作团队",
     "ProfilePin": "个人档案 PIN 码",

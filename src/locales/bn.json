@@ -1336,6 +1336,8 @@
     "PreferredAudioLanguageDescription": "অডিও ট্র্যাকের জন্য ডিফল্ট ভাষা",
     "PreferredSubtitleLanguage": "পছন্দসই সাবটাইটেল ভাষা",
     "PreferredSubtitleLanguageDescription": "সাবটাইটেলের জন্য ডিফল্ট ভাষা",
+    "PreventScreensaverOnPlayback": "প্লেব্যাকের সময় স্ক্রিনসেভার প্রতিরোধ করুন",
+    "PreventScreensaverOnPlaybackDescription": "ভিডিও চলার সময় ডিসপ্লে চালু রাখুন এবং সিস্টেম স্ক্রিনসেভার দমন করুন",
     "PreviousEpisode": "পূর্ববর্তী পর্ব",
     "ProductionTeam": "প্রযোজনা দল",
     "ProfilePin": "প্রোফাইল পিন",

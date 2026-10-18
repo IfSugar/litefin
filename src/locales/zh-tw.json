@@ -1336,6 +1336,8 @@
     "PreferredAudioLanguageDescription": "音軌的預設語言",
     "PreferredSubtitleLanguage": "偏好的字幕語言",
     "PreferredSubtitleLanguageDescription": "字幕的預設語言",
+    "PreventScreensaverOnPlayback": "播放期間防止螢幕保護程式",
+    "PreventScreensaverOnPlaybackDescription": "在影片正常播放時保持螢幕喚醒並抑制系統螢幕保護程式",
     "PreviousEpisode": "上一集",
     "ProductionTeam": "製作團隊",
     "ProfilePin": "設定檔 PIN 碼",

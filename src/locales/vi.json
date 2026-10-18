@@ -1336,6 +1336,8 @@
     "PreferredAudioLanguageDescription": "Ngôn ngữ mặc định cho các đoạn âm thanh",
     "PreferredSubtitleLanguage": "Ngôn ngữ phụ đề ưa thích",
     "PreferredSubtitleLanguageDescription": "Ngôn ngữ mặc định cho phụ đề",
+    "PreventScreensaverOnPlayback": "Ngăn trình bảo vệ màn hình khi đang phát",
+    "PreventScreensaverOnPlaybackDescription": "Giữ màn hình luôn sáng và ngăn trình bảo vệ màn hình của hệ thống khi video đang phát",
     "PreviousEpisode": "Tập trước",
     "ProductionTeam": "Đội ngũ sản xuất",
     "ProfilePin": "Mã PIN hồ sơ",

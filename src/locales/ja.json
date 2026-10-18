@@ -1336,6 +1336,8 @@
     "PreferredAudioLanguageDescription": "オーディオトラックのデフォルト言語",
     "PreferredSubtitleLanguage": "優先字幕言語",
     "PreferredSubtitleLanguageDescription": "字幕のデフォルト言語",
+    "PreventScreensaverOnPlayback": "再生中のスクリーンセーバーを防止",
+    "PreventScreensaverOnPlaybackDescription": "動画の再生中は画面の点灯を維持し、システムのスクリーンセーバーを抑制します",
     "PreviousEpisode": "前のエピソード",
     "ProductionTeam": "制作チーム",
     "ProfilePin": "プロフィールPIN",

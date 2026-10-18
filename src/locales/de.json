@@ -1336,6 +1336,8 @@
     "PreferredAudioLanguageDescription": "Standardsprache für Audiospuren",
     "PreferredSubtitleLanguage": "Bevorzugte Untertitelsprache",
     "PreferredSubtitleLanguageDescription": "Standardsprache für Untertitel",
+    "PreventScreensaverOnPlayback": "Bildschirmschoner während der Wiedergabe verhindern",
+    "PreventScreensaverOnPlaybackDescription": "Display aktiv halten und System-Bildschirmschoner während der Videowiedergabe unterdrücken",
     "PreviousEpisode": "Vorherige Episode",
     "ProductionTeam": "Produktionsteam",
     "ProfilePin": "Profil-PIN",

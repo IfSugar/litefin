@@ -1336,6 +1336,8 @@
     "PreferredAudioLanguageDescription": "Язык аудиодорожек по умолчанию",
     "PreferredSubtitleLanguage": "Предпочитаемый язык субтитров",
     "PreferredSubtitleLanguageDescription": "Язык субтитров по умолчанию",
+    "PreventScreensaverOnPlayback": "Запретить заставку во время воспроизведения",
+    "PreventScreensaverOnPlaybackDescription": "Держать дисплей включенным и блокировать системную заставку во время воспроизведения видео",
     "PreviousEpisode": "Предыдущий эпизод",
     "ProductionTeam": "Съёмочная группа",
     "ProfilePin": "PIN-код профиля",

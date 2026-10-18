@@ -1336,6 +1336,8 @@
     "PreferredAudioLanguageDescription": "اللغة الافتراضية للمقاطع الصوتية",
     "PreferredSubtitleLanguage": "لغة الترجمة المفضلة",
     "PreferredSubtitleLanguageDescription": "اللغة الافتراضية للترجمات",
+    "PreventScreensaverOnPlayback": "منع شاشة التوقف أثناء التشغيل",
+    "PreventScreensaverOnPlaybackDescription": "إبقاء الشاشة نشطة وتعطيل شاشة توقف النظام أثناء تشغيل الفيديو بشكل نشط",
     "PreviousEpisode": "الحلقة السابقة",
     "ProductionTeam": "فريق الإنتاج",
     "ProfilePin": "رمز PIN للملف الشخصي",

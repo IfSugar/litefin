@@ -1336,6 +1336,8 @@
     "PreferredAudioLanguageDescription": "Standaardtaal voor audiosporen",
     "PreferredSubtitleLanguage": "Voorkeurstaal ondertiteling",
     "PreferredSubtitleLanguageDescription": "Standaardtaal voor ondertitels",
+    "PreventScreensaverOnPlayback": "Schermbeveiliging voorkomen tijdens afspelen",
+    "PreventScreensaverOnPlaybackDescription": "Houd het scherm actief en onderdruk de systeemschermbeveiliging terwijl video wordt afgespeeld",
     "PreviousEpisode": "Vorige aflevering",
     "ProductionTeam": "Productieteam",
     "ProfilePin": "Profiel-PIN",

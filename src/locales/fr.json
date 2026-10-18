@@ -1336,6 +1336,8 @@
     "PreferredAudioLanguageDescription": "Langue par défaut pour les pistes audio",
     "PreferredSubtitleLanguage": "Langue de sous-titrage préférée",
     "PreferredSubtitleLanguageDescription": "Langue par défaut pour les sous-titres",
+    "PreventScreensaverOnPlayback": "Empêcher l'écran de veille pendant la lecture",
+    "PreventScreensaverOnPlaybackDescription": "Garder l'écran allumé et désactiver l'écran de veille du système pendant la lecture active d'une vidéo",
     "PreviousEpisode": "Épisode précédent",
     "ProductionTeam": "Équipe de production",
     "ProfilePin": "Code PIN du profil",

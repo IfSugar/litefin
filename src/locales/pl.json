@@ -1336,6 +1336,8 @@
     "PreferredAudioLanguageDescription": "Domyślny język dla ścieżek dźwiękowych",
     "PreferredSubtitleLanguage": "Preferowany język napisów",
     "PreferredSubtitleLanguageDescription": "Domyślny język dla napisów",
+    "PreventScreensaverOnPlayback": "Blokuj wygaszacz ekranu podczas odtwarzania",
+    "PreventScreensaverOnPlaybackDescription": "Utrzymuj ekran wybudzony i blokuj wygaszacz systemowy podczas aktywnego odtwarzania wideo",
     "PreviousEpisode": "Poprzedni odcinek",
     "ProductionTeam": "Zespół produkcyjny",
     "ProfilePin": "PIN profilu",

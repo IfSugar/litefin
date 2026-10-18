@@ -76,6 +76,7 @@ class WebOSAdapter {
         this._screenSaverSubscription = null;
         this._screenSaverRegistered = false;
         this._keepScreenActivityId = null;
+        this._isPlaybackKeepOnRequested = false;
 
         // Immediate platform detection via User Agent or Global
         this._detectPlatform();
@@ -628,29 +629,57 @@ class WebOSAdapter {
     /**
      * Suppress or restore native webOS system screensaver and display sleep.
      * When keepOn is true:
-     *   - Flags screensaver as blocked so tvpower requests receive ack: false
-     *   - Ensures screensaver guard subscription is registered
-     *   - Creates a continuous power keepalive activity via com.palm.activitymanager
+     *   - Checks user preference pref:suppressScreensaverOnPlayback (defaults to false / disabled)
+     *   - If explicitly enabled by user: flags screensaver as blocked so tvpower requests receive ack: false,
+     *     ensures screensaver guard subscription is registered, and creates a continuous
+     *     power keepalive activity via com.palm.activitymanager
+     *   - If disabled by user (the default): leaves screensaver unblocked so tvpower requests receive ack: true
      * When keepOn is false:
      *   - Unblocks screensaver so tvpower requests receive ack: true
      *   - Cancels the power keepalive activity
      *
-     * @param {boolean} keepOn - True to suppress screensaver; false to allow normal behavior
+     * @param {boolean} keepOn - True to request screensaver suppression; false to restore normal behavior
      */
     setKeepScreenOn(keepOn = true) {
+        // Exit early if not running in the webOS host environment
         if (!this._isWebOS) return;
 
-        this._screenSaverBlocked = Boolean(keepOn);
-        log.info(`WebOSAdapter.setKeepScreenOn(${keepOn}) - screensaverBlocked: ${this._screenSaverBlocked}`);
+        // Track whether playback is currently requesting display wakefulness
+        this._isPlaybackKeepOnRequested = Boolean(keepOn);
 
-        if (keepOn) {
-            // Ensure guard is active
+        // Check if user explicitly enabled screensaver suppression in Settings (disabled by default)
+        const isEnabledByUser = storage.getItem('pref:suppressScreensaverOnPlayback') === 'true';
+        const shouldBlock = Boolean(keepOn && isEnabledByUser);
+
+        // Update internal suppression flag for upcoming tvpower callbacks
+        this._screenSaverBlocked = shouldBlock;
+        log.info(
+            `WebOSAdapter.setKeepScreenOn(${keepOn}) - enabledByUser: ${isEnabledByUser}, screensaverBlocked: ${this._screenSaverBlocked}`
+        );
+
+        if (shouldBlock) {
+            // Ensure tvpower screensaver request guard is active
             this._registerScreenSaverGuard();
-            // Create power keepalive activity
+            // Create power keepalive activity via ActivityManager
             this._createKeepScreenActivity();
         } else {
-            // Cancel power keepalive activity
+            // Cancel power keepalive activity to prevent holding system resources
             this._cancelKeepScreenActivity();
+        }
+    }
+
+    /**
+     * Update screensaver suppression state when the user toggles the
+     * preference under Litefin Screensaver settings.
+     *
+     * @param {boolean} enabled - New preference value
+     */
+    updateScreensaverSuppressionPreference(enabled) {
+        if (!this._isWebOS) return;
+        log.info(`WebOSAdapter.updateScreensaverSuppressionPreference(${enabled})`);
+
+        if (this._isPlaybackKeepOnRequested) {
+            this.setKeepScreenOn(this._isPlaybackKeepOnRequested);
         }
     }
 

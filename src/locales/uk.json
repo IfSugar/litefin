@@ -1336,6 +1336,8 @@
     "PreferredAudioLanguageDescription": "Мова за замовчуванням для аудіодоріжок",
     "PreferredSubtitleLanguage": "Бажана мова субтитрів",
     "PreferredSubtitleLanguageDescription": "Мова за замовчуванням для субтитрів",
+    "PreventScreensaverOnPlayback": "Запобігати заставці під час відтворення",
+    "PreventScreensaverOnPlaybackDescription": "Тримати дисплей увімкненим та пригнічувати системну заставку під час відтворення відео",
     "PreviousEpisode": "Попередній епізод",
     "ProductionTeam": "Знімальна група",
     "ProfilePin": "PIN-код профілю",

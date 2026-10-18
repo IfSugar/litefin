@@ -1336,6 +1336,8 @@
     "PreferredAudioLanguageDescription": "Default language for audio tracks",
     "PreferredSubtitleLanguage": "Preferred Subtitle Language",
     "PreferredSubtitleLanguageDescription": "Default language for subtitles",
+    "PreventScreensaverOnPlayback": "Prevent screensaver during playback",
+    "PreventScreensaverOnPlaybackDescription": "Keep display awake and suppress system screensaver while video is actively playing",
     "PreviousEpisode": "Previous Episode",
     "ProductionTeam": "Production Team",
     "ProfilePin": "Profile PIN",

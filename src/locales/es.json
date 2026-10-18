@@ -1336,6 +1336,8 @@
     "PreferredAudioLanguageDescription": "Idioma por defecto para las pistas de audio",
     "PreferredSubtitleLanguage": "Idioma de subtítulos preferido",
     "PreferredSubtitleLanguageDescription": "Idioma por defecto para los subtítulos",
+    "PreventScreensaverOnPlayback": "Evitar protector de pantalla durante la reproducción",
+    "PreventScreensaverOnPlaybackDescription": "Mantener la pantalla activa y suprimir el protector de pantalla del sistema mientras se reproduce un vídeo",
     "PreviousEpisode": "Episodio anterior",
     "ProductionTeam": "Equipo de producción",
     "ProfilePin": "PIN de perfil",

@@ -1336,6 +1336,8 @@
     "PreferredAudioLanguageDescription": "Standardspråk för ljudspår",
     "PreferredSubtitleLanguage": "Önskat språk för undertexter",
     "PreferredSubtitleLanguageDescription": "Standardspråk för undertexter",
+    "PreventScreensaverOnPlayback": "Förhindra skärmsläckare under uppspelning",
+    "PreventScreensaverOnPlaybackDescription": "Håll skärmen vaken och undertryck systemskärmsläckaren när video spelas upp",
     "PreviousEpisode": "Föregående avsnitt",
     "ProductionTeam": "Produktionsteam",
     "ProfilePin": "Profil-PIN",

@@ -1336,6 +1336,8 @@
     "PreferredAudioLanguageDescription": "Език по подразбиране за аудио пътечките",
     "PreferredSubtitleLanguage": "Предпочитан език на субтитрите",
     "PreferredSubtitleLanguageDescription": "Език по подразбиране за субтитрите",
+    "PreventScreensaverOnPlayback": "Предотвратяване на скрийнсейвър по време на възпроизвеждане",
+    "PreventScreensaverOnPlaybackDescription": "Поддържа екрана буден и потиска системния скрийнсейвър, докато се възпроизвежда видео",
     "PreviousEpisode": "Предишен епизод",
     "ProductionTeam": "Продуцентски екип",
     "ProfilePin": "ПИН код на профила",

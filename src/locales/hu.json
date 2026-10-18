@@ -1336,6 +1336,8 @@
     "PreferredAudioLanguageDescription": "A hangsávok alapértelmezett nyelve",
     "PreferredSubtitleLanguage": "Előnyben részesített feliratnyelv",
     "PreferredSubtitleLanguageDescription": "A feliratok alapértelmezett nyelve",
+    "PreventScreensaverOnPlayback": "Képernyőkímélő megakadályozása lejátszás közben",
+    "PreventScreensaverOnPlaybackDescription": "Kijelző ébren tartása és a rendszer képernyőkímélőjének letiltása videólejátszás közben",
     "PreviousEpisode": "Előző epizód",
     "ProductionTeam": "Gyártócsapat",
     "ProfilePin": "Profil PIN-kódja",

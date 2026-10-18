@@ -8,20 +8,23 @@ import test from 'node:test';
  * ============================================================================
  * Verifies that:
  *   1. WebOSAdapter implements setKeepScreenOn, _setupScreensaverGuard,
- *      _registerScreenSaverGuard, and _respondScreenSaver.
- *   2. When video playback is active (setKeepScreenOn(true)), incoming screensaver
- *      requests from luna://com.webos.service.tvpower/power/registerScreenSaverRequest
- *      are answered with ack: false to prevent the LG system screensaver from activating.
- *   3. When video playback is paused or stopped (setKeepScreenOn(false)), incoming
- *      screensaver requests are answered with ack: true to allow the OLED screensaver
- *      to activate when the TV is idle.
- *   4. Power keepalive activities with luna://com.palm.activitymanager are created
- *      upon playback start and canceled upon playback exit.
+ *      _registerScreenSaverGuard, _respondScreenSaver, and
+ *      updateScreensaverSuppressionPreference.
+ *   2. When video playback is active (setKeepScreenOn(true)) and the user
+ *      setting pref:suppressScreensaverOnPlayback is enabled (default),
+ *      screensaver requests are answered with ack: false.
+ *   3. When the user sets pref:suppressScreensaverOnPlayback to false,
+ *      screensaver suppression is disabled and incoming requests receive
+ *      ack: true (allowing screensaver).
+ *   4. Power keepalive activities with luna://com.palm.activitymanager are
+ *      created upon playback start and canceled upon playback exit.
  *   5. PlayerPage.js explicitly coordinates with webosAdapter.setKeepScreenOn.
+ *   6. SettingsPage.js provides a toggle for pref:suppressScreensaverOnPlayback
+ *      under the Screensaver settings section.
  * ============================================================================
  */
 
-test('WebOSAdapter: Source code integrity for screensaver suppression and power keepalive', () => {
+test('WebOSAdapter: Source code integrity for screensaver suppression and user preference', () => {
     const adapterSource = readFileSync(
         new URL('../src/webos/WebOSAdapter.js', import.meta.url),
         'utf8'
@@ -43,7 +46,6 @@ test('WebOSAdapter: Source code integrity for screensaver suppression and power 
     // 3. Verify response to tvpower service with ack
     assert.ok(
         adapterSource.includes('power/responseScreenSaverRequest') &&
-        adapterSource.includes('ack: !this._screenSaverBlocked') ||
         adapterSource.includes('const ack = !this._screenSaverBlocked'),
         'WebOSAdapter must respond with ack: false when playback is blocked'
     );
@@ -55,7 +57,19 @@ test('WebOSAdapter: Source code integrity for screensaver suppression and power 
         'WebOSAdapter must register a keepalive activity with com.palm.activitymanager'
     );
 
-    // 5. Verify PlayerPage.js integrates webosAdapter.setKeepScreenOn
+    // 5. Verify user preference check in setKeepScreenOn (disabled by default)
+    assert.ok(
+        adapterSource.includes("storage.getItem('pref:suppressScreensaverOnPlayback') === 'true'"),
+        'WebOSAdapter must check pref:suppressScreensaverOnPlayback === "true" (disabled by default)'
+    );
+
+    // 6. Verify updateScreensaverSuppressionPreference method exists
+    assert.ok(
+        adapterSource.includes('updateScreensaverSuppressionPreference('),
+        'WebOSAdapter must provide updateScreensaverSuppressionPreference method'
+    );
+
+    // 7. Verify PlayerPage.js integrates webosAdapter.setKeepScreenOn
     const playerPageSource = readFileSync(
         new URL('../src/pages/PlayerPage.js', import.meta.url),
         'utf8'
@@ -68,11 +82,35 @@ test('WebOSAdapter: Source code integrity for screensaver suppression and power 
         playerPageSource.includes('webosAdapter.setKeepScreenOn(false)'),
         'PlayerPage.js must call webosAdapter.setKeepScreenOn(false) on playback destroy'
     );
+
+    // 8. Verify SettingsPage.js has the screensaver toggle, platform check, and handler
+    const settingsPageSource = readFileSync(
+        new URL('../src/pages/SettingsPage.js', import.meta.url),
+        'utf8'
+    );
+    assert.ok(
+        settingsPageSource.includes('id="toggle-suppress-screensaver-playback"'),
+        'SettingsPage.js must render toggle-suppress-screensaver-playback switch'
+    );
+    assert.ok(
+        settingsPageSource.includes('platformInfo.isWebOS || webosAdapter.isWebOS'),
+        'SettingsPage.js must conditionally hide setting on non-webOS platforms'
+    );
+    assert.ok(
+        settingsPageSource.includes("pref:suppressScreensaverOnPlayback"),
+        'SettingsPage.js must store pref:suppressScreensaverOnPlayback'
+    );
+    assert.ok(
+        settingsPageSource.includes('webosAdapter.updateScreensaverSuppressionPreference'),
+        'SettingsPage.js must inform webosAdapter upon toggle changes'
+    );
 });
 
-test('WebOSAdapter: Behavioral simulation of screensaver guard and ack logic', () => {
+test('WebOSAdapter: Behavioral simulation of screensaver guard and ack logic with preference toggle', () => {
     let screensaverBlocked = false;
+    let isPlaybackKeepOnRequested = false;
     let registeredCallback = null;
+    let userPrefSetting = null; // null means default (true)
     const sentResponses = [];
     const activityManagerCalls = [];
 
@@ -107,8 +145,13 @@ test('WebOSAdapter: Behavioral simulation of screensaver guard and ack logic', (
 
     // Simulation functions mirroring WebOSAdapter
     const setKeepScreenOn = (keepOn) => {
-        screensaverBlocked = Boolean(keepOn);
-        if (keepOn) {
+        isPlaybackKeepOnRequested = Boolean(keepOn);
+        // Preference is disabled by default: only active when user explicitly set to 'true'
+        const isEnabledByUser = userPrefSetting === 'true';
+        const shouldBlock = Boolean(keepOn && isEnabledByUser);
+        screensaverBlocked = shouldBlock;
+
+        if (shouldBlock) {
             mockWebOS.service.request('luna://com.webos.service.tvpower', {
                 method: 'power/registerScreenSaverRequest',
                 parameters: { clientName: 'org.litefin.app', subscribe: true },
@@ -135,6 +178,13 @@ test('WebOSAdapter: Behavioral simulation of screensaver guard and ack logic', (
         }
     };
 
+    const updateScreensaverSuppressionPreference = (enabled) => {
+        userPrefSetting = enabled ? 'true' : 'false';
+        if (isPlaybackKeepOnRequested) {
+            setKeepScreenOn(isPlaybackKeepOnRequested);
+        }
+    };
+
     const respondScreenSaver = (timestamp) => {
         const ack = !screensaverBlocked;
         mockWebOS.service.request('luna://com.webos.service.tvpower', {
@@ -143,32 +193,41 @@ test('WebOSAdapter: Behavioral simulation of screensaver guard and ack logic', (
         });
     };
 
-    // 1. Enter playback -> keep screen on
+    // 1. Enter playback -> keep screen on (default preference is disabled / null)
     setKeepScreenOn(true);
-    assert.equal(screensaverBlocked, true, 'Screensaver must be blocked during playback');
-    assert.ok(registeredCallback, 'Screensaver callback must be registered');
-    assert.equal(activityManagerCalls[0].method, 'create', 'Keepalive activity must be created');
+    assert.equal(screensaverBlocked, false, 'Screensaver must NOT be blocked by default (preserves legacy stock behavior)');
+    assert.equal(activityManagerCalls[0].method, 'cancel', 'No keepalive activity should be running when disabled by default');
 
-    // 2. TV triggers screensaver request after 30 minutes of idle remote
-    registeredCallback({ returnValue: true, timestamp: 1729240000 });
+    // 2. TV triggers screensaver request with default preference
+    respondScreenSaver(1729240000);
     assert.equal(sentResponses.length, 1);
     assert.deepEqual(sentResponses[0], {
         clientName: 'org.litefin.app',
-        ack: false, // CRITICAL: must deny screensaver
+        ack: true, // Must allow screensaver when disabled by default
         timestamp: 1729240000
-    }, 'Must reply with ack: false during playback to block screensaver');
+    }, 'Must reply with ack: true by default to maintain old behavior');
 
-    // 3. Pause / Stop playback -> screensaver allowed
-    setKeepScreenOn(false);
-    assert.equal(screensaverBlocked, false, 'Screensaver must not be blocked when paused or stopped');
-    assert.equal(activityManagerCalls[1].method, 'cancel', 'Keepalive activity must be canceled');
+    // 3. User enables screensaver suppression in settings while playback is active
+    updateScreensaverSuppressionPreference(true);
+    assert.equal(screensaverBlocked, true, 'Screensaver must be blocked once opted in by user');
+    assert.ok(registeredCallback, 'Screensaver callback must be registered when enabled');
+    assert.equal(activityManagerCalls[1].method, 'create', 'Keepalive activity must be created');
 
-    // 4. TV triggers screensaver request while paused / idle
-    registeredCallback({ returnValue: true, timestamp: 1729241800 });
+    // 4. TV triggers screensaver request while option is enabled
+    registeredCallback({ returnValue: true, timestamp: 1729240900 });
     assert.equal(sentResponses.length, 2);
     assert.deepEqual(sentResponses[1], {
         clientName: 'org.litefin.app',
-        ack: true, // CRITICAL: must allow screensaver when paused
-        timestamp: 1729241800
-    }, 'Must reply with ack: true when stopped to allow OLED protection screensaver');
+        ack: false, // CRITICAL: must deny screensaver
+        timestamp: 1729240900
+    }, 'Must reply with ack: false during playback when user enabled option');
+
+    // 5. User disables screensaver suppression in settings
+    updateScreensaverSuppressionPreference(false);
+    assert.equal(screensaverBlocked, false, 'Screensaver must NOT be blocked once disabled by user');
+    assert.equal(activityManagerCalls[2].method, 'cancel', 'Keepalive activity must be canceled');
+
+    // 6. Normal playback stop
+    setKeepScreenOn(false);
+    assert.equal(screensaverBlocked, false, 'Screensaver must not be blocked when stopped');
 });

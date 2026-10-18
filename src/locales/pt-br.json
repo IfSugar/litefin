@@ -1336,6 +1336,8 @@
     "PreferredAudioLanguageDescription": "Idioma padrão para faixas de áudio",
     "PreferredSubtitleLanguage": "Idioma de Legenda Preferido",
     "PreferredSubtitleLanguageDescription": "Idioma padrão para legendas",
+    "PreventScreensaverOnPlayback": "Evitar proteção de tela durante a reprodução",
+    "PreventScreensaverOnPlaybackDescription": "Manter a tela ativa e suprimir o protetor de tela do sistema enquanto o vídeo estiver em reprodução",
     "PreviousEpisode": "Episódio anterior",
     "ProductionTeam": "Equipe de produção",
     "ProfilePin": "PIN do perfil",

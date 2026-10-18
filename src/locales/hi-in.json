@@ -1336,6 +1336,8 @@
     "PreferredAudioLanguageDescription": "ऑडियो ट्रैक के लिए डिफ़ॉल्ट भाषा",
     "PreferredSubtitleLanguage": "पसंदीदा उपशीर्षक भाषा",
     "PreferredSubtitleLanguageDescription": "उपशीर्षक के लिए डिफ़ॉल्ट भाषा",
+    "PreventScreensaverOnPlayback": "प्लेबैक के दौरान स्क्रीनसेवर रोकें",
+    "PreventScreensaverOnPlaybackDescription": "वीडियो चलने के दौरान डिस्प्ले को चालू रखें और सिस्टम स्क्रीनसेवर को दबाएं",
     "PreviousEpisode": "पिछला एपिसोड",
     "ProductionTeam": "उत्पादन टीम",
     "ProfilePin": "प्रोफ़ाइल पिन",

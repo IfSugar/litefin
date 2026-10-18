@@ -1336,6 +1336,8 @@
     "PreferredAudioLanguageDescription": "Limba implicită pentru pistele audio",
     "PreferredSubtitleLanguage": "Limbă subtitrări preferată",
     "PreferredSubtitleLanguageDescription": "Limba implicită pentru subtitrări",
+    "PreventScreensaverOnPlayback": "Previne screensaverul în timpul redării",
+    "PreventScreensaverOnPlaybackDescription": "Menține ecranul activ și suspendă screensaverul de sistem în timpul redării video",
     "PreviousEpisode": "Episodul anterior",
     "ProductionTeam": "Echipa de producție",
     "ProfilePin": "PIN de profil",

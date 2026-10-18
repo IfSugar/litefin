@@ -1336,6 +1336,8 @@
     "PreferredAudioLanguageDescription": "Ses parçaları için varsayılan dil",
     "PreferredSubtitleLanguage": "Tercih Edilen Altyazı Dili",
     "PreferredSubtitleLanguageDescription": "Altyazılar için varsayılan dil",
+    "PreventScreensaverOnPlayback": "Oynatma sırasında ekran koruyucuyu engelle",
+    "PreventScreensaverOnPlaybackDescription": "Video oynatılırken ekranı uyanık tutun ve sistem ekran koruyucusunu engelleyin",
     "PreviousEpisode": "Önceki Bölüm",
     "ProductionTeam": "Yapım Ekibi",
     "ProfilePin": "Profil PIN'i",

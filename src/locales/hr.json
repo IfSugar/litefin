@@ -1336,6 +1336,8 @@
     "PreferredAudioLanguageDescription": "Zadani jezik za audio zapise",
     "PreferredSubtitleLanguage": "Poželjni jezik titlova",
     "PreferredSubtitleLanguageDescription": "Zadani jezik za titlove",
+    "PreventScreensaverOnPlayback": "Spriječi čuvar zaslona tijekom reprodukcije",
+    "PreventScreensaverOnPlaybackDescription": "Drži zaslon budnim i potiskuje čuvar zaslona sustava dok se videozapis reproducira",
     "PreviousEpisode": "Prethodna epizoda",
     "ProductionTeam": "Produkcijski tim",
     "ProfilePin": "PIN profila",
