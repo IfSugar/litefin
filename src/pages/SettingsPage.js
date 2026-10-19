@@ -5371,6 +5371,38 @@ class SettingsPage extends Page {
 
                 <div class="setting-item">
                     <div class="setting-label">
+                        <span class="setting-name" data-i18n="PgsOpacitySdr">${i18n.t('PgsOpacitySdr')}</span>
+                        <span class="setting-description" data-i18n="PgsOpacitySdrDescription">${i18n.t('PgsOpacitySdrDescription')}</span>
+                    </div>
+                    <div class="setting-control slider-control">
+                        ${this._renderSlider(
+            'subtitle-pgs-opacity',
+            PlayerSettings.get('subtitlePgsOpacity') ?? 100,
+            0,
+            100,
+            5
+        )}
+                    </div>
+                </div>
+
+                <div class="setting-item">
+                    <div class="setting-label">
+                        <span class="setting-name" data-i18n="PgsOpacityHdr">${i18n.t('PgsOpacityHdr')}</span>
+                        <span class="setting-description" data-i18n="PgsOpacityHdrDescription">${i18n.t('PgsOpacityHdrDescription')}</span>
+                    </div>
+                    <div class="setting-control slider-control">
+                        ${this._renderSlider(
+            'subtitle-pgs-opacity-hdr',
+            PlayerSettings.get('subtitlePgsOpacityHdr') ?? 70,
+            0,
+            100,
+            5
+        )}
+                    </div>
+                </div>
+
+                <div class="setting-item">
+                    <div class="setting-label">
                         <span class="setting-name" data-i18n="BackgroundColor">${i18n.t('BackgroundColor')}</span>
                         <span class="setting-description" data-i18n="BackgroundColorDescription">${i18n.t('BackgroundColorDescription')}</span>
                     </div>
@@ -10242,6 +10274,8 @@ class SettingsPage extends Page {
         const sliderMap = {
             'subtitle-text-opacity': 'subtitleTextOpacity',
             'subtitle-text-opacity-hdr': 'subtitleTextOpacityHdr',
+            'subtitle-pgs-opacity': 'subtitlePgsOpacity',
+            'subtitle-pgs-opacity-hdr': 'subtitlePgsOpacityHdr',
             'subtitle-bg-opacity': 'subtitleBackgroundOpacity',
             'subtitle-border-opacity': 'subtitleBorderOpacity',
             'subtitle-shadow-opacity': 'subtitleDropShadowOpacity',

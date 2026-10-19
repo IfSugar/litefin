@@ -98,6 +98,7 @@ export default class SubtitleManager {
         this._mediaAttachments = [];
         this._backendType = null; // 'tizen' or 'html5'
         this._videoElement = null; // Reference to real video element (or null)
+        this._isHdr = false;       // Active video stream dynamic range indicator
 
         // ====================================================================
         // Renderers
@@ -202,8 +203,9 @@ export default class SubtitleManager {
         );
         this._videoElement = isRealVideo ? rawVideo : null;
         this._playMethod = context.playMethod || 'DirectPlay';
+        this._isHdr = Boolean(context.isHdr);
 
-        log.info(`Media context set: item=${this._itemId}, source=${this._mediaSourceId}, backend=${this._backendType}, playMethod=${this._playMethod}`);
+        log.info(`Media context set: item=${this._itemId}, source=${this._mediaSourceId}, backend=${this._backendType}, playMethod=${this._playMethod}, isHdr=${this._isHdr}`);
     }
 
     /**
@@ -606,6 +608,40 @@ export default class SubtitleManager {
      */
     isASSActive() {
         return this._primaryDelivery === DeliveryMethod.ASS_CANVAS;
+    }
+
+    /**
+     * Check if the current primary subtitle is a PGS bitmap track.
+     * @returns {boolean}
+     */
+    isPGSActive() {
+        return this._primaryDelivery === DeliveryMethod.PGS_BITMAP;
+    }
+
+    /**
+     * Dynamically update opacity across active PGS bitmap renderer.
+     * Propagates active dynamic range (SDR vs HDR) and triggers renderer restyling.
+     * @param {boolean} [isHdr] - Optional updated HDR state
+     */
+    refreshPgsOpacity(isHdr) {
+        // Synchronize internal HDR state if supplied
+        if (typeof isHdr === 'boolean') {
+            this._isHdr = isHdr;
+        }
+
+        // Forward restyling command to active PGS canvas renderer
+        if (this._pgsRenderer && typeof this._pgsRenderer.updateOpacity === 'function') {
+            this._pgsRenderer.updateOpacity(this._isHdr);
+        }
+    }
+
+    /**
+     * Refresh subtitle styles across managed renderers (ASS, PGS bitmap, text).
+     */
+    refreshStyles() {
+        if (this.isPGSActive()) {
+            this.refreshPgsOpacity(this._isHdr);
+        }
     }
 
     /**
@@ -1246,7 +1282,8 @@ export default class SubtitleManager {
                 videoElement: this._videoElement,
                 subUrl,
                 subBuffer,
-                timeOffset: this._primaryOffset
+                timeOffset: this._primaryOffset,
+                isHdr: this._isHdr
             });
 
         } catch (err) {

@@ -363,6 +363,23 @@ const DEFAULTS = {
     // 'disable' = Completely hide/ignore PGS tracks
     pgsPlaybackMode: 'client',
 
+    /* -------------------------------------------------------------------------
+       PGS / IMAGE SUBTITLE OPACITY (SDR)
+       -------------------------------------------------------------------------
+       Transparency level (0-100) applied to graphic/PGS subtitles when
+       playing standard dynamic range (SDR) content.
+       ------------------------------------------------------------------------- */
+    subtitlePgsOpacity: 100,
+
+    /* -------------------------------------------------------------------------
+       PGS / IMAGE SUBTITLE OPACITY (HDR)
+       -------------------------------------------------------------------------
+       Transparency level (0-100) applied to graphic/PGS subtitles when
+       playing High Dynamic Range (HDR / Dolby Vision) media.
+       Defaults to 80% to curb harsh peak panel luminance and reduce eye strain.
+       ------------------------------------------------------------------------- */
+    subtitlePgsOpacityHdr: 80,
+
     // =========================================================================
     // SECONDARY SUBTITLE SETTINGS
     // These override only position and size — all other styles (color, shadow, font)

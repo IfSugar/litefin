@@ -3712,6 +3712,12 @@ class PlayerPage extends Page {
            ------------------------------------------------------------- */
         const isHdr = this._player?.isCurrentMediaHDR?.() || false;
 
+        /* -------------------------------------------------------------
+           Update graphic / PGS bitmap subtitle opacity based on current
+           HDR playback range and user transparency preferences.
+           ------------------------------------------------------------- */
+        this._player?._subtitleManager?.refreshPgsOpacity?.(isHdr);
+
         // Refresh primary overlay
         const overlay = document.getElementById('subtitle-overlay');
         if (overlay) {

@@ -2734,7 +2734,8 @@ export class JellyfinPlayer extends EventEmitter {
                 // (Tizen only) or always defer to external text/ASS/PGS paths.
                 backendType:   this._backendType,
                 videoElement:  (backend && backend.getVideoElement) ? backend.getVideoElement() : null,
-                playMethod:    this._currentPlayMethod
+                playMethod:    this._currentPlayMethod,
+                isHdr:         this.isCurrentMediaHDR()
             });
 
             // Initialize current stream indices from options
