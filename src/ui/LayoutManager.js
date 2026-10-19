@@ -495,6 +495,125 @@ class LayoutManager {
     }
 
     /**
+     * Retrieve the configured global default library view mode.
+     * When no individual library preference exists, libraries default
+     * to this presentation style (e.g. 'poster', 'small-poster', 'thumb', 'banner', 'list').
+     *
+     * @returns {string} The active default view mode identifier.
+     * @public
+     */
+    getDefaultLibraryViewMode() {
+        // Supported layout view modes in Litefin
+        const validModes = ['poster', 'small-poster', 'thumb', 'banner', 'list'];
+
+        // Retrieve stored user preference with fallback to standard 'poster'
+        const saved = storage.getItem('pref:defaultLibraryViewMode');
+        return validModes.includes(saved) ? saved : 'poster';
+    }
+
+    /**
+     * Persist the user-selected global default library view mode.
+     * Updates reactive app state and emits change events across EventBus.
+     *
+     * @param {string} mode - Selected view mode ('poster', 'small-poster', 'thumb', etc.)
+     * @param {boolean} [save=true] - Whether to write the value to persistent storage
+     * @public
+     */
+    setDefaultLibraryViewMode(mode, save = true) {
+        // Validate against known layout identifiers
+        const validModes = ['poster', 'small-poster', 'thumb', 'banner', 'list'];
+        const targetMode = validModes.includes(mode) ? mode : 'poster';
+
+        // Persist preference to local storage when requested
+        if (save) {
+            storage.setItem('pref:defaultLibraryViewMode', targetMode);
+        }
+
+        // Update state manager for real-time reactivity
+        state.set('pref:defaultLibraryViewMode', targetMode, true);
+
+        // Notify active subscribers and listeners
+        log.info(`Default library view mode updated to: ${targetMode}`);
+        eventBus.emit('pref:defaultLibraryViewMode:changed', targetMode);
+    }
+
+    /**
+     * Retrieve the configured default column count (items per row) for a specific view mode.
+     *
+     * @param {string} [mode] - Layout mode to inspect (defaults to current default view mode)
+     * @returns {number} Default number of grid columns for the mode
+     * @public
+     */
+    getDefaultLibraryGridColumns(mode) {
+        // Resolve target view mode
+        const effectiveMode = mode || this.getDefaultLibraryViewMode();
+
+        // Standard column options map matching LibraryPage capabilities
+        const colOptionsMap = {
+            poster: [4, 5, 6, 7],
+            'small-poster': [8, 9, 10, 12],
+            thumb: [3, 4, 5, 6],
+            banner: [2, 3, 4, 5],
+            list: [1]
+        };
+
+        // Check if mode has custom default columns configured
+        const savedModeCols = parseInt(storage.getItem(`pref:defaultLibraryGridColumns:${effectiveMode}`), 10);
+        const validOpts = colOptionsMap[effectiveMode] || [];
+        if (validOpts.includes(savedModeCols)) {
+            return savedModeCols;
+        }
+
+        // Check generic setting fallback if matching default view mode
+        const genericCols = parseInt(storage.getItem('pref:defaultLibraryGridColumns'), 10);
+        if (validOpts.includes(genericCols)) {
+            return genericCols;
+        }
+
+        // Fall back to Litefin standard defaults per mode
+        switch (effectiveMode) {
+            case 'small-poster':
+                return 9;
+            case 'thumb':
+                return 4;
+            case 'banner':
+                return 3;
+            case 'list':
+                return 1;
+            case 'poster':
+            default:
+                return 7;
+        }
+    }
+
+    /**
+     * Persist user-selected default column count for a view mode.
+     *
+     * @param {number|string} columns - Desired column count
+     * @param {string} [mode] - Mode identifier to save for (defaults to current default mode)
+     * @param {boolean} [save=true] - Whether to persist to storage
+     * @public
+     */
+    setDefaultLibraryGridColumns(columns, mode, save = true) {
+        // Normalize column count to integer
+        const count = parseInt(columns, 10);
+        if (isNaN(count)) return;
+
+        // Resolve mode
+        const effectiveMode = mode || this.getDefaultLibraryViewMode();
+
+        // Write to storage keys
+        if (save) {
+            storage.setItem(`pref:defaultLibraryGridColumns:${effectiveMode}`, count);
+            storage.setItem('pref:defaultLibraryGridColumns', count);
+        }
+
+        // Emit change event
+        log.info(`Default columns for ${effectiveMode} updated to: ${count}`);
+        eventBus.emit('pref:defaultLibraryGridColumns:changed', { mode: effectiveMode, columns: count });
+    }
+
+    /**
      * Returns the currently active sidebar navigation layout mode.
      * @returns {string} The active sidebar layout identifier (e.g. 'classic').
      */

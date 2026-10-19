@@ -102,8 +102,10 @@ class LibraryPage extends Page {
              * Music libraries default to 'square' (album-cover style), which maps to
              * CardRenderer type 'square' rather than adding a 6th viewMode constant.
              */
-            viewMode: 'poster',
+            // Initialize view mode with user-configured global default (fallback to 'poster')
+            viewMode: storage.getItem('pref:defaultLibraryViewMode') || 'poster',
             gridMode: 'dynamic',
+            // Default column count resolved dynamically from configured default
             gridColumns: 7
         };
 
@@ -304,6 +306,32 @@ class LibraryPage extends Page {
      * =========================================================================
      */
     _getDefaultColumnsForMode(mode) {
+        // Supported grid column options map for each distinct layout mode
+        const colOptionsMap = {
+            poster: [4, 5, 6, 7],
+            'small-poster': [8, 9, 10, 12],
+            thumb: [3, 4, 5, 6],
+            banner: [2, 3, 4, 5],
+            list: [1]
+        };
+
+        // Check if user has explicitly saved a default column preference for this layout mode
+        const savedModeCols = parseInt(storage.getItem(`pref:defaultLibraryGridColumns:${mode}`), 10);
+        const validOpts = colOptionsMap[mode] || [];
+        if (validOpts.includes(savedModeCols)) {
+            return savedModeCols;
+        }
+
+        // Check generic global default column setting if the target mode matches the active default view mode
+        const defaultViewMode = storage.getItem('pref:defaultLibraryViewMode') || 'poster';
+        if (mode === defaultViewMode) {
+            const genericSavedCols = parseInt(storage.getItem('pref:defaultLibraryGridColumns'), 10);
+            if (validOpts.includes(genericSavedCols)) {
+                return genericSavedCols;
+            }
+        }
+
+        // Fall back to native Litefin standard static column counts
         switch (mode) {
             case 'small-poster':
                 return 9;
@@ -1041,6 +1069,36 @@ class LibraryPage extends Page {
             eventBus.on('pref:alphaPickerScrollMode:changed', this._onAlphaPickerScrollModeChanged);
         }
 
+        // ---------------------------------------------------------------------
+        // Dynamic Global Default Library View Mode & Columns Preference Listener
+        // ---------------------------------------------------------------------
+        // When user modifies default view mode or default items per row in Settings,
+        // re-evaluate the active library layout ONLY if this library does not have
+        // a custom view mode explicitly configured by the user.
+        // ---------------------------------------------------------------------
+        if (!this._onDefaultLibraryViewModeChanged) {
+            this._onDefaultLibraryViewModeChanged = () => {
+                log.info('Default library view layout preference changed in settings');
+
+                // Determine whether current library or tab has an explicit custom preference
+                const isTabSpecific = Boolean(this.state.viewType && this.state.viewType !== 'Items');
+                const isSeerr = this.state.libraryId === 'seerr' || this.state.libraryInfo?.CollectionType === 'seerr';
+                const tabStorageKey = isTabSpecific ? `pref:library:viewMode:${this.state.libraryId}:${this.state.viewType}` : null;
+                const libStorageKey = isSeerr ? 'pref:seerr:viewMode' : `pref:library:viewMode:${this.state.libraryId}`;
+                const hasCustomViewMode = Boolean((tabStorageKey && storage.getItem(tabStorageKey)) || storage.getItem(libStorageKey));
+
+                // If no custom view mode is set for this library, rehydrate and re-render grid
+                if (!hasCustomViewMode) {
+                    this._loadPersistedViewMode();
+                    if (this.state.items && this.state.items.length > 0) {
+                        this._renderGrid(this.state.items);
+                    }
+                }
+            };
+            eventBus.on('pref:defaultLibraryViewMode:changed', this._onDefaultLibraryViewModeChanged);
+            eventBus.on('pref:defaultLibraryGridColumns:changed', this._onDefaultLibraryViewModeChanged);
+        }
+
         // =========================================================================
         // BACKGROUND AND SCREEN SLEEP LIFECYCLE HANDLERS
         // =========================================================================
@@ -1322,6 +1380,13 @@ class LibraryPage extends Page {
         if (this._onAlphaPickerScrollModeChanged) {
             eventBus.off('pref:alphaPickerScrollMode:changed', this._onAlphaPickerScrollModeChanged);
             this._onAlphaPickerScrollModeChanged = null;
+        }
+
+        // Clean up global default library view mode and column change listeners
+        if (this._onDefaultLibraryViewModeChanged) {
+            eventBus.off('pref:defaultLibraryViewMode:changed', this._onDefaultLibraryViewModeChanged);
+            eventBus.off('pref:defaultLibraryGridColumns:changed', this._onDefaultLibraryViewModeChanged);
+            this._onDefaultLibraryViewModeChanged = null;
         }
 
         // Clean up background and sleep listeners
@@ -2646,13 +2711,21 @@ class LibraryPage extends Page {
             // Retrieve saved preference (checking tab-specific key before library-level key)
             const saved = (tabStorageKey && storage.getItem(tabStorageKey)) || storage.getItem(libStorageKey);
 
+            // Resolve fallback default layout mode from global settings
+            const configuredDefault = storage.getItem('pref:defaultLibraryViewMode');
+            const defaultMode = configuredDefault && validModes.includes(configuredDefault)
+                ? configuredDefault
+                : 'poster';
+
             if (saved) {
-                // Validate the value is still a known picker option (guards against stale data)
+                // Validate that the persisted library-specific value is still an allowed option
                 const allowedModes = isSeerr ? ['poster', 'small-poster'] : validModes;
-                this.state.viewMode = allowedModes.includes(saved) ? saved : (isLandscape ? 'thumb' : 'poster');
+                this.state.viewMode = allowedModes.includes(saved)
+                    ? saved
+                    : (isLandscape ? 'thumb' : defaultMode);
             } else {
-                // Universal default is 'thumb' for landscape collections/tabs, 'poster' for portrait
-                this.state.viewMode = isLandscape ? 'thumb' : 'poster';
+                // Universal default is 'thumb' for landscape collections/tabs, user-configured default otherwise
+                this.state.viewMode = isLandscape ? 'thumb' : defaultMode;
             }
         }
 

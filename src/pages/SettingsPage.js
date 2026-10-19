@@ -1813,6 +1813,52 @@ class SettingsPage extends Page {
                     </div>
                 </div>
 
+                <!-- ============================================================ -->
+                <!-- Library Layout Section                                          -->
+                <!-- Configures default grid presentations and alphabet selectors   -->
+                <!-- ============================================================ -->
+                <h3 class="setting-section-title" data-i18n="LibraryLayout">${i18n.t('LibraryLayout') || 'Library View Layout'}</h3>
+
+                <!-- Default Library View Mode Dropdown -->
+                <div class="setting-item">
+                    <div class="setting-label">
+                        <span class="setting-name" data-i18n="LabelDefaultLibraryViewMode">${i18n.t('LabelDefaultLibraryViewMode') || 'Default Library View Mode'}</span>
+                        <span class="setting-description" data-i18n="DefaultLibraryViewModeDescription">${i18n.t('DefaultLibraryViewModeDescription') || 'Choose the default view layout for libraries that do not have a custom view mode configured.'}</span>
+                    </div>
+                    <div class="setting-control">
+                        ${this._renderDropdown(
+            'default-library-view-mode-select',
+            [
+                { value: 'poster', label: i18n.t('ViewModePoster') || 'Poster' },
+                { value: 'small-poster', label: i18n.t('ViewModeSmallPoster') || 'Small' },
+                { value: 'thumb', label: i18n.t('ViewModeThumb') || 'Thumbs' },
+                { value: 'banner', label: i18n.t('ViewModeBanner') || 'Banner' },
+                { value: 'list', label: i18n.t('ViewModeList') || 'List' }
+            ],
+            layoutManager.getDefaultLibraryViewMode() || 'poster'
+        )}
+                    </div>
+                </div>
+
+                <!-- Default Items Per Row (Columns) Dropdown -->
+                <div class="setting-item" id="item-default-library-columns" style="${(layoutManager.getDefaultLibraryViewMode() || 'poster') === 'list' ? 'display: none;' : ''}">
+                    <div class="setting-label">
+                        <span class="setting-name" data-i18n="LabelDefaultLibraryColumns">${i18n.t('LabelDefaultLibraryColumns') || 'Default Items Per Row'}</span>
+                        <span class="setting-description" data-i18n="DefaultLibraryColumnsDescription">${i18n.t('DefaultLibraryColumnsDescription') || 'Choose the default number of items displayed per row for libraries.'}</span>
+                    </div>
+                    <div class="setting-control">
+                        ${(() => {
+                            const curMode = layoutManager.getDefaultLibraryViewMode() || 'poster';
+                            const options = this._getLibraryColumnOptionsForMode(curMode);
+                            const savedCols = layoutManager.getDefaultLibraryGridColumns(curMode);
+                            const activeVal = options.some((o) => String(o.value) === String(savedCols))
+                                ? String(savedCols)
+                                : String(options[options.length - 1]?.value || '7');
+                            return this._renderDropdown('default-library-columns-select', options, activeVal);
+                        })()}
+                    </div>
+                </div>
+
                 <!-- Alphabet Selector Placement preference for Library view -->
                 <div class="setting-item">
                     <div class="setting-label">
@@ -10312,6 +10358,50 @@ class SettingsPage extends Page {
         `;
     }
 
+    /**
+     * Build selectable dropdown options for default library items per row
+     * based on the active or selected layout mode.
+     *
+     * @param {string} mode - Layout view mode ('poster', 'small-poster', 'thumb', 'banner', 'list')
+     * @returns {Array<{value: string, label: string}>} Array of selectable column options
+     * @private
+     */
+    _getLibraryColumnOptionsForMode(mode) {
+        // Retrieve column counts mapped to each layout mode
+        const colMap = {
+            poster: [
+                { value: '4', label: '4 ' + (i18n.t('Items') || 'Items') },
+                { value: '5', label: '5 ' + (i18n.t('Items') || 'Items') },
+                { value: '6', label: '6 ' + (i18n.t('Items') || 'Items') },
+                { value: '7', label: '7 ' + (i18n.t('Items') || 'Items') }
+            ],
+            'small-poster': [
+                { value: '8', label: '8 ' + (i18n.t('Items') || 'Items') },
+                { value: '9', label: '9 ' + (i18n.t('Items') || 'Items') },
+                { value: '10', label: '10 ' + (i18n.t('Items') || 'Items') },
+                { value: '12', label: '12 ' + (i18n.t('Items') || 'Items') }
+            ],
+            thumb: [
+                { value: '3', label: '3 ' + (i18n.t('Items') || 'Items') },
+                { value: '4', label: '4 ' + (i18n.t('Items') || 'Items') },
+                { value: '5', label: '5 ' + (i18n.t('Items') || 'Items') },
+                { value: '6', label: '6 ' + (i18n.t('Items') || 'Items') }
+            ],
+            banner: [
+                { value: '2', label: '2 ' + (i18n.t('Items') || 'Items') },
+                { value: '3', label: '3 ' + (i18n.t('Items') || 'Items') },
+                { value: '4', label: '4 ' + (i18n.t('Items') || 'Items') },
+                { value: '5', label: '5 ' + (i18n.t('Items') || 'Items') }
+            ],
+            list: [
+                { value: '1', label: '1 ' + (i18n.t('Items') || 'Item') }
+            ]
+        };
+
+        // Fall back to poster column options for unrecognized modes
+        return colMap[mode] || colMap.poster;
+    }
+
     _renderSelectionModal(title, options, currentValue, onSelect, selectId = '') {
         const overlay = this.$('#modal-overlay');
         if (!overlay) return;
@@ -11732,6 +11822,8 @@ class SettingsPage extends Page {
             'media-rows-layout-select': { key: 'pref:mediaRowsLayout', type: 'local', triggerEvent: true },
             'login-page-layout-select': { key: 'pref:loginPageLayout', type: 'local', triggerEvent: true },
             'alpha-picker-position-select': { key: 'pref:alphaPickerPosition', type: 'local', triggerEvent: true },
+            'default-library-view-mode-select': { key: 'pref:defaultLibraryViewMode', type: 'local', triggerEvent: true },
+            'default-library-columns-select': { key: 'pref:defaultLibraryGridColumns', type: 'local', triggerEvent: true },
             'sidebar-layout-select': { key: 'pref:sidebarLayoutMode', type: 'local', triggerEvent: true },
             'classic-card-size-scale-select': {
                 key: (() => {
@@ -11992,6 +12084,42 @@ class SettingsPage extends Page {
                         if (id === 'alpha-picker-position-select') {
                             // SPECIAL CASE: Alphabet Selector Position handled by LayoutManager
                             layoutManager.setAlphaPickerPosition(newValue);
+                        } else if (id === 'default-library-view-mode-select') {
+                            // SPECIAL CASE: Default Library View Mode handled by LayoutManager and storage
+                            layoutManager.setDefaultLibraryViewMode(newValue);
+
+                            // Dynamically update items per row dropdown options and visibility
+                            const columnsItem = this.$('#item-default-library-columns');
+                            if (columnsItem) {
+                                columnsItem.style.display = newValue === 'list' ? 'none' : '';
+                            }
+                            const colsBtn = this.$('#default-library-columns-select-btn');
+                            if (colsBtn) {
+                                const newColOptions = this._getLibraryColumnOptionsForMode(newValue);
+                                const savedForNewMode = storage.getItem(`pref:defaultLibraryGridColumns:${newValue}`);
+                                const defaultColsForMode = {
+                                    poster: '7',
+                                    'small-poster': '9',
+                                    thumb: '4',
+                                    banner: '3',
+                                    list: '1'
+                                }[newValue] || '7';
+                                const selectedCol = newColOptions.some((o) => o.value === String(savedForNewMode))
+                                    ? String(savedForNewMode)
+                                    : defaultColsForMode;
+
+                                colsBtn.dataset.options = JSON.stringify(newColOptions);
+                                colsBtn.dataset.value = selectedCol;
+                                const colLabel = colsBtn.querySelector('.btn-label');
+                                if (colLabel) {
+                                    colLabel.innerText = newColOptions.find((o) => o.value === selectedCol)?.label || selectedCol;
+                                }
+                            }
+                            focusManager.invalidateCache('settings-content');
+                        } else if (id === 'default-library-columns-select') {
+                            // SPECIAL CASE: Save column count for the active default view mode
+                            const activeDefaultMode = layoutManager.getDefaultLibraryViewMode() || 'poster';
+                            layoutManager.setDefaultLibraryGridColumns(newValue, activeDefaultMode);
                         } else if (id === 'badge-style-select') {
                             // SPECIAL CASE: Badge Style handled by LayoutManager
                             layoutManager.setBadgeStyle(newValue);
@@ -12199,6 +12327,28 @@ class SettingsPage extends Page {
 
                                 // Emit canonical change event on EventBus
                                 eventBus.emit('pref:libraryPageSize:changed', newValue);
+                            }
+
+                            /* -------------------------------------------------------------
+                             * Cache Invalidation for Default Library View Layout & Columns
+                             * When user adjusts global default view presentation or column density,
+                             * clear library cached snapshots and history states so uncustomized
+                             * libraries dynamically re-evaluate using the newly selected default.
+                             * ------------------------------------------------------------- */
+                            if (settingConfig.key === 'pref:defaultLibraryViewMode' ||
+                                settingConfig.key === 'pref:defaultLibraryGridColumns') {
+                                log.info(`Invalidating library caches due to default view layout change: ${settingConfig.key}=${newValue}`);
+
+                                // Invalidate all cached library state snapshots in StateManager
+                                state.clearByPrefix('library:state');
+
+                                // Clear cached page state across router history entries for library paths
+                                if (router && typeof router.clearHistoryState === 'function') {
+                                    router.clearHistoryState('/library');
+                                }
+
+                                // Emit canonical change event on EventBus
+                                eventBus.emit(settingConfig.key + ':changed', newValue);
                             }
 
                             if (settingConfig.key === 'pref:detailsLayout' || settingConfig.key === 'pref:seasonEpisodeDetailsLayout') {
