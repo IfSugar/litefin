@@ -14,3 +14,7 @@ import './classic-light.css';
 import './black.css';
 import './tinted.css';
 import './ambient.css';
+import './ember.css';
+import './sunset.css';
+import './frost.css';
+import './paper.css';

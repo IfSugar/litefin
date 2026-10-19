@@ -1038,6 +1038,12 @@ class SettingsPage extends Page {
                     // ====================================================================
                     { value: 'ambient', label: i18n.t('ThemeAmbient') || 'Ambient Glow' },
 
+                    // Ember: the only warm dark mode — candlelit roast canvas with firelight glow.
+                    { value: 'ember', label: i18n.t('ThemeEmber') || 'Ember' },
+
+                    // Sunset: cinematic gradient dusk with plum-to-amber sky and sun bloom.
+                    { value: 'sunset', label: i18n.t('ThemeSunset') || 'Sunset' },
+
                     // Tinted background theme mapping closely with specific selected colors.
                     { value: 'tinted', label: i18n.t('ThemeTinted') || 'Tinted' },
 
@@ -1049,6 +1055,12 @@ class SettingsPage extends Page {
 
                     // Traditional Dark Theme with deep charcoal shades.
                     { value: 'classic-dark', label: i18n.t('ThemeDarkClassic') || 'Dark Classic' },
+
+                    // Frost: the only glacial light mode — gradient ice canvas with slate typography.
+                    { value: 'frost', label: i18n.t('ThemeFrost') || 'Frost' },
+
+                    // Paper: warm sepia reading mode — parchment tones with ink typography.
+                    { value: 'paper', label: i18n.t('ThemePaper') || 'Paper' },                 
 
                     // Traditional Light Theme utilizing classic paper/white gradients.
                     { value: 'classic-light', label: i18n.t('ThemeLightClassic') || 'Light Classic' }
@@ -1095,6 +1107,20 @@ class SettingsPage extends Page {
                     <div class="setting-control">
                         <button class="toggle-switch ${layoutManager.getLighterBackground() ? 'active' : ''}" 
                                 id="toggle-lighter-background" 
+                                tabindex="0">
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Override Theme Color (Ember, Sunset, Frost, Paper only) -->
+                <div class="setting-item ${!['ember', 'sunset', 'frost', 'paper'].includes(layoutManager.getThemeMode()) ? 'hidden' : ''}" id="signature-accent-item">
+                    <div class="setting-label">
+                        <span class="setting-name" data-i18n="OverrideThemeColor">${i18n.t('OverrideThemeColor') || 'Override Theme Color'}</span>
+                        <span class="setting-description" data-i18n="OverrideThemeColorDescription">${i18n.t('OverrideThemeColorDescription') || 'Replace the theme color with this theme\'s own unique signature color.'}</span>
+                    </div>
+                    <div class="setting-control">
+                        <button class="toggle-switch ${layoutManager.getSignatureAccent() ? 'active' : ''}" 
+                                id="toggle-signature-accent" 
                                 tabindex="0">
                         </button>
                     </div>
@@ -8260,6 +8286,9 @@ class SettingsPage extends Page {
 
         // Initial visibility check for Lighter Background setting based on active theme
         this._updateLighterBackgroundVisibility();
+
+        // Initial visibility check for Signature Accent setting based on active theme
+        this._updateSignatureAccentVisibility();
     }
 
     /**
@@ -8272,6 +8301,21 @@ class SettingsPage extends Page {
         if (item) {
             const currentMode = layoutManager.getThemeMode();
             const isSupported = ['tinted', 'tinted-light', 'classic-dark', 'classic-light'].includes(currentMode);
+            item.classList.toggle('hidden', !isSupported);
+            focusManager.invalidateCache('settings-content');
+        }
+    }
+
+    /**
+     * Updates visibility of the Signature Accent toggle based on active theme mode.
+     * Only available for artistic themes (ember, sunset, frost, paper).
+     * @private
+     */
+    _updateSignatureAccentVisibility() {
+        const item = this.$('#signature-accent-item');
+        if (item) {
+            const currentMode = layoutManager.getThemeMode();
+            const isSupported = ['ember', 'sunset', 'frost', 'paper'].includes(currentMode);
             item.classList.toggle('hidden', !isSupported);
             focusManager.invalidateCache('settings-content');
         }
@@ -8586,6 +8630,26 @@ class SettingsPage extends Page {
                 // Update tactile switch element visual state
                 lighterBgBtn.classList.toggle('active', newValue);
                 log.info(`Lighter Background set to: ${newValue}`);
+            });
+        }
+
+        // ==========================================
+        // TOGGLE SIGNATURE ACCENT (Ember, Sunset, Frost, Paper)
+        // ==========================================
+        // Controls whether the user-chosen theme color is overridden with
+        // the selected mode's unique signature color.
+        const signatureAccentBtn = this.$('#toggle-signature-accent');
+        if (signatureAccentBtn) {
+            signatureAccentBtn.addEventListener('click', () => {
+                // Invert the current signature accent override state
+                const newValue = !layoutManager.getSignatureAccent();
+
+                // Persist and apply changes via LayoutManager
+                layoutManager.setSignatureAccent(newValue);
+
+                // Update tactile switch element visual state
+                signatureAccentBtn.classList.toggle('active', newValue);
+                log.info(`Signature Accent override set to: ${newValue}`);
             });
         }
 
@@ -12208,6 +12272,7 @@ class SettingsPage extends Page {
                         } else if (id === 'theme-mode-select') {
                             layoutManager.setThemeMode(newValue);
                             this._updateLighterBackgroundVisibility();
+                            this._updateSignatureAccentVisibility();
                         } else if (id === 'watched-threshold-select') {
                             PlayerSettings.set('watchedThreshold', newValue);
                             if (newValue === 'server') {

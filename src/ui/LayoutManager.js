@@ -38,11 +38,27 @@ const THEME_MODES = {
     BLACK: 'black',
     TINTED: 'tinted',
     TINTED_LIGHT: 'tinted-light',
-    AMBIENT: 'ambient'
+    AMBIENT: 'ambient',
+    EMBER: 'ember',
+    SUNSET: 'sunset',
+    FROST: 'frost',
+    PAPER: 'paper'
 };
 
 // Default Theme Color (Litefin Purple Blue)
 const DEFAULT_THEME_COLOR = '#6b6ede';
+
+/*
+ * Unique default accent color per artistic theme mode.
+ * Applied automatically when the user selects the mode, unless they have
+ * manually customized the theme color themselves.
+ */
+const DEFAULT_MODE_COLORS = {
+    [THEME_MODES.EMBER]: '#e8853c',     // burnt amber — candlelit flame
+    [THEME_MODES.SUNSET]: '#ff7a54',    // sunset coral — low sun bloom
+    [THEME_MODES.FROST]: '#3d9be9',     // glacial blue — icy daylight
+    [THEME_MODES.PAPER]: '#8a5a33'      // sepia ink — old print
+};
 
 class LayoutManager {
     constructor() {
@@ -85,6 +101,14 @@ class LayoutManager {
          * background shade for an elevated, higher-contrast luminous aesthetic.
          */
         this._lighterBackground = false;
+
+        /*
+         * Signature Accent override for the artistic theme modes.
+         * When enabled on a supported mode (ember, sunset, frost, paper),
+         * the active accent is replaced with that mode's unique signature color.
+         * Defaults to false (off).
+         */
+        this._signatureAccent = false;
 
         // Current font
         this._uiFont = 'default';
@@ -238,6 +262,10 @@ class LayoutManager {
 
         log.info(`Loading theme: savedMode="${savedThemeMode}" -> initialMode="${initialMode}"`);
 
+        /*
+         * Fallback chain for the saved theme color: user-picked color, then
+         * the global default.
+         */
         const savedThemeColor = storage.getItem('litefin:themeColor') || this._themeColor;
         /*
          * Load saved lighter background preference (only applies to tinted and classic modes).
@@ -305,6 +333,10 @@ class LayoutManager {
         this.setThemeColor(savedThemeColor, false);
         // Apply lighter background configuration without extra persistence cycle
         this.setLighterBackground(savedLighterBackground, false);
+
+        // Load saved signature accent override preference
+        const savedSignatureAccent = storage.getItem('litefin:signatureAccent') === 'true';
+        this.setSignatureAccent(savedSignatureAccent, false);
         this.setUiFont(savedUiFont, false);
         this.setRoundedCorners(savedRoundedCorners, false);
         this.setTextScale(savedTextScale, false);
@@ -743,8 +775,19 @@ class LayoutManager {
     }
 
     _applyDynamicTheme() {
-        const accents = themeUtils.getAccentVariants(this._themeColor);
-        const contrastColor = themeUtils.getContrastColor(this._themeColor);
+        /*
+         * Resolve the effective accent color.
+         * When the Signature Accent override is enabled and the active theme
+         * mode has a dedicated signature color, it replaces the user theme
+         * color for all dynamically derived accent variables.
+         */
+        let effectiveColor = this._themeColor;
+        if (this._signatureAccent && DEFAULT_MODE_COLORS[this._themeMode]) {
+            effectiveColor = DEFAULT_MODE_COLORS[this._themeMode];
+        }
+
+        const accents = themeUtils.getAccentVariants(effectiveColor);
+        const contrastColor = themeUtils.getContrastColor(effectiveColor);
         const contrastRgb = themeUtils.hexToRgb(contrastColor);
         const contrastRgbStr = contrastRgb ? `${contrastRgb.r}, ${contrastRgb.g}, ${contrastRgb.b}` : '255, 255, 255';
 
@@ -752,8 +795,8 @@ class LayoutManager {
         // If the accent color is "bright" (Luminance > 0.4), the calculated contrast color
         // (normally for text) is very dark. Since most themes are dark, a dark focus border
         // would be invisible. We use a soft light variant for focus borders in these cases.
-        const isBrightAccent = themeUtils.isBright(this._themeColor);
-        const focusBorderColor = isBrightAccent ? themeUtils.getSoftLight(this._themeColor) : contrastColor;
+        const isBrightAccent = themeUtils.isBright(effectiveColor);
+        const focusBorderColor = isBrightAccent ? themeUtils.getSoftLight(effectiveColor) : contrastColor;
 
         // Remove any inline flash-prevention variables injected by index.html
         // so that our dynamic stylesheet (which has lower specificity than inline style)
@@ -789,7 +832,7 @@ class LayoutManager {
              * Light Tinted mode applies warm cream / champagne typography tailored
              * to harmonize with the elevated tinted background shade.
              */
-            const tints = themeUtils.getTintedLightColors(this._themeColor);
+            const tints = themeUtils.getTintedLightColors(effectiveColor);
             dynamicCss += `
             --jf-text-primary: ${tints.textPrimary};
             --jf-text-secondary: ${tints.textSecondary};
@@ -800,10 +843,41 @@ class LayoutManager {
             --text-muted: var(--jf-text-secondary);`;
         } else if (this._themeMode !== THEME_MODES.TINTED) {
             const isLight = this._themeMode === THEME_MODES.CLASSIC_LIGHT;
+            // Per-mode text palettes; defaults cover neutral dark canvas modes.
+            let textPrimary = '#ffffff';
+            let textSecondary = 'rgba(255, 255, 255, 0.8)';
+            let textTertiary = '#666666';
+
+            if (isLight) {
+                textPrimary = '#101010';
+                textSecondary = '#666666';
+                textTertiary = '#888888';
+            } else if (this._themeMode === THEME_MODES.EMBER) {
+                // Warm firelight-white typography for the candlelit canvas.
+                textPrimary = '#fff4ea';
+                textSecondary = 'rgba(255, 235, 214, 0.78)';
+                textTertiary = 'rgba(255, 220, 190, 0.55)';
+            } else if (this._themeMode === THEME_MODES.SUNSET) {
+                // Rosy dusk-white typography for the sunset gradient canvas.
+                textPrimary = '#ffffff';
+                textSecondary = 'rgba(255, 228, 220, 0.8)';
+                textTertiary = 'rgba(255, 228, 220, 0.55)';
+            } else if (this._themeMode === THEME_MODES.FROST) {
+                // Dark slate typography on the glacier light canvas.
+                textPrimary = '#1b2c38';
+                textSecondary = '#466171';
+                textTertiary = '#7d96a6';
+            } else if (this._themeMode === THEME_MODES.PAPER) {
+                // Warm ink typography on the parchment canvas.
+                textPrimary = '#332a1f';
+                textSecondary = '#5d5245';
+                textTertiary = '#8a7d6a';
+            }
+
             dynamicCss += `
-            --jf-text-primary: ${isLight ? '#101010' : '#ffffff'};
-            --jf-text-secondary: ${isLight ? '#666666' : 'rgba(255, 255, 255, 0.8)'};
-            --jf-text-tertiary: ${isLight ? '#888888' : '#666666'};
+            --jf-text-primary: ${textPrimary};
+            --jf-text-secondary: ${textSecondary};
+            --jf-text-tertiary: ${textTertiary};
             
             --text-primary: var(--jf-text-primary);
             --text-secondary: var(--jf-text-secondary);
@@ -818,7 +892,7 @@ class LayoutManager {
 
         // 2. Apply background variables based on theme mode
         if (this._themeMode === THEME_MODES.TINTED_LIGHT) {
-            const tints = themeUtils.getTintedLightColors(this._themeColor);
+            const tints = themeUtils.getTintedLightColors(effectiveColor);
             /*
              * Light Tinted theme provides an elevated, luminous background (~26% lightness)
              * with crisp card elevation and rich tint characteristics (e.g., mocha/brown).
@@ -843,7 +917,7 @@ class LayoutManager {
             --jf-divider: ${tints.divider};
             --jf-navbar-bg: ${bg};`;
         } else if (this._themeMode === THEME_MODES.TINTED) {
-            const tints = themeUtils.getTintedColors(this._themeColor);
+            const tints = themeUtils.getTintedColors(effectiveColor);
             /*
              * In Tinted mode, swapping background and background-alt provides
              * a noticeably lighter canvas while keeping the deeper tint on complementary bars.
@@ -882,6 +956,57 @@ class LayoutManager {
             --jf-card-bg-hover: rgba(255, 255, 255, 0.1);
             --jf-divider: rgba(255, 255, 255, 0.06);
             --jf-navbar-bg: rgba(7, 8, 9, 0.85);`;
+        } else if (this._themeMode === THEME_MODES.EMBER) {
+            // Candlelit warm night: roasted brown-black canvas with
+            // firelight-tinted glass surfaces that let the ember glow bleed.
+            dynamicCss += `
+            --jf-background: #0d0906;
+            --jf-background-rgb: 13, 9, 6;
+            --jf-background-alt: #150d07;
+            --sidebar-bg: transparent;
+            --jf-surface: rgba(255, 158, 84, 0.05);
+            --jf-card-bg: rgba(255, 158, 84, 0.08);
+            --jf-card-bg-hover: rgba(255, 158, 84, 0.17);
+            --jf-divider: rgba(255, 158, 84, 0.13);
+            --jf-navbar-bg: rgba(10, 7, 5, 0.85);`;
+        } else if (this._themeMode === THEME_MODES.SUNSET) {
+            // Gradient dusk: twilight plum canvas with rose-tinted glass
+            // surfaces layered over the sunset sweep.
+            dynamicCss += `
+            --jf-background: #1c142e;
+            --jf-background-rgb: 28, 20, 46;
+            --jf-background-alt: #241938;
+            --sidebar-bg: transparent;
+            --jf-surface: rgba(255, 148, 108, 0.06);
+            --jf-card-bg: rgba(255, 148, 108, 0.09);
+            --jf-card-bg-hover: rgba(255, 148, 108, 0.18);
+            --jf-divider: rgba(255, 148, 108, 0.14);
+            --jf-navbar-bg: rgba(18, 12, 34, 0.78);`;
+        } else if (this._themeMode === THEME_MODES.FROST) {
+            // Icy light mode: glacier white-to-pale-ice gradient canvas
+            // with cool translucent frost surfaces.
+            dynamicCss += `
+            --jf-background: #e8f1f6;
+            --jf-background-rgb: 232, 241, 246;
+            --jf-background-alt: #dde9f1;
+            --sidebar-bg: transparent;
+            --jf-surface: rgba(255, 255, 255, 0.72);
+            --jf-card-bg: #ffffff;
+            --jf-card-bg-hover: #f0f7fb;
+            --jf-divider: rgba(100, 140, 165, 0.18);
+            --jf-navbar-bg: rgba(248, 252, 254, 0.82);`;
+        } else if (this._themeMode === THEME_MODES.PAPER) {
+            // Warm sepia reading mode: parchment canvas with soft paper tones.
+            dynamicCss += `
+            --jf-background: #f2ead9;
+            --jf-background-rgb: 242, 234, 217;
+            --jf-background-alt: #e9dfca;
+            --sidebar-bg: transparent;
+            --jf-surface: #faf5ea;
+            --jf-card-bg: #f9f3e6;
+            --jf-card-bg-hover: #fdf9f0;
+            --jf-divider: rgba(122, 100, 70, 0.2);
+            --jf-navbar-bg: rgba(246, 240, 228, 0.88);`;
         } else if (this._themeMode === THEME_MODES.BLACK) {
             /*
              * True Pitch Black canvas for OLED displays.
@@ -957,13 +1082,21 @@ class LayoutManager {
             // Resolve the exact background color for the current theme mode
             let resolvedBg = '#101010';
             if (this._themeMode === THEME_MODES.TINTED_LIGHT) {
-                const tints = themeUtils.getTintedLightColors(this._themeColor);
+                const tints = themeUtils.getTintedLightColors(effectiveColor);
                 resolvedBg = this._lighterBackground ? tints.backgroundAlt : tints.background;
             } else if (this._themeMode === THEME_MODES.TINTED) {
-                const tints = themeUtils.getTintedColors(this._themeColor);
+                const tints = themeUtils.getTintedColors(effectiveColor);
                 resolvedBg = this._lighterBackground ? tints.backgroundAlt : tints.background;
             } else if (this._themeMode === THEME_MODES.AMBIENT) {
                 resolvedBg = '#0a0b0c';
+            } else if (this._themeMode === THEME_MODES.EMBER) {
+                resolvedBg = '#0d0906';
+            } else if (this._themeMode === THEME_MODES.SUNSET) {
+                resolvedBg = '#1c142e';
+            } else if (this._themeMode === THEME_MODES.FROST) {
+                resolvedBg = '#e8f1f6';
+            } else if (this._themeMode === THEME_MODES.PAPER) {
+                resolvedBg = '#f2ead9';
             } else if (this._themeMode === THEME_MODES.BLACK) {
                 resolvedBg = '#000000';
             } else if (this._themeMode === THEME_MODES.CLASSIC_LIGHT) {
@@ -1095,6 +1228,55 @@ class LayoutManager {
 
         // Notify UI listeners of state alteration
         eventBus.emit('lighterBackground:changed', { enabled: this._lighterBackground });
+    }
+
+    /**
+     * Returns whether the signature accent override is active.
+     * @returns {boolean} True when the active mode's signature color replaces the user theme color.
+     */
+    getSignatureAccent() {
+        return this._signatureAccent;
+    }
+
+    /**
+     * Returns the unique signature color of a theme mode or null.
+     *
+     * @param {string} [mode] - Theme mode to inspect (defaults to the active mode)
+     * @returns {string|null} Signature hex color, or null when the mode has none
+     * @public
+     */
+    getSignatureColor(mode) {
+        const targetMode = mode || this._themeMode;
+        return DEFAULT_MODE_COLORS[targetMode] || null;
+    }
+
+    /**
+     * Sets and activates the signature accent override for the artistic theme modes.
+     * When enabled on a supported mode, the active accent color is replaced with
+     * that mode's unique signature color while rendering.
+     *
+     * @param {boolean} enabled - Whether the signature accent override is active
+     * @param {boolean} [save=true] - Whether to persist this preference in storage
+     */
+    setSignatureAccent(enabled, save = true) {
+        // Update in-memory state
+        this._signatureAccent = !!enabled;
+
+        // Stamp data attribute for optional CSS scoping
+        document.documentElement.setAttribute('data-signature-accent', this._signatureAccent ? 'true' : 'false');
+
+        // Persist preference to storage if requested
+        if (save) {
+            storage.setItem('litefin:signatureAccent', this._signatureAccent ? 'true' : 'false');
+        }
+
+        // Re-calculate and inject active theme stylesheet variables
+        this._applyDynamicTheme();
+
+        log.info(`Signature accent override updated: ${this._signatureAccent}`);
+
+        // Notify UI listeners of state alteration
+        eventBus.emit('signatureAccent:changed', { enabled: this._signatureAccent });
     }
 
     // Font and Rounded Corners helpers (Existing logic maintained)
