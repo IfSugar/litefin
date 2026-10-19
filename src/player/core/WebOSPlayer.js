@@ -1902,7 +1902,7 @@ export class WebOSPlayer {
                 const codec = (s.Codec || '').toLowerCase();
                 if (codec === 'truehd' && !isTrueHdSupported()) return false;
                 if ((codec.includes('dts') || codec === 'dca') && !isDtsSupported()) return false;
-                if ((codec === 'flac' || codec === 'alac') && !PlayerSettings.get('enableFlacInVideo')) return false;
+                if (codec === 'alac' && !PlayerSettings.get('enableFlacInVideo')) return false;
                 return true;
             });
             // Resolve target stream from filtered audio list, falling back to all audio streams
@@ -1982,8 +1982,10 @@ export class WebOSPlayer {
             // Exclude DTS / DCA audio formats if disabled in settings
             if ((codec.includes('dts') || codec === 'dca') && !isDtsSupported()) return false;
 
-            // Exclude FLAC / ALAC audio formats if disabled in settings
-            if ((codec === 'flac' || codec === 'alac') && !PlayerSettings.get('enableFlacInVideo')) return false;
+            // Exclude ALAC audio formats if disabled in settings. FLAC is kept: enableFlacInVideo is
+            // a Tizen setting, and webOS lists FLAC tracks in video.audioTracks and plays a FLAC
+            // container default, so dropping it made another track look like the default.
+            if (codec === 'alac' && !PlayerSettings.get('enableFlacInVideo')) return false;
 
             return true;
         });
@@ -2053,7 +2055,7 @@ export class WebOSPlayer {
             const codec = (s.Codec || '').toLowerCase();
             if (codec === 'truehd' && !isTrueHdSupported()) return false;
             if ((codec.includes('dts') || codec === 'dca') && !isDtsSupported()) return false;
-            if ((codec === 'flac' || codec === 'alac') && !PlayerSettings.get('enableFlacInVideo')) return false;
+            if (codec === 'alac' && !PlayerSettings.get('enableFlacInVideo')) return false;
             return true;
         });
 
