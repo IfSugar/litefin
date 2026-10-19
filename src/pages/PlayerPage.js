@@ -812,17 +812,56 @@ class PlayerPage extends Page {
             //    spams show() + resetAutoHide(), causing the timer to reset continuously
             //    and making it impossible for the OSD to settle before the user clicks.
             let _mouseMoveThrottle = null;
+
+            // Track last known cursor coordinates to calculate physical displacement
+            let _lastPlayerMouseX = null;
+            let _lastPlayerMouseY = null;
+
+            // ================================================================
+            // GYROSCOPE NOISE REJECTION THRESHOLD
+            // ================================================================
+            // Ambient hand tremors while holding an air remote (LG Magic Remote)
+            // continuously trigger sub-pixel and micro-pixel pointer movements.
+            // Discarding movements under 8px prevents ambient holding tremors or
+            // button-press jolts from waking up the playback HUD inadvertently.
+            // ================================================================
+            const MOUSE_MOVE_THRESHOLD = 8;
+
             this.el.addEventListener('mousemove', (e) => {
+                // Respect global user preference for pointer interaction
                 if (!PlayerSettings.get('enableMagicCursor')) return;
+
+                // Screen lock takes precedence — show HUD lock badge and bail out
                 if (this._isScreenLocked) {
                     this._showLockIndicator();
                     return;
                 }
 
+                // Verify client coordinates are provided by the browser event
+                if (e.clientX !== undefined && e.clientY !== undefined) {
+                    if (_lastPlayerMouseX !== null && _lastPlayerMouseY !== null) {
+                        // Calculate Manhattan / axis delta from the previous coordinate
+                        const deltaX = Math.abs(e.clientX - _lastPlayerMouseX);
+                        const deltaY = Math.abs(e.clientY - _lastPlayerMouseY);
+
+                        // Reject micro-displacements below our jitter threshold
+                        if (deltaX < MOUSE_MOVE_THRESHOLD && deltaY < MOUSE_MOVE_THRESHOLD) {
+                            return;
+                        }
+                    }
+
+                    // Update baseline coordinate cache with new position
+                    _lastPlayerMouseX = e.clientX;
+                    _lastPlayerMouseY = e.clientY;
+                }
+
+                // Apply throttle to prevent flooding OSD state updates
                 if (_mouseMoveThrottle) return;
                 _mouseMoveThrottle = setTimeout(() => {
                     _mouseMoveThrottle = null;
                 }, 200);
+
+                // Forward qualified mouse movement to the OSD controller
                 if (this._osd) {
                     this._osd._onMouseMove(e);
                 }

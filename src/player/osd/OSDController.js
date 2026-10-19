@@ -191,6 +191,13 @@ export default class OSDController extends Component {
         this._focusRestoreLockout = false;
         this._focusRestoreLockoutTimer = null;
         this._trackTransitionLockoutActive = false;
+
+        /*
+         * Timestamp gating mouse/pointer wakeups after explicit HUD dismissals.
+         * Used to filter out gyroscopic tremor and synthetic pointer jitter
+         * immediately following remote back-button presses.
+         */
+        this._mouseWakeLockoutUntil = 0;
     }
 
     _handleQueueUpdate() {
@@ -1085,6 +1092,24 @@ export default class OSDController extends Component {
             return;
         }
 
+        /*
+         * ====================================================================
+         * GYROSCOPIC JITTER & DISMISSAL WAKE LOCKOUT GUARD
+         * ====================================================================
+         * When the OSD is hidden (especially via physical remote Back key),
+         * air remotes (such as LG Magic Remote) transmit continuous gyroscopic
+         * jitter and synthetic mousemove events as the user's thumb clicks or
+         * releases the button.
+         *
+         * If the HUD is currently hidden and we are inside the settle window,
+         * discard the mousemove event entirely so the OSD remains hidden and
+         * subsequent Back presses reach the exit action.
+         * ====================================================================
+         */
+        if (!this._isOsdVisible && this._mouseWakeLockoutUntil && Date.now() < this._mouseWakeLockoutUntil) {
+            return;
+        }
+
         this.show();
         this.resetAutoHide();
 
@@ -1374,6 +1399,9 @@ export default class OSDController extends Component {
          * calling show() during the async shutdown gap makes the OSD flicker back.
          */
         if (this._isExiting) return;
+
+        // Reset any active dismissal lockout when the HUD is intentionally made visible
+        this._mouseWakeLockoutUntil = 0;
 
         /*
          * Cancel the pending focus-reset timer (timeout mode) if the user
@@ -1756,6 +1784,13 @@ export default class OSDController extends Component {
         if (this._osdMainEl) this._osdMainEl.classList.add('osd-hidden');
         if (this._osdEl) this._osdEl.classList.add('osd-is-hidden');
         this._isOsdVisible = false;
+
+        /*
+         * Set a 1200ms cooldown window to suppress instant pointer wakeups.
+         * Prevents air-mouse gyroscopic micro-movements on physical button release
+         * from immediately undoing the dismissal action.
+         */
+        this._mouseWakeLockoutUntil = Date.now() + 1200;
 
         /*
          * ====================================================================
@@ -2931,7 +2966,9 @@ export default class OSDController extends Component {
         }
 
         if (this._isOsdVisible) {
+            // Dismiss OSD and establish gyro suppression lockout
             this.hide();
+            this._mouseWakeLockoutUntil = Date.now() + 1200;
         } else {
             // If confirmExitPlayer setting is enabled, show the confirmation dialog
             if (PlayerSettings.get('confirmExitPlayer')) {
