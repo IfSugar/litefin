@@ -6081,6 +6081,18 @@ class SettingsPage extends Page {
             },
             /*
              * ========================================================================
+             * OSD LAYOUT TOGGLE (STEALTH MODE <-> PREVIOUS LAYOUT)
+             * ========================================================================
+             * Allows one-click switching between Stealth / Anti-Spoiler layout
+             * and the user's previously configured active layout (Left / Centered).
+             * ========================================================================
+             */
+            {
+                value: 'playerToggleOsdLayout',
+                label: i18n.t('OptionPlayerToggleOsdLayout') || 'Player: Toggle Stealth Mode'
+            },
+            /*
+             * ========================================================================
              * NEW PREMIUM CHAPTER NAVIGATION ACTIONS
              * ========================================================================
              * Allows quick chapter skipping via physical buttons without bringing

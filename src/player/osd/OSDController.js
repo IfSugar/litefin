@@ -1,6 +1,7 @@
 import Component from '../../core/Component.js';
 import { logger } from '../../utils/Logger.js';
 import { PlayerSettings } from '../../utils/PlayerSettings.js';
+import { storage } from '../../utils/StorageService.js';
 import { playQueue } from '../../core/PlayQueue.js';
 import { i18n } from '../../utils/i18n.js';
 import { api } from '../../api/index.js';
@@ -1919,6 +1920,52 @@ export default class OSDController extends Component {
         this._autoHideTimer = setTimeout(() => this.hide(), this._config.autoHideDelay);
     }
 
+    /**
+     * ========================================================================
+     * DYNAMIC OSD LAYOUT MODE LIVE APPLICATION
+     * ========================================================================
+     * Synchronizes the active DOM and visual presentation of the player overlay
+     * when the OSD layout mode changes dynamically at runtime (e.g. via remote
+     * button shortcut toggles between Stealth and previous layout modes).
+     *
+     * State Handlers:
+     * - 'hidden' (Stealth Mode): Immediately adds 'osd-layout-hidden' to suppress
+     *   all Layer 1 playback controls, timeline, and metadata. Aborts active
+     *   down-hold animations and forces the OSD into a hidden state.
+     * - 'left' / 'centered': Removes the 'osd-layout-hidden' suppressive styling,
+     *   re-arms the OSD visibility pipeline, and focuses the primary Play/Pause
+     *   action button to provide instant, reassuring tactile feedback.
+     * ========================================================================
+     * @param {string} newLayout - Target layout identifier ('hidden', 'left', 'centered')
+     */
+    updateLayoutMode(newLayout) {
+        // Guard against calls prior to DOM instantiation or teardown
+        if (!this._osdEl) return;
+
+        log.info(`OSDController: Dynamically applying layout mode switch to "${newLayout}"`);
+
+        // Check target presentation mode
+        if (newLayout === 'hidden') {
+            // Apply stealth suppressing class on the root OSD container element
+            this._osdEl.classList.add('osd-layout-hidden');
+
+            // Abort any ongoing 2-second hold gesture tracking cleanly
+            this._cancelDownHold();
+
+            // Dismiss the active Layer 1 display immediately if currently visible
+            if (this._isOsdVisible) {
+                this.hide();
+            }
+        } else {
+            // Remove stealth class to restore normal interactive presentation
+            this._osdEl.classList.remove('osd-layout-hidden');
+
+            // Bring up the restored controls with focus on Play/Pause for visual confirmation
+            this.show();
+            this.showAndFocusPlayPause();
+        }
+    }
+
     closeMenu() {
         if (this.activeMenu) {
             const menu = this.activeMenu;
@@ -2197,6 +2244,18 @@ export default class OSDController extends Component {
         // COLOR BUTTONS (Red, Green, Yellow, Blue)
         // Instantly reveal player controls in stealth mode without holding Down.
         const handleColorButtonReveal = (color, e) => {
+            // Suppress automatic reveal if this event was already consumed by RemoteButtonManager
+            if (e && (e.defaultPrevented || e._remoteActionHandled)) {
+                return false;
+            }
+
+            // Check if this specific color key is mapped to an intentional custom layout toggle
+            const capColor = color.charAt(0).toUpperCase() + color.slice(1);
+            const mappedAction = storage.getItem(`pref:remote${capColor}Action`) || 'none';
+            if (mappedAction === 'playerToggleOsdLayout' || mappedAction === 'playerToggleStealth') {
+                return false;
+            }
+
             if (PlayerSettings.get('osdColorButtonsReveal') !== false &&
                 PlayerSettings.get('osdLayout') === 'hidden' &&
                 !this._isOsdVisible) {
@@ -2217,6 +2276,11 @@ export default class OSDController extends Component {
         this.on('key:green', (e) => handleColorButtonReveal('green', e));
         this.on('key:yellow', (e) => handleColorButtonReveal('yellow', e));
         this.on('key:blue', (e) => handleColorButtonReveal('blue', e));
+
+        // Listen for live OSD layout preference changes triggered via shortcuts or settings
+        this.on('pref:osdLayout', (newLayout) => {
+            this.updateLayoutMode(newLayout);
+        });
         // ENTER
         this.on('key:enter', (e) => {
             // Conditionally prevent default inside handleInput based on what is focused
