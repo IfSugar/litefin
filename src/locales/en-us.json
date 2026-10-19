@@ -921,6 +921,7 @@
     "InitialSidebarFocus": "Initial Sidebar Focus",
     "InitialSidebarFocusDescription": "Select which item gets focused first when opening the sidebar.",
     "InstalledPlugins": "Installed Plugins",
+    "OpenJellyfinDashboard": "Open Jellyfin Dashboard",
     "InterlacedBackendFallback": "Auto-Switch for Interlaced Content",
     "InterlacedBackendFallbackDescription": "When AVPlay is active, automatically switch to the HTML5 player for interlaced video (1080i). No re-encoding — Chromium decodes it natively.",
     "Internal": "Internal",

@@ -459,10 +459,37 @@ class SettingsPage extends Page {
 
         return `
             <div class="settings-tab-content">
-                <h2 class="content-title" data-i18n="Plugins">${i18n.t('Plugins')}</h2>
-                <p class="content-subtitle" data-i18n="PluginsTabDescription">
-                    ${i18n.t('PluginsTabDescription') || 'Extend functionality with community add-ons, metadata providers, and third-party integrations.'}
-                </p>
+                <!--
+                    ========================================================================
+                    Plugins Tab Header with Quick-Launch Server Dashboard Action
+                    ========================================================================
+                    - Clean visual hierarchy with clear action callout.
+                    - Prominently positions server management at the top of the view.
+                    - Responsive layout gracefully adapts between desktop, tablet, and mobile.
+                    ========================================================================
+                -->
+                <div class="plugins-tab-header">
+                    <div class="plugins-tab-header-info">
+                        <h2 class="content-title" data-i18n="Plugins">${i18n.t('Plugins')}</h2>
+                        <p class="content-subtitle" data-i18n="PluginsTabDescription">
+                            ${i18n.t('PluginsTabDescription') || 'Extend functionality with community add-ons, metadata providers, and third-party integrations.'}
+                        </p>
+                    </div>
+                    <!-- Quick-launch button opening Jellyfin Server Dashboard in a new window -->
+                    <button class="btn btn-option btn-open-dashboard focusable"
+                            id="btn-open-dashboard"
+                            tabindex="0"
+                            data-focusable="true"
+                            title="${i18n.t('OpenJellyfinDashboard') || 'Open Jellyfin Dashboard'}">
+                        <!-- External link glyph indicating navigation to an outside window/tab -->
+                        <svg class="btn-icon-svg" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+                            <polyline points="15 3 21 3 21 9"></polyline>
+                            <line x1="10" y1="14" x2="21" y2="3"></line>
+                        </svg>
+                        <span class="btn-label" data-i18n="OpenJellyfinDashboard">${i18n.t('OpenJellyfinDashboard') || 'Open Jellyfin Dashboard'}</span>
+                    </button>
+                </div>
 
                 <div class="setting-item" id="seerr-status-card">
                     <div class="setting-label">
@@ -10049,6 +10076,32 @@ class SettingsPage extends Page {
             });
         });
 
+        // =========================================================================
+        // PLUGINS TAB: JELLYFIN SERVER DASHBOARD SHORTCUT
+        // =========================================================================
+        // Handles user click on the top dashboard shortcut button.
+        // Opens the Jellyfin server administration dashboard in a new browser window.
+        // =========================================================================
+        const btnOpenDashboard = this.$('#btn-open-dashboard');
+        if (btnOpenDashboard) {
+            btnOpenDashboard.addEventListener('click', (e) => {
+                // Prevent standard event bubbling
+                e.preventDefault();
+
+                // Obtain the current active Jellyfin server base URL from ApiClient
+                const rawUrl = api.serverUrl || window.location.origin;
+
+                // Normalize server base URL by stripping any trailing slashes
+                const serverUrl = rawUrl.replace(/\/+$/, '');
+
+                // Canonical route to the Jellyfin Server Administration Dashboard
+                const dashboardUrl = `${serverUrl}/web/index.html#!/dashboard.html`;
+
+                // Open external URL honoring desktop (Tauri) and web browser environments
+                this._openExternalUrl(dashboardUrl);
+            });
+        }
+
         if (this.activeTab === 'plugins') {
             this._refreshSeerrStatus();
         }
@@ -14401,6 +14454,17 @@ class SettingsPage extends Page {
             leaveLeft: isPortrait ? null : 'settings-sidebar',
             leaveRight: null,
             enterTo: 'first',
+            onEnter: (fromElement, options) => {
+                // When entering the Plugins tab, prioritize focusing the first installed plugin toggle
+                // rather than the top header dashboard action button.
+                if (this.activeTab === 'plugins') {
+                    const firstPluginToggle = this.$('.toggle-switch[data-plugin-id]');
+                    if (firstPluginToggle) {
+                        return firstPluginToggle;
+                    }
+                }
+                return null;
+            },
             onMove: (direction, currentElement) => {
                 // 0. Check for explicit navigation override (highest priority)
                 if (currentElement) {
