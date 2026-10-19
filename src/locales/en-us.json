@@ -933,6 +933,8 @@
     "JellyfinFallbackFontSelectionDescription": "Select which font file on the server to use as the fallback font",
     "KeepFocusOnSubtitleOffset": "Keep Focus on Offset Menu",
     "KeepFocusOnSubtitleOffsetDescription": "Remember focus position on the subtitle offset menu when the player controls auto-hide.",
+    "KeepSidebarNavButton": "Keep Dedicated Sidebar Button",
+    "KeepSidebarNavButtonDescription": "Do not hide the Home or Settings button from the navigation list when the logo is mapped to it.",
     "LabelAlphaPickerPosition": "Library Alphabet Selector Position",
     "LabelAlphaPickerScrollMode": "Alphabet Quick-Jump Action",
     "LabelAsRole": "as {0}",

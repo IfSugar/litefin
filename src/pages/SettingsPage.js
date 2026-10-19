@@ -3412,6 +3412,20 @@ class SettingsPage extends Page {
                     </div>
                 </div>
 
+                <!-- Keep Dedicated Navigation Button in Sidebar Toggle -->
+                <div class="setting-item" id="keep-sidebar-button-item">
+                    <div class="setting-label">
+                        <span class="setting-name" data-i18n="KeepSidebarNavButton">${i18n.t('KeepSidebarNavButton') || 'Keep Dedicated Sidebar Button'}</span>
+                        <span class="setting-description" data-i18n="KeepSidebarNavButtonDescription">${i18n.t('KeepSidebarNavButtonDescription') || 'Do not hide the Home or Settings button from the navigation list when the logo is mapped to it.'}</span>
+                    </div>
+                    <div class="setting-control">
+                        <button class="toggle-switch ${storage.getItem('pref:keepSidebarNavButton') === 'true' ? 'active' : ''}"
+                                id="toggle-keep-sidebar-button"
+                                tabindex="0">
+                        </button>
+                    </div>
+                </div>
+
                 <!-- ============================================================= -->
                 <!-- SIDEBAR BACK BUTTON CONFIGURATION                             -->
                 <!-- ============================================================= -->
@@ -12531,6 +12545,32 @@ class SettingsPage extends Page {
                 storage.setItem('pref:loopOverflowingText', newValue.toString());
                 loopOverflowingTextToggle.classList.toggle('active', newValue);
                 log.info(`Loop Overflowing Text set to: ${newValue}`);
+            });
+        }
+
+        // =========================================================================
+        // SIDEBAR: KEEP DEDICATED SIDEBAR BUTTON TOGGLE
+        // =========================================================================
+        // Toggles whether the dedicated Home or Settings button remains visible
+        // in the sidebar when the Litefin logo is assigned to that same action.
+        // =========================================================================
+        const keepSidebarBtnToggle = this.$('#toggle-keep-sidebar-button');
+        if (keepSidebarBtnToggle) {
+            keepSidebarBtnToggle.addEventListener('click', () => {
+                // Read current preference state from persistent storage
+                const currentValue = storage.getItem('pref:keepSidebarNavButton') === 'true';
+                const nextValue = !currentValue;
+
+                // Persist new user choice
+                storage.setItem('pref:keepSidebarNavButton', nextValue.toString());
+                storage.flush();
+
+                // Optimistically update toggle visual switch
+                keepSidebarBtnToggle.classList.toggle('active', nextValue);
+
+                // Notify live sidebar instance to re-evaluate item visibility
+                eventBus.emit('pref:keepSidebarNavButton', nextValue);
+                log.info(`Keep Dedicated Sidebar Button set to: ${nextValue}`);
             });
         }
 

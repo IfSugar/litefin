@@ -200,6 +200,7 @@ class Sidebar extends Component {
         this._updateLogoSettings();
         this._onLogoSettingsChanged = () => this._updateLogoSettings();
         eventBus.on('pref:logoSettings', this._onLogoSettingsChanged);
+        eventBus.on('pref:keepSidebarNavButton', this._onLogoSettingsChanged);
 
         this._updateSidebarItemsAlign();
         this._onSidebarItemsAlignChanged = () => this._updateSidebarItemsAlign();
@@ -625,14 +626,17 @@ class Sidebar extends Component {
                     tooltipEl.style.display = 'none';
                 }
 
+                // Determine whether dedicated Home or Settings button should remain visible
+                const keepNavBtn = storage.getItem('pref:keepSidebarNavButton') === 'true';
+
                 // Show/hide dedicated settings button if logo is set to settings
                 if (settingsBtn) {
-                    settingsBtn.classList.toggle('hidden', logoPref === 'settings');
+                    settingsBtn.classList.toggle('hidden', logoPref === 'settings' && !keepNavBtn);
                 }
 
                 // Show/hide dedicated home button if logo is set to home
                 if (homeBtn) {
-                    homeBtn.classList.toggle('hidden', logoPref === 'home');
+                    homeBtn.classList.toggle('hidden', logoPref === 'home' && !keepNavBtn);
                 }
 
                 // Invalidate focusManager cache since focusability of a header element changed
