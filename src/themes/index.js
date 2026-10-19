@@ -18,3 +18,6 @@ import './ember.css';
 import './sunset.css';
 import './frost.css';
 import './paper.css';
+import './nocturne.css';
+import './abyss.css';
+import './cyberpunk.css';

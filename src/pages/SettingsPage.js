@@ -1033,9 +1033,11 @@ class SettingsPage extends Page {
                         ${this._renderDropdown(
                 'theme-mode-select',
                 [
-                    // ====================================================================
+                    
+                    // Black OLED theme for extreme battery saving and deep contrast profiles.
+                    { value: 'black', label: i18n.t('ThemeBlack') || 'Black (OLED)' },
+                    
                     // Ambient Glow Theme Mode
-                    // ====================================================================
                     { value: 'ambient', label: i18n.t('ThemeAmbient') || 'Ambient Glow' },
 
                     // Ember: the only warm dark mode — candlelit roast canvas with firelight glow.
@@ -1044,14 +1046,23 @@ class SettingsPage extends Page {
                     // Sunset: cinematic gradient dusk with plum-to-amber sky and sun bloom.
                     { value: 'sunset', label: i18n.t('ThemeSunset') || 'Sunset' },
 
+                    // Nocturne: the projection booth — booth-ink canvas under a single
+                    // tungsten beam with theater haze, light pool and dust motes.
+                    { value: 'nocturne', label: i18n.t('ThemeNocturne') || 'Nocturne' },
+
+                    // Abyss: bioluminescent deep-sea — pressure canvas lit by an
+                    // off-center lure glow under surface god rays.
+                    { value: 'abyss', label: i18n.t('ThemeAbyss') || 'Abyss' },
+
+                    // Cyberpunk: night-city signage — violet-ink canvas under
+                    // asymmetric neon sign blooms and a CRT scanline raster.
+                    { value: 'cyberpunk', label: i18n.t('ThemeCyberpunk') || 'Cyberpunk' },
+
                     // Tinted background theme mapping closely with specific selected colors.
                     { value: 'tinted', label: i18n.t('ThemeTinted') || 'Tinted' },
 
                     // Light Tinted theme providing a luminous, warm tinted base derived from accent color.
                     { value: 'tinted-light', label: i18n.t('ThemeTintedLight') || 'Light Tinted' },
-
-                    // Black OLED theme for extreme battery saving and deep contrast profiles.
-                    { value: 'black', label: i18n.t('ThemeBlack') || 'Black (OLED)' },
 
                     // Traditional Dark Theme with deep charcoal shades.
                     { value: 'classic-dark', label: i18n.t('ThemeDarkClassic') || 'Dark Classic' },
@@ -1113,7 +1124,7 @@ class SettingsPage extends Page {
                 </div>
 
                 <!-- Override Theme Color (Ember, Sunset, Frost, Paper only) -->
-                <div class="setting-item ${!['ember', 'sunset', 'frost', 'paper'].includes(layoutManager.getThemeMode()) ? 'hidden' : ''}" id="signature-accent-item">
+                <div class="setting-item ${!['ember', 'sunset', 'frost', 'paper', 'nocturne', 'abyss', 'cyberpunk'].includes(layoutManager.getThemeMode()) ? 'hidden' : ''}" id="signature-accent-item">
                     <div class="setting-label">
                         <span class="setting-name" data-i18n="OverrideThemeColor">${i18n.t('OverrideThemeColor') || 'Override Theme Color'}</span>
                         <span class="setting-description" data-i18n="OverrideThemeColorDescription">${i18n.t('OverrideThemeColorDescription') || 'Replace the theme color with this theme\'s own unique signature color.'}</span>
@@ -8315,7 +8326,7 @@ class SettingsPage extends Page {
         const item = this.$('#signature-accent-item');
         if (item) {
             const currentMode = layoutManager.getThemeMode();
-            const isSupported = ['ember', 'sunset', 'frost', 'paper'].includes(currentMode);
+            const isSupported = ['ember', 'sunset', 'frost', 'paper', 'nocturne', 'abyss', 'cyberpunk'].includes(currentMode);
             item.classList.toggle('hidden', !isSupported);
             focusManager.invalidateCache('settings-content');
         }

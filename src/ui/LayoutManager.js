@@ -42,7 +42,10 @@ const THEME_MODES = {
     EMBER: 'ember',
     SUNSET: 'sunset',
     FROST: 'frost',
-    PAPER: 'paper'
+    PAPER: 'paper',
+    NOCTURNE: 'nocturne',
+    ABYSS: 'abyss',
+    CYBERPUNK: 'cyberpunk'
 };
 
 // Default Theme Color (Litefin Purple Blue)
@@ -57,7 +60,10 @@ const DEFAULT_MODE_COLORS = {
     [THEME_MODES.EMBER]: '#e8853c',     // burnt amber — candlelit flame
     [THEME_MODES.SUNSET]: '#ff7a54',    // sunset coral — low sun bloom
     [THEME_MODES.FROST]: '#3d9be9',     // glacial blue — icy daylight
-    [THEME_MODES.PAPER]: '#8a5a33'      // sepia ink — old print
+    [THEME_MODES.PAPER]: '#8a5a33',     // sepia ink — old print
+    [THEME_MODES.NOCTURNE]: '#d8b25c',  // projector tungsten — booth keylight
+    [THEME_MODES.ABYSS]: '#35d0cc',     // bioluminescent teal — deep-sea lure
+    [THEME_MODES.CYBERPUNK]: '#ff2d78'  // neon hot magenta — night-city sign
 };
 
 class LayoutManager {
@@ -872,6 +878,21 @@ class LayoutManager {
                 textPrimary = '#332a1f';
                 textSecondary = '#5d5245';
                 textTertiary = '#8a7d6a';
+            } else if (this._themeMode === THEME_MODES.NOCTURNE) {
+                // Celluloid white typography, warm silver secondaries.
+                textPrimary = '#f6f2ea';
+                textSecondary = 'rgba(230, 224, 210, 0.76)';
+                textTertiary = 'rgba(214, 210, 196, 0.54)';
+            } else if (this._themeMode === THEME_MODES.ABYSS) {
+                // Brine-white typography with cold-sea secondaries.
+                textPrimary = '#eff7f6';
+                textSecondary = 'rgba(218, 240, 238, 0.74)';
+                textTertiary = 'rgba(196, 224, 224, 0.52)';
+            } else if (this._themeMode === THEME_MODES.CYBERPUNK) {
+                // Neon-lit white typography, violet-cool secondaries.
+                textPrimary = '#f2f4ff';
+                textSecondary = 'rgba(228, 222, 245, 0.76)';
+                textTertiary = 'rgba(206, 202, 228, 0.52)';
             }
 
             dynamicCss += `
@@ -1007,6 +1028,45 @@ class LayoutManager {
             --jf-card-bg-hover: #fdf9f0;
             --jf-divider: rgba(122, 100, 70, 0.2);
             --jf-navbar-bg: rgba(246, 240, 228, 0.88);`;
+        } else if (this._themeMode === THEME_MODES.NOCTURNE) {
+            // Projection booth: steel-to-ink canvas with silver-film glass
+            // surfaces and splice hairlines so the beam light bleeds.
+            dynamicCss += `
+            --jf-background: #0c0e13;
+            --jf-background-rgb: 12, 14, 19;
+            --jf-background-alt: #12151d;
+            --sidebar-bg: transparent;
+            --jf-surface: rgba(214, 224, 240, 0.045);
+            --jf-card-bg: rgba(214, 224, 240, 0.07);
+            --jf-card-bg-hover: rgba(214, 224, 240, 0.16);
+            --jf-divider: rgba(214, 224, 240, 0.14);
+            --jf-navbar-bg: rgba(9, 11, 16, 0.85);`;
+        } else if (this._themeMode === THEME_MODES.ABYSS) {
+            // Deep sea: pressure canvas with current-blur glass surfaces
+            // layered over the lure glow.
+            dynamicCss += `
+            --jf-background: #06111c;
+            --jf-background-rgb: 6, 17, 28;
+            --jf-background-alt: #03101a;
+            --sidebar-bg: transparent;
+            --jf-surface: rgba(140, 220, 215, 0.04);
+            --jf-card-bg: rgba(140, 220, 215, 0.07);
+            --jf-card-bg-hover: rgba(140, 220, 215, 0.15);
+            --jf-divider: rgba(140, 220, 215, 0.13);
+            --jf-navbar-bg: rgba(4, 10, 16, 0.82);`;
+        } else if (this._themeMode === THEME_MODES.CYBERPUNK) {
+            // Night city: violet-ink canvas with neon-tinted glass surfaces
+            // layered under the sign blooms and scanline raster.
+            dynamicCss += `
+            --jf-background: #0a0713;
+            --jf-background-rgb: 10, 7, 19;
+            --jf-background-alt: #100b1e;
+            --sidebar-bg: transparent;
+            --jf-surface: rgba(150, 120, 255, 0.045);
+            --jf-card-bg: rgba(150, 120, 255, 0.07);
+            --jf-card-bg-hover: rgba(150, 120, 255, 0.16);
+            --jf-divider: rgba(150, 120, 255, 0.13);
+            --jf-navbar-bg: rgba(7, 5, 14, 0.86);`;
         } else if (this._themeMode === THEME_MODES.BLACK) {
             /*
              * True Pitch Black canvas for OLED displays.
@@ -1097,6 +1157,12 @@ class LayoutManager {
                 resolvedBg = '#e8f1f6';
             } else if (this._themeMode === THEME_MODES.PAPER) {
                 resolvedBg = '#f2ead9';
+            } else if (this._themeMode === THEME_MODES.NOCTURNE) {
+                resolvedBg = '#0c0e13';
+            } else if (this._themeMode === THEME_MODES.ABYSS) {
+                resolvedBg = '#06111c';
+            } else if (this._themeMode === THEME_MODES.CYBERPUNK) {
+                resolvedBg = '#0a0713';
             } else if (this._themeMode === THEME_MODES.BLACK) {
                 resolvedBg = '#000000';
             } else if (this._themeMode === THEME_MODES.CLASSIC_LIGHT) {
