@@ -309,6 +309,13 @@ export function isAudioTrackNativelyPlayable(track, mediaSource = null, backendT
 
     // FLAC / ALAC in video containers: unsupported on standard HTML5 players when enableFlacInVideo is disabled
     if (codec === 'flac' || codec === 'alac') {
+        // enableFlacInVideo is a Tizen setting. The native webOS player plays FLAC up to
+        // 2 channels, as the webOS device profile declares for direct play.
+        const isWebOSNative =
+            backendType === 'webos' || (!backendType && isWebOS && PlayerSettings.get('playerBackend') !== 'html5');
+        if (codec === 'flac' && isWebOSNative) {
+            return !(track.Channels > 2);
+        }
         return PlayerSettings.get('enableFlacInVideo') === true;
     }
 
@@ -4587,8 +4594,10 @@ export class JellyfinPlayer extends EventEmitter {
                 return false;
             }
 
-            // Omit FLAC / ALAC in video containers if enableFlacInVideo setting is disabled
-            if ((codec === 'flac' || codec === 'alac') && !PlayerSettings.get('enableFlacInVideo')) {
+            // Omit FLAC / ALAC in video containers if enableFlacInVideo setting is disabled.
+            // That setting is Tizen-only: webOS lists FLAC tracks in video.audioTracks.
+            const isWebOSFlac = codec === 'flac' && this._backendType === 'webos';
+            if ((codec === 'flac' || codec === 'alac') && !isWebOSFlac && !PlayerSettings.get('enableFlacInVideo')) {
                 return false;
             }
 

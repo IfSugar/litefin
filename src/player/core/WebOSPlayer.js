@@ -155,6 +155,8 @@ export class WebOSPlayer {
         // Prevents brief audio bursts from timestamp 0:00 when resuming playback.
         // ====================================================================
         this._resumeAudioSuppressed = false;
+        // Keeps the resume mute on until a deferred audio track switch is done
+        this._resumeTrackSwitchPending = false;
 
         // ====================================================================
         // Video Suppression State (Resume Playback):
@@ -354,6 +356,7 @@ export class WebOSPlayer {
         // Mute audio and suppress visual presentation until the target GOP keyframe
         // is reached, preventing the random 0:00 frame and audio burst from leaking.
         // ====================================================================
+        this._resumeTrackSwitchPending = false;
         if (this._robustSeekTarget > 0) {
             // Mute audio if not already muted by the user
             if (!video.muted) {
@@ -1108,7 +1111,37 @@ export class WebOSPlayer {
                 } else {
                     // Non-default track requested and nativeTracks is populated: switch via HTML5 audioTracks
                     const outputIndex = nativeTracks.length <= 1 ? 0 : resolvedIndex;
-                    this.setAudioStreamIndex(outputIndex);
+                    if (!this._isHls && options.playerStartPositionTicks > 0) {
+                        // Resuming direct play: switching before playback moves (even right at
+                        // 'playing') left the webOS pipeline stalled with an empty buffer at the resume
+                        // position, so wait until 0.3 s have actually played. Seek jumps do not count
+                        // as played time. The resume mute stays on until then, so the default track
+                        // is not heard.
+                        const video = this._videoElement;
+                        let lastTime = video.currentTime;
+                        let played = 0;
+                        this._resumeTrackSwitchPending = true;
+                        const onTimeUpdate = () => {
+                            if (this._currentPlayOptions !== options) {
+                                video.removeEventListener('timeupdate', onTimeUpdate);
+                                return;
+                            }
+                            const step = video.currentTime - lastTime;
+                            lastTime = video.currentTime;
+                            if (step > 0 && step < 1) played += step;
+                            if (played < 0.3) return;
+                            video.removeEventListener('timeupdate', onTimeUpdate);
+                            this._resumeTrackSwitchPending = false;
+                            this.setAudioStreamIndex(outputIndex);
+                            if (this._resumeAudioSuppressed) {
+                                this._resumeAudioSuppressed = false;
+                                this.setMuted(false);
+                            }
+                        };
+                        video.addEventListener('timeupdate', onTimeUpdate);
+                    } else {
+                        this.setAudioStreamIndex(outputIndex);
+                    }
                 }
             }
         }
@@ -1568,6 +1601,7 @@ export class WebOSPlayer {
         }
 
         this._resumeAudioSuppressed = false;
+        this._resumeTrackSwitchPending = false;
 
         // --------------------------------------------------------------------
         // Keep the stopped video element visually suppressed so any decoded frame
@@ -1868,7 +1902,7 @@ export class WebOSPlayer {
                 const codec = (s.Codec || '').toLowerCase();
                 if (codec === 'truehd' && !isTrueHdSupported()) return false;
                 if ((codec.includes('dts') || codec === 'dca') && !isDtsSupported()) return false;
-                if ((codec === 'flac' || codec === 'alac') && !PlayerSettings.get('enableFlacInVideo')) return false;
+                if (codec === 'alac' && !PlayerSettings.get('enableFlacInVideo')) return false;
                 return true;
             });
             // Resolve target stream from filtered audio list, falling back to all audio streams
@@ -1948,8 +1982,10 @@ export class WebOSPlayer {
             // Exclude DTS / DCA audio formats if disabled in settings
             if ((codec.includes('dts') || codec === 'dca') && !isDtsSupported()) return false;
 
-            // Exclude FLAC / ALAC audio formats if disabled in settings
-            if ((codec === 'flac' || codec === 'alac') && !PlayerSettings.get('enableFlacInVideo')) return false;
+            // Exclude ALAC audio formats if disabled in settings. FLAC is kept: enableFlacInVideo is
+            // a Tizen setting, and webOS lists FLAC tracks in video.audioTracks and plays a FLAC
+            // container default, so dropping it made another track look like the default.
+            if (codec === 'alac' && !PlayerSettings.get('enableFlacInVideo')) return false;
 
             return true;
         });
@@ -2019,7 +2055,7 @@ export class WebOSPlayer {
             const codec = (s.Codec || '').toLowerCase();
             if (codec === 'truehd' && !isTrueHdSupported()) return false;
             if ((codec.includes('dts') || codec === 'dca') && !isDtsSupported()) return false;
-            if ((codec === 'flac' || codec === 'alac') && !PlayerSettings.get('enableFlacInVideo')) return false;
+            if (codec === 'alac' && !PlayerSettings.get('enableFlacInVideo')) return false;
             return true;
         });
 
@@ -2933,8 +2969,8 @@ export class WebOSPlayer {
             return; // suppress playing event until retry loop finishes
         }
 
-        // Resume is now confirmed safe. Unmute audio.
-        if (this._resumeAudioSuppressed) {
+        // Resume is now confirmed safe. Unmute audio (after a pending audio track switch).
+        if (this._resumeAudioSuppressed && !this._resumeTrackSwitchPending) {
             this._resumeAudioSuppressed = false;
             this.setMuted(false);
         }
