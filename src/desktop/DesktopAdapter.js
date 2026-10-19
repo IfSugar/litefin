@@ -1,4 +1,4 @@
-/**
+﻿/**
  * ============================================================================
  * Litefin - Desktop Platform Adapter
  * ============================================================================
@@ -15,6 +15,7 @@
 import { eventBus } from '../core/EventBus.js';
 import { storage } from '../utils/StorageService.js';
 import { logger } from '../utils/Logger.js';
+import { gamepadManager } from '../utils/GamepadManager.js';
 
 // Initialize dedicated logger for Desktop adapter events
 const log = logger.create('DesktopAdapter');
@@ -92,6 +93,12 @@ class DesktopAdapter {
 
         // Register global physical keyboard handler
         this._setupKeyHandler();
+
+        // Initialize gamepad and controller navigation subsystem (Xbox, DualShock/DualSense, 8BitDo)
+        gamepadManager.init({
+            onActivity: () => this.reportInput(),
+            onFullscreen: () => this.toggleFullscreen()
+        });
 
         // Register pointer, mouse, and wheel listeners to report user activity
         document.addEventListener('mousemove', () => this.reportInput(), { passive: true });

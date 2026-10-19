@@ -1,4 +1,4 @@
-/**
+﻿/**
  * ============================================================================
  * Litefin - Web Platform Adapter
  * ============================================================================
@@ -15,6 +15,7 @@
 import { eventBus } from '../core/EventBus.js';
 import { storage } from '../utils/StorageService.js';
 import { logger } from '../utils/Logger.js';
+import { gamepadManager } from '../utils/GamepadManager.js';
 
 // Initialize dedicated logger for Web adapter events
 const log = logger.create('WebAdapter');
@@ -91,6 +92,12 @@ class WebAdapter {
 
         // Register global physical keyboard handler
         this._setupKeyHandler();
+
+        // Initialize gamepad and controller navigation subsystem (Xbox, DualShock/DualSense, 8BitDo)
+        gamepadManager.init({
+            onActivity: () => this.reportInput(),
+            onFullscreen: () => this.toggleFullscreen()
+        });
 
         // Register pointer, mouse, touch, and wheel listeners to report user activity
         document.addEventListener('mousemove', () => this.reportInput(), { passive: true });
