@@ -61,6 +61,33 @@ const isDtsSupported = () => {
     }
 };
 
+/**
+ * Verify whether an audio track is natively decodable by the WebOS hardware media engine.
+ *
+ * WebOS natively decodes standard web audio (AAC, MP3, AC3, E-AC3, PCM), and can pass through
+ * discrete DTS streams when DTS decode/passthrough is enabled in settings and supported by the TV.
+ * However, Dolby TrueHD and 7.1/lossless streams cannot be decoded by internal WebOS web apps.
+ *
+ * @param {Object} stream - Audio stream metadata from MediaStreams
+ * @returns {boolean} True if WebOS hardware can play this track natively in DirectPlay
+ */
+const isWebOSAudioTrackPlayable = (stream) => {
+    if (!stream || !stream.Codec) return true;
+    const codec = stream.Codec.toLowerCase();
+
+    // Dolby TrueHD: WebOS web applications lack native decode or bitstream capability for TrueHD
+    if (codec === 'truehd' || codec === 'mlp') return isTrueHdSupported();
+
+    // DTS / DTS-HD / DCA multi-channel surround tracks
+    if (codec.includes('dts') || codec === 'dca') return isDtsSupported();
+
+    // ALAC / FLAC channels constraint check
+    if (codec === 'alac' && !PlayerSettings.get('enableFlacInVideo')) return false;
+    if (codec === 'flac' && typeof stream.Channels === 'number' && stream.Channels > 2) return false;
+
+    return true;
+};
+
 // ============================================================================
 // Constants
 // ============================================================================
@@ -1083,17 +1110,27 @@ export class WebOSPlayer {
                 const isDefaultTrack = (defaultIndex !== undefined && Number(requestedIndex) === Number(defaultIndex)) ||
                                        (defaultIndex === undefined && resolvedIndex === 0);
 
-                // If the requested track is already the container's default track,
-                // the WebOS native media engine is ALREADY demuxing and playing it natively
-                // (including TrueHD Atmos or DTS-HD MA passed through via eARC).
-                // Attempting to invoke setAudioStreamIndex() here would cause
-                // _resolveNativeAudioIndex() to return -1 (since Chromium's HTML5 audioTracks
-                // collection hides TrueHD/DTS passthrough tracks), which would trigger a
-                // spurious audiotrackswitchfailed event, abort in-flight play() promises,
-                // and force an unnecessary, broken remux restart.
-                if (isDefaultTrack) {
+                // ---------------------------------------------------------------------
+                // Container Default Track Playability Verification
+                // ---------------------------------------------------------------------
+                // Resolve the container's designated default audio stream metadata.
+                // We must verify that the default track is actually natively decodable
+                // by the WebOS media engine before assuming it is playing in hardware.
+                // If the default track is TrueHD or an unsupported format, the hardware
+                // is NOT playing it successfully, so we must not skip track switching.
+                // ---------------------------------------------------------------------
+                const defaultStream = options.mediaSource?.MediaStreams?.find(
+                    s => s.Type === 'Audio' && s.Index === Number(defaultIndex)
+                );
+                const isDefaultPlayable = isWebOSAudioTrackPlayable(defaultStream);
+
+                // If the requested track is already the container's default track AND
+                // that default track is confirmed natively decodable, WebOS hardware
+                // is already demuxing and playing it natively.
+                // Skipping track switch prevents spurious audiotrackswitchfailed events.
+                if (isDefaultTrack && isDefaultPlayable) {
                     log.info('WebOSPlayer: _applyInitialTracks — requested track', requestedIndex,
-                        'is container default. Already playing natively in hardware, skipping track switch.');
+                        'is container default and natively playable. Already playing in hardware, skipping track switch.');
                     return;
                 }
 
@@ -1912,8 +1949,19 @@ export class WebOSPlayer {
                 ? (targetStream.IsDefault || listIndex === 0)
                 : (listIndex === 0);
 
-            if (isDefault) {
-                log.info('WebOSPlayer: _resolveNativeAudioIndex returned out-of-range index for default/primary track (passthrough codec like TrueHD/DTS playing natively). Skipping restart.');
+            // -----------------------------------------------------------------
+            // Hardware Decoding Capability Check on Target Stream
+            // -----------------------------------------------------------------
+            // Only suppress the restart if the track is actually decodable or
+            // genuinely bitstreamable by the TV hardware (e.g. DTS passthrough).
+            // For unsupported codecs like Dolby TrueHD, suppression leaves the user
+            // stranded with no audio or player stalls. Firing audiotrackswitchfailed
+            // initiates a seamless server remux (DirectStream) with transcoded audio.
+            // -----------------------------------------------------------------
+            const isTargetPlayable = isWebOSAudioTrackPlayable(targetStream);
+
+            if (isDefault && isTargetPlayable) {
+                log.info('WebOSPlayer: _resolveNativeAudioIndex returned out-of-range index for playable default/primary track (passthrough codec playing natively). Skipping restart.');
                 return;
             }
 
@@ -1971,24 +2019,19 @@ export class WebOSPlayer {
         // Guard check: Ensure mediaSource and MediaStreams are present
         if (!mediaSource || !mediaSource.MediaStreams) return undefined;
 
-        // Filter streams to supported audio formats matching player settings
-        const audioStreams = mediaSource.MediaStreams.filter(s => {
-            if (s.Type !== 'Audio') return false;
-            const codec = (s.Codec || '').toLowerCase();
-
-            // Exclude TrueHD audio formats if disabled in settings
-            if (codec === 'truehd' && !isTrueHdSupported()) return false;
-
-            // Exclude DTS / DCA audio formats if disabled in settings
-            if ((codec.includes('dts') || codec === 'dca') && !isDtsSupported()) return false;
-
-            // Exclude ALAC audio formats if disabled in settings. FLAC is kept: enableFlacInVideo is
-            // a Tizen setting, and webOS lists FLAC tracks in video.audioTracks and plays a FLAC
-            // container default, so dropping it made another track look like the default.
-            if (codec === 'alac' && !PlayerSettings.get('enableFlacInVideo')) return false;
-
-            return true;
-        });
+        // ---------------------------------------------------------------------
+        // Filter Candidate Streams Strictly to Audio Type
+        // ---------------------------------------------------------------------
+        // NOTE: We deliberately do NOT filter out TrueHD, DTS, or other codecs here.
+        // This function determines the physical container default audio track as
+        // written in the media container header on disk.
+        //
+        // If an unplayable format like TrueHD were filtered out here, a secondary
+        // track (such as AC3) would be misidentified as the container default,
+        // causing _applyInitialTracks to falsely skip track switching while the
+        // TV hardware actually begins playing the real default track (TrueHD).
+        // ---------------------------------------------------------------------
+        const audioStreams = mediaSource.MediaStreams.filter(s => s.Type === 'Audio');
 
         // 1. Check if an audio stream is explicitly marked IsDefault in container metadata
         const containerDefault = audioStreams.find(s => s.IsDefault);

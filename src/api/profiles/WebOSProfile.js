@@ -367,8 +367,14 @@ export function buildJellyfinProfile(options = {}) {
     const dtsSetting = PlayerSettings.get('enableDts');
     const enableDts = dtsSetting === 'enable' ? true : dtsSetting === 'disable' ? false : caps.dts;
 
-    const trueHdSetting = PlayerSettings.get('enableTrueHd');
-    const enableTrueHd = trueHdSetting === 'enable' ? true : trueHdSetting === 'disable' ? false : caps.truehd;
+    // -------------------------------------------------------------------------
+    // Dolby TrueHD: WebOS web applications and MediaPipeline lack native decode
+    // or bitstream passthrough for TrueHD from HTTP progressive media streams.
+    // TrueHD bitstream is only supported on LG TVs via external HDMI inputs.
+    // We must ensure TrueHD is never advertised in DirectPlayProfiles or
+    // DirectStreamProfiles, so Jellyfin copies video and transcodes TrueHD to E-AC-3/AC-3.
+    // -------------------------------------------------------------------------
+    const enableTrueHd = false;
 
     log.info('Evaluation flags:', {
         isHtml5,

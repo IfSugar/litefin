@@ -1095,43 +1095,85 @@ export function resolveBestAudioStream(mediaSource, targetLang, backendType = nu
  * @returns {boolean} True if the track requires DirectStream (remux)
  */
 export function doesAudioTrackRequireDirectStream(mediaSource, audioStreamIndex, backendType) {
-    // Guard check: Ensure mediaSource and MediaStreams exist
+    // -------------------------------------------------------------------------
+    // 0. Pre-Flight Validation & MediaStreams Guard
+    // -------------------------------------------------------------------------
+    // Guard check: Ensure mediaSource and MediaStreams array are present and populated
     if (!mediaSource || !Array.isArray(mediaSource.MediaStreams)) {
         return false;
     }
 
-    // Tizen AVPlay, MoviPlayer, and ExoPlayer all demux multi-audio tracks natively in hardware/WASM
-    if (backendType === 'avplay' || backendType === 'tizen' || backendType === 'movi' || backendType === 'exoplayer') {
-        return false;
-    }
-
-    // Filter candidate streams to Audio type
+    // Filter candidate streams strictly to Audio types for evaluation
     const audioStreams = mediaSource.MediaStreams.filter((s) => s.Type === 'Audio');
-    if (audioStreams.length <= 1) {
+    if (audioStreams.length === 0) {
         return false;
     }
 
-    // Parse requested audio stream index
+    // -------------------------------------------------------------------------
+    // 1. Resolve Target Audio Stream Candidate
+    // -------------------------------------------------------------------------
+    // Normalize requested audio index to number and find the corresponding stream
     const reqIndex = Number(audioStreamIndex);
-    const targetStream = audioStreams.find((s) => s.Index === reqIndex);
+    const targetStream = audioStreams.find((s) => s.Index === reqIndex) || audioStreams[0];
     if (!targetStream) {
         return false;
     }
 
-    // Determine the container's actual physical default audio track.
-    // NOTE: We deliberately do NOT use mediaSource.DefaultAudioStreamIndex here because
-    // the Jellyfin server dynamically sets that property to whatever AudioStreamIndex
-    // was requested in the PlaybackInfo call, rather than the file's container default.
-    const defaultStream = audioStreams.find((s) => s.IsDefault && isAudioTrackNativelyPlayable(s, mediaSource, backendType));
-    const playableStreams = audioStreams.filter((s) => isAudioTrackNativelyPlayable(s, mediaSource, backendType));
-    const containerHardwareDefault = defaultStream || playableStreams[0] || audioStreams[0];
+    // -------------------------------------------------------------------------
+    // 2. Hardware Capability Gate: Target Track Playability
+    // -------------------------------------------------------------------------
+    // If the target audio track itself is NOT natively playable by the current device
+    // hardware or player backend (e.g. Dolby TrueHD on WebOS, or DTS when disabled),
+    // progressive DirectPlay (Static=true) will fail or play silently in hardware.
+    // The server MUST remux (DirectStream) so FFmpeg copies video and transcodes audio.
+    if (!isAudioTrackNativelyPlayable(targetStream, mediaSource, backendType)) {
+        return true;
+    }
 
-    // If the requested track is the physical default track, it plays natively in hardware DirectPlay
-    if (containerHardwareDefault && targetStream.Index === containerHardwareDefault.Index) {
+    // -------------------------------------------------------------------------
+    // 3. Native Multi-Track Demuxing Engines (Tizen AVPlay, Movi, ExoPlayer)
+    // -------------------------------------------------------------------------
+    // Tizen AVPlay (native C API), MoviPlayer (WASM demuxer), and ExoPlayer (Android Media3)
+    // all demux and switch between multi-channel audio tracks natively in hardware or WASM.
+    // As long as the target stream is natively playable (verified above), remux is not needed.
+    if (backendType === 'avplay' || backendType === 'tizen' || backendType === 'movi' || backendType === 'exoplayer') {
         return false;
     }
 
-    // Check if target codec is omitted from Chromium's native video.audioTracks collection
+    // If there is only 1 audio stream and it is confirmed natively playable, DirectPlay is safe.
+    if (audioStreams.length <= 1) {
+        return false;
+    }
+
+    // -------------------------------------------------------------------------
+    // 4. Physical Default Container Track Gate for WebOS & HTML5
+    // -------------------------------------------------------------------------
+    // In progressive DirectPlay (Static=true), the browser's native media engine
+    // immediately demuxes and initializes playback using the physical default track.
+    // If the physical default track in the container file is NOT natively playable
+    // (e.g. TrueHD 7.1 master track alongside an AC3 compatibility track),
+    // the TV's hardware demuxer will fault or stall before track switching can occur.
+    const physicalDefaultStream = audioStreams.find((s) => s.IsDefault) || audioStreams[0];
+    if (physicalDefaultStream && !isAudioTrackNativelyPlayable(physicalDefaultStream, mediaSource, backendType)) {
+        return true;
+    }
+
+    // -------------------------------------------------------------------------
+    // 5. Container Hardware Default Match
+    // -------------------------------------------------------------------------
+    // If the requested track matches the container's physical default track,
+    // and that track is confirmed natively playable, DirectPlay operates natively.
+    if (physicalDefaultStream && targetStream.Index === physicalDefaultStream.Index) {
+        return false;
+    }
+
+    // -------------------------------------------------------------------------
+    // 6. Chromium Dropped Tracks Gate (Passthrough & High-Resolution Codecs)
+    // -------------------------------------------------------------------------
+    // Chromium's media demuxer drops passthrough/bitstream audio codecs from the
+    // native HTML5 video.audioTracks collection (DTS, TrueHD, FLAC, ALAC).
+    // On WebOS and HTML5, the browser cannot switch to non-default tracks of these
+    // formats in DirectPlay mode without server remuxing isolating the audio stream.
     const codec = (targetStream.Codec || '').toLowerCase();
     const isPassthroughOrDropped =
         codec.includes('dts') ||
@@ -1140,7 +1182,6 @@ export function doesAudioTrackRequireDirectStream(mediaSource, audioStreamIndex,
         codec === 'flac' ||
         codec === 'alac';
 
-    // If omitted from audioTracks, WebOS / HTML5 cannot switch to it in DirectPlay mode
     if (isPassthroughOrDropped) {
         return true;
     }
@@ -4938,9 +4979,20 @@ export class JellyfinPlayer extends EventEmitter {
                         prewarmedContainer === 'matroska' ||
                         prewarmedContainer.includes('mkv');
 
-                    if (isAudioCodecError && (this._playbackMode === 'auto' || this._playbackMode === 'directPlay')) {
+                    // Resolve whether the active audio track is actually playable natively on this backend
+                    const activeAudioTrack = firstSource.MediaStreams?.find(
+                        (s) => s.Type === 'Audio' && s.Index === Number(options.audioStreamIndex)
+                    );
+                    const isActiveAudioPlayable = activeAudioTrack
+                        ? isAudioTrackNativelyPlayable(activeAudioTrack, firstSource, this._backendType)
+                        : true;
+
+                    // Only discard AudioCodecNotSupported when the track is natively playable on this device
+                    // (signaling that the server unnecessarily forced a transcode for a supported stream).
+                    // If the active track is TrueHD or unsupported, AudioCodecNotSupported is expected and valid.
+                    if (isAudioCodecError && isActiveAudioPlayable && (this._playbackMode === 'auto' || this._playbackMode === 'directPlay')) {
                         log.warn(
-                            '[Prewarm] Prewarmed PlaybackInfo forced transcode for AudioCodecNotSupported. Discarding in favor of fresh direct-play request.'
+                            '[Prewarm] Prewarmed PlaybackInfo forced transcode for AudioCodecNotSupported despite track being playable. Discarding in favor of fresh direct-play request.'
                         );
                     } else if (deviceProfile?.DirectPlayProfiles?.length === 0 && firstSource.SupportsDirectPlay) {
                         log.info(

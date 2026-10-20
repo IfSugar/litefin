@@ -573,5 +573,102 @@ test('C5: unconfigured fallback slots (none or Default) are cleanly bypassed in 
     assert.strictEqual(best.Index, 1, 'Should select correct track from the active fallback slot');
 });
 
+// ============================================================================
+// TrueHD Remux & DirectStream Tests
+// ============================================================================
+
+test('doesAudioTrackRequireDirectStream: Single TrueHD track requires DirectStream remux on WebOS', () => {
+    // WebOS devices do not decode TrueHD in internal web apps.
+    // When a media file contains only a single TrueHD audio stream, it CANNOT DirectPlay
+    // and must be remuxed (DirectStream) so the server transcodes audio while copying video.
+    const { doesAudioTrackRequireDirectStream } = setup({
+        enableTrueHd: 'disable'
+    }, {
+        truehd: false
+    });
+
+    const mediaSource = {
+        Id: 'single-truehd-source',
+        MediaStreams: [
+            { Index: 1, Type: 'Audio', Codec: 'truehd', Channels: 8, Language: 'eng', IsDefault: true }
+        ]
+    };
+
+    const requiresRemux = doesAudioTrackRequireDirectStream(mediaSource, 1, 'webos');
+    assert.strictEqual(requiresRemux, true, 'Single TrueHD track must require DirectStream remux on WebOS');
+});
+
+test('doesAudioTrackRequireDirectStream: TrueHD default track requires DirectStream remux even if secondary track is AC3', () => {
+    // If the physical default track in the container file is TrueHD (unsupported on WebOS),
+    // progressive DirectPlay will cause WebOS hardware demuxer to choke on opening the file.
+    // Both TrueHD and AC3 track requests must return true to force DirectStream.
+    const { doesAudioTrackRequireDirectStream } = setup({
+        enableTrueHd: 'disable'
+    }, {
+        truehd: false
+    });
+
+    const mediaSource = {
+        Id: 'truehd-default-with-ac3-source',
+        MediaStreams: [
+            { Index: 1, Type: 'Audio', Codec: 'truehd', Channels: 8, Language: 'eng', IsDefault: true },
+            { Index: 2, Type: 'Audio', Codec: 'ac3', Channels: 6, Language: 'eng', IsDefault: false }
+        ]
+    };
+
+    // Selecting TrueHD track (Index 1) requires remux because TrueHD cannot be decoded natively
+    const requiresRemuxForTrueHd = doesAudioTrackRequireDirectStream(mediaSource, 1, 'webos');
+    assert.strictEqual(requiresRemuxForTrueHd, true, 'TrueHD track must require DirectStream remux');
+
+    // Selecting AC3 track (Index 2) also requires remux because container default is unplayable TrueHD
+    const requiresRemuxForAc3 = doesAudioTrackRequireDirectStream(mediaSource, 2, 'webos');
+    assert.strictEqual(requiresRemuxForAc3, true, 'AC3 track must require remux when container default track is unplayable TrueHD');
+});
+
+test('doesAudioTrackRequireDirectStream: TrueHD track requires DirectStream on Tizen when TrueHD is unsupported', () => {
+    // On Tizen AVPlay, if TrueHD is not supported by the TV, playing TrueHD via DirectPlay fails.
+    // The engine must signal DirectStream so audio is transcoded.
+    const { doesAudioTrackRequireDirectStream } = setup({
+        enableTrueHd: 'disable'
+    }, {
+        truehd: false
+    });
+
+    const mediaSource = {
+        Id: 'tizen-truehd-source',
+        MediaStreams: [
+            { Index: 1, Type: 'Audio', Codec: 'truehd', Channels: 8, Language: 'eng', IsDefault: true },
+            { Index: 2, Type: 'Audio', Codec: 'ac3', Channels: 6, Language: 'eng', IsDefault: false }
+        ]
+    };
+
+    const requiresRemux = doesAudioTrackRequireDirectStream(mediaSource, 1, 'avplay');
+    assert.strictEqual(requiresRemux, true, 'TrueHD track on Tizen without TrueHD capability must require DirectStream');
+});
+
+test('doesAudioTrackRequireDirectStream: TrueHD track does NOT require remux on ExoPlayer or Movi when TrueHD is supported', () => {
+    // Advanced media backends (ExoPlayer on Android, MoviPlayer via FFmpeg WASM) decode TrueHD natively.
+    // They demux and decode multi-channel lossless audio without needing server-side remux.
+    const { doesAudioTrackRequireDirectStream } = setup({
+        enableTrueHd: 'auto'
+    }, {
+        truehd: true
+    });
+
+    const mediaSource = {
+        Id: 'advanced-truehd-source',
+        MediaStreams: [
+            { Index: 1, Type: 'Audio', Codec: 'truehd', Channels: 8, Language: 'eng', IsDefault: true },
+            { Index: 2, Type: 'Audio', Codec: 'ac3', Channels: 6, Language: 'eng', IsDefault: false }
+        ]
+    };
+
+    const exoRemux = doesAudioTrackRequireDirectStream(mediaSource, 1, 'exoplayer');
+    assert.strictEqual(exoRemux, false, 'ExoPlayer must not require remux for TrueHD when enabled');
+
+    const moviRemux = doesAudioTrackRequireDirectStream(mediaSource, 1, 'movi');
+    assert.strictEqual(moviRemux, false, 'Movi backend must not require remux for TrueHD when enabled');
+});
+
 
 
