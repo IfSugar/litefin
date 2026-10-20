@@ -182,6 +182,9 @@ class LayoutManager {
         // Sidebar logo icon color: 'icon-colors', 'follow-theme', 'white', 'black'
         this._sidebarLogoColor = 'icon-colors';
 
+        // Sidebar icon shadows: true / false (default: false for flat, unified look)
+        this._sidebarIconShadows = false;
+
         // OSD Custom Button & Focus Border styles (overrides global)
         this._osdButtonStyle = 'follow-global';
         this._osdFocusBorderStyle = 'follow-global';
@@ -318,6 +321,11 @@ class LayoutManager {
         const savedSidebarUnselectedColor = storage.getItem('litefin:sidebarUnselectedColor') || 'grey';
         const savedSidebarSelectedColor = storage.getItem('litefin:sidebarSelectedColor') || 'white';
         const savedSidebarLogoColor = storage.getItem('litefin:sidebarLogoColor') || 'icon-colors';
+        const savedSidebarIconShadows =
+            storage.getItem('litefin:sidebarIconShadows') === 'true' ||
+            storage.getItem('pref:sidebarIconShadows') === 'true' ||
+            storage.getItem('litefin:sidebarIconShadows') === 'shadow' ||
+            storage.getItem('pref:sidebarIconShadows') === 'shadow';
         const savedOsdButtonStyle = storage.getItem('litefin:osdButtonStyle') || 'follow-global';
         const savedOsdFocusBorderStyle = storage.getItem('litefin:osdFocusBorderStyle') || 'follow-global';
         const savedOsdButtonShape = storage.getItem('litefin:osdButtonShape') || 'circle';
@@ -370,6 +378,7 @@ class LayoutManager {
         this.setSidebarUnselectedColor(savedSidebarUnselectedColor, false);
         this.setSidebarSelectedColor(savedSidebarSelectedColor, false);
         this.setSidebarLogoColor(savedSidebarLogoColor, false);
+        this.setSidebarIconShadows(savedSidebarIconShadows, false);
         this.setOsdButtonStyle(savedOsdButtonStyle, false);
         this.setOsdFocusBorderStyle(savedOsdFocusBorderStyle, false);
         this.setOsdButtonShape(savedOsdButtonShape, false);
@@ -1844,6 +1853,54 @@ class LayoutManager {
         }
         log.info(`Sidebar logo color updated: ${color}`);
         eventBus.emit('sidebarLogoColor:changed', { color });
+    }
+
+    /**
+     * =========================================================================
+     * SIDEBAR ICON SHADOWS CONFIGURATION
+     * =========================================================================
+     * Retrieves whether drop shadows are currently enabled for all icons
+     * rendered inside the primary sidebar navigation container.
+     *
+     * @returns {boolean} True if icon shadows are enabled, false if flat.
+     * =========================================================================
+     */
+    getSidebarIconShadows() {
+        return Boolean(this._sidebarIconShadows);
+    }
+
+    /**
+     * =========================================================================
+     * Set Sidebar Icon Shadows
+     * =========================================================================
+     * Configures whether drop shadows should be displayed across all sidebar
+     * icons including navigation buttons, brand header logo, back button capsule,
+     * and user profile avatar.
+     *
+     * @param {boolean|string} enabled - Desired shadow state ('true'/'shadow'/boolean)
+     * @param {boolean} [save=true] - Whether to persist choice to local storage
+     * =========================================================================
+     */
+    setSidebarIconShadows(enabled, save = true) {
+        // Resolve boolean state from boolean or string value
+        const isEnabled = enabled === true || enabled === 'true' || enabled === 'shadow';
+        this._sidebarIconShadows = isEnabled;
+
+        // Apply attribute to root document element for reactive CSS rules
+        document.documentElement.setAttribute('data-sidebar-icon-shadows', isEnabled ? 'true' : 'false');
+
+        // Persist preference to persistent local storage when requested
+        if (save) {
+            storage.setItem('litefin:sidebarIconShadows', isEnabled ? 'true' : 'false');
+            storage.setItem('pref:sidebarIconShadows', isEnabled ? 'true' : 'false');
+            storage.flush();
+        }
+
+        log.info(`Sidebar icon shadows set to: ${isEnabled}`);
+
+        // Broadcast notifications across event bus for live reactive components
+        eventBus.emit('sidebarIconShadows:changed', { enabled: isEnabled });
+        eventBus.emit('pref:sidebarIconShadows', isEnabled);
     }
 
     getOsdButtonStyle() {

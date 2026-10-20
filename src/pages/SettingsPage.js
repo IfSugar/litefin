@@ -3551,6 +3551,30 @@ class SettingsPage extends Page {
         )}
                     </div>
                 </div>
+
+                <!-- ============================================================= -->
+                <!-- SIDEBAR ICON SHADOWS CONFIGURATION                           -->
+                <!-- ============================================================= -->
+                <!-- Configures whether subtle drop shadows are added to all      -->
+                <!-- icons in the sidebar rail (navigation items, brand logo,     -->
+                <!-- back button, and user avatar). Default is flat/none.         -->
+                <!-- ============================================================= -->
+                <div class="setting-item">
+                    <div class="setting-label">
+                        <span class="setting-name" data-i18n="SidebarIconShadows">${i18n.t('SidebarIconShadows') || 'Sidebar Icon Shadows'}</span>
+                        <span class="setting-description" data-i18n="SidebarIconShadowsDescription">${i18n.t('SidebarIconShadowsDescription') || 'Add subtle drop shadows to all icons in the sidebar.'}</span>
+                    </div>
+                    <div class="setting-control">
+                        ${this._renderDropdown(
+            'sidebar-icon-shadows-select',
+            [
+                { value: 'none', label: i18n.t('OptionSidebarIconShadowsNone') || 'None' },
+                { value: 'shadow', label: i18n.t('OptionSidebarIconShadowsShadow') || 'Shadow' }
+            ],
+            layoutManager.getSidebarIconShadows() ? 'shadow' : 'none'
+        )}
+                    </div>
+                </div>
                 
                 <div class="setting-item">
                     <div class="setting-label">
@@ -12131,6 +12155,7 @@ class SettingsPage extends Page {
             'bottom-nav-bar-color-select': { key: 'pref:bottomNavBarColor', type: 'local', triggerEvent: true },
             'sidebar-logo-settings-select': { key: 'pref:logoSettings', type: 'local', triggerEvent: true },
             'sidebar-back-button-select': { key: 'pref:sidebarBackButton', type: 'local', triggerEvent: true },
+            'sidebar-icon-shadows-select': { key: 'pref:sidebarIconShadows', type: 'local', triggerEvent: true },
             'sidebar-items-align-select': { key: 'pref:sidebarItemsAlign', type: 'local', triggerEvent: true },
             'trending-movies-collection-select': { key: 'pref:trendingMoviesCollection', type: 'local', triggerEvent: true },
             'trending-series-collection-select': { key: 'pref:trendingSeriesCollection', type: 'local', triggerEvent: true },
@@ -12281,6 +12306,9 @@ class SettingsPage extends Page {
                         } else if (id === 'sidebar-logo-color-select') {
                             // SPECIAL CASE: Sidebar Logo Color handled by LayoutManager
                             layoutManager.setSidebarLogoColor(newValue);
+                        } else if (id === 'sidebar-icon-shadows-select') {
+                            // SPECIAL CASE: Sidebar Icon Shadows handled by LayoutManager
+                            layoutManager.setSidebarIconShadows(newValue === 'shadow' || newValue === 'true');
                         } else if (id === 'osd-button-style-select') {
                             // SPECIAL CASE: OSD Button Style handled by LayoutManager
                             layoutManager.setOsdButtonStyle(newValue);
@@ -12862,6 +12890,19 @@ class SettingsPage extends Page {
                 // Notify live sidebar instance to re-evaluate item visibility
                 eventBus.emit('pref:keepSidebarNavButton', nextValue);
                 log.info(`Keep Dedicated Sidebar Button set to: ${nextValue}`);
+            });
+        }
+
+        // =========================================================================
+        // SIDEBAR: ICON SHADOWS TOGGLE SWITCH (IF USED AS DIRECT SWITCH)
+        // =========================================================================
+        const iconShadowsToggle = this.$('#toggle-sidebar-icon-shadows');
+        if (iconShadowsToggle) {
+            iconShadowsToggle.addEventListener('click', () => {
+                const nextValue = !layoutManager.getSidebarIconShadows();
+                layoutManager.setSidebarIconShadows(nextValue);
+                iconShadowsToggle.classList.toggle('active', nextValue);
+                log.info(`Sidebar icon shadows set to: ${nextValue}`);
             });
         }
 

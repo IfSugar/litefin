@@ -397,7 +397,8 @@ body:not(.sidebar-mode-hidden) .sidebar.collapsed:not(:hover) .item-icon {
     background: rgba(255, 255, 255, 0.08);
     border: 1px solid rgba(255, 255, 255, 0.12);
     color: rgba(255, 255, 255, 0.85);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+    /* Unified resting state: flat by default without drop shadow */
+    box-shadow: none;
     -webkit-backdrop-filter: blur(20px);
     backdrop-filter: blur(20px);
     -webkit-transition: background-color 0.25s cubic-bezier(0.2, 0, 0, 1),
@@ -491,6 +492,45 @@ body:not(.sidebar-mode-hidden) .sidebar.collapsed:not(:hover) .item-icon {
 
 [dir="rtl"] .sidebar-back-btn:active .back-icon svg {
     transform: rotate(180deg) scale(0.92);
+}
+
+/* ============================================================================
+ * OPTIONAL SIDEBAR ICON SHADOWS
+ * ============================================================================
+ * When enabled via user settings, injects soft, unified drop shadows across all
+ * icons in the sidebar rail (navigation items, Litefin brand logo, user avatar,
+ * and circular back button capsule) for elevated visual depth and contrast.
+ * ============================================================================ */
+html[data-sidebar-icon-shadows="true"] .sidebar-back-btn .back-icon svg,
+html[data-sidebar-icon-shadows="shadow"] .sidebar-back-btn .back-icon svg,
+.sidebar.has-icon-shadows .sidebar-back-btn .back-icon svg {
+    /* Restore elevated capsule depth for the back button when shadows enabled */
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+    -webkit-filter: none;
+    filter: none;
+}
+
+html[data-sidebar-icon-shadows="true"] .sidebar .item-icon svg,
+html[data-sidebar-icon-shadows="shadow"] .sidebar .item-icon svg,
+html[data-sidebar-icon-shadows="true"] .sidebar .logo-icon svg,
+html[data-sidebar-icon-shadows="shadow"] .sidebar .logo-icon svg,
+html[data-sidebar-icon-shadows="true"] .sidebar-logo-img,
+html[data-sidebar-icon-shadows="shadow"] .sidebar-logo-img,
+html[data-sidebar-icon-shadows="true"] .sidebar .sidebar-chevron svg,
+html[data-sidebar-icon-shadows="shadow"] .sidebar .sidebar-chevron svg,
+html[data-sidebar-icon-shadows="true"] .sidebar .user-avatar-container img,
+html[data-sidebar-icon-shadows="shadow"] .sidebar .user-avatar-container img,
+html[data-sidebar-icon-shadows="true"] .sidebar .user-avatar-container svg,
+html[data-sidebar-icon-shadows="shadow"] .sidebar .user-avatar-container svg,
+.sidebar.has-icon-shadows .item-icon svg,
+.sidebar.has-icon-shadows .logo-icon svg,
+.sidebar.has-icon-shadows .sidebar-logo-img,
+.sidebar.has-icon-shadows .sidebar-chevron svg,
+.sidebar.has-icon-shadows .user-avatar-container img,
+.sidebar.has-icon-shadows .user-avatar-container svg {
+    /* Crisp drop shadow tailored to vector glyph geometry and PNG alpha channels */
+    -webkit-filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.45));
+    filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.45));
 }
 
 /* Header / Logo */

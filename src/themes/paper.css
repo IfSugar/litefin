@@ -218,7 +218,39 @@ html[data-theme-mode="paper"] .sidebar-back-btn .back-icon svg {
     color: #332a1f;
     background: rgba(51, 42, 31, 0.07);
     border-color: rgba(51, 42, 31, 0.18);
+    /* Flat resting state by default */
+    box-shadow: none;
+}
+
+/* Optional icon shadows override for Paper theme */
+html[data-theme-mode="paper"][data-sidebar-icon-shadows="true"] .sidebar-back-btn .back-icon svg,
+html[data-theme-mode="paper"][data-sidebar-icon-shadows="shadow"] .sidebar-back-btn .back-icon svg,
+html[data-theme-mode="paper"] .sidebar.has-icon-shadows .sidebar-back-btn .back-icon svg {
     box-shadow: 0 4px 12px rgba(80, 60, 35, 0.14);
+    -webkit-filter: none;
+    filter: none;
+}
+
+html[data-theme-mode="paper"][data-sidebar-icon-shadows="true"] .sidebar .item-icon svg,
+html[data-theme-mode="paper"][data-sidebar-icon-shadows="shadow"] .sidebar .item-icon svg,
+html[data-theme-mode="paper"][data-sidebar-icon-shadows="true"] .sidebar .logo-icon svg,
+html[data-theme-mode="paper"][data-sidebar-icon-shadows="shadow"] .sidebar .logo-icon svg,
+html[data-theme-mode="paper"][data-sidebar-icon-shadows="true"] .sidebar-logo-img,
+html[data-theme-mode="paper"][data-sidebar-icon-shadows="shadow"] .sidebar-logo-img,
+html[data-theme-mode="paper"][data-sidebar-icon-shadows="true"] .sidebar .sidebar-chevron svg,
+html[data-theme-mode="paper"][data-sidebar-icon-shadows="shadow"] .sidebar .sidebar-chevron svg,
+html[data-theme-mode="paper"][data-sidebar-icon-shadows="true"] .sidebar .user-avatar-container img,
+html[data-theme-mode="paper"][data-sidebar-icon-shadows="shadow"] .sidebar .user-avatar-container img,
+html[data-theme-mode="paper"][data-sidebar-icon-shadows="true"] .sidebar .user-avatar-container svg,
+html[data-theme-mode="paper"][data-sidebar-icon-shadows="shadow"] .sidebar .user-avatar-container svg,
+html[data-theme-mode="paper"] .sidebar.has-icon-shadows .item-icon svg,
+html[data-theme-mode="paper"] .sidebar.has-icon-shadows .logo-icon svg,
+html[data-theme-mode="paper"] .sidebar.has-icon-shadows .sidebar-logo-img,
+html[data-theme-mode="paper"] .sidebar.has-icon-shadows .sidebar-chevron svg,
+html[data-theme-mode="paper"] .sidebar.has-icon-shadows .user-avatar-container img,
+html[data-theme-mode="paper"] .sidebar.has-icon-shadows .user-avatar-container svg {
+    -webkit-filter: drop-shadow(0 2px 6px rgba(80, 60, 35, 0.22));
+    filter: drop-shadow(0 2px 6px rgba(80, 60, 35, 0.22));
 }
 
 html[data-theme-mode="paper"] .sidebar-back-btn:hover .back-icon svg,
