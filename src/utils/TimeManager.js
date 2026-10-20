@@ -30,6 +30,9 @@ class TimeManager {
         this._isTizen = false;
         this._isWebOS = false;
 
+        // Warning throttle flags to prevent console spam
+        this._warnedNoTizenTime = false;
+
         // WebOS system time cache and active subscription bridge
         this._webosTime = null;
         this._webosSubscription = null;
@@ -46,6 +49,38 @@ class TimeManager {
     }
 
     /**
+     * Resolves the native Samsung Tizen host object across global contexts.
+     * Looks for window.tizen, globalThis.tizen, or direct global namespace.
+     * @private
+     * @returns {Object|null}
+     */
+    _getTizenApi() {
+        if (typeof window !== 'undefined' && window.tizen) return window.tizen;
+        if (typeof globalThis !== 'undefined' && globalThis.tizen) return globalThis.tizen;
+        if (typeof tizen !== 'undefined') return tizen;
+        return null;
+    }
+
+    /**
+     * Safely reads the hardware/OS wall clock through the native Tizen Time module.
+     * Returns a valid TZDate instance or null if the module/privilege is unavailable.
+     * @private
+     * @returns {Object|null}
+     */
+    _getTizenDateTime() {
+        try {
+            // Locate root platform namespace
+            const tizenApi = this._getTizenApi();
+            if (tizenApi && tizenApi.time && typeof tizenApi.time.getCurrentDateTime === 'function') {
+                return tizenApi.time.getCurrentDateTime();
+            }
+        } catch (err) {
+            log.warn('[TimeManager] Error invoking tizen.time.getCurrentDateTime():', err);
+        }
+        return null;
+    }
+
+    /**
      * Initializes the TimeManager, detecting platform drivers and establishing
      * native OS clock listeners and server sync hooks.
      */
@@ -56,28 +91,54 @@ class TimeManager {
         // 1. Identify Host Operating Environment
         // --------------------------------------------------------------------
         const ua = typeof navigator !== 'undefined' ? navigator.userAgent : '';
-        this._isTizen = typeof window !== 'undefined' && Boolean(window.tizen && window.tizen.time);
+        const tizenObj = this._getTizenApi();
+        this._isTizen = Boolean(tizenObj);
         this._isWebOS = /Web[O0]S|NetCast|LG[ -]Browser/i.test(ua) || (typeof window !== 'undefined' && Boolean(window.webOS));
 
         log.info(`Platform clock drivers detected — Tizen: ${this._isTizen}, WebOS: ${this._isWebOS}`);
 
         // --------------------------------------------------------------------
-        // 1.1. Diagnostic Probe: Print OS Date on Startup
+        // 1.1. Diagnostic Probe: Print OS Date and Environment State
         // --------------------------------------------------------------------
-        if (this._isTizen && window.tizen?.time?.getCurrentDateTime) {
-            try {
-                const tz = window.tizen.time.getCurrentDateTime();
-                log.info(`[TimeManager] Tizen startup OS clock probe — toLocaleString: "${tz.toLocaleString()}", timezone: "${tz.getTimezone()}", offset: ${tz.getTimezoneOffset()}, raw:`, {
-                    year: tz.getFullYear(),
-                    month: tz.getMonth(),
-                    date: tz.getDate(),
-                    hours: tz.getHours(),
-                    minutes: tz.getMinutes(),
-                    seconds: tz.getSeconds()
-                });
-            } catch (err) {
-                log.warn('[TimeManager] Tizen startup clock probe failed:', err);
+        try {
+            // Record active configuration preferences
+            const activeSource = (typeof PlayerSettings !== 'undefined' && PlayerSettings.get('timeSource')) || 'browser';
+            log.info(`[TimeManager] Active timeSource preference: "${activeSource}"`);
+
+            // Record baseline JavaScript Date engine state
+            const baselineJsDate = new Date();
+            log.info(`[TimeManager] JS runtime Date baseline: "${baselineJsDate.toString()}" (epoch: ${baselineJsDate.getTime()}, tzOffset: ${baselineJsDate.getTimezoneOffset()})`);
+
+            // Inspect Tizen native environment if present
+            if (this._isTizen) {
+                const hasTime = Boolean(tizenObj && tizenObj.time);
+                const getCurrentDateTimeType = typeof tizenObj?.time?.getCurrentDateTime;
+                log.info(`[TimeManager] Tizen probe — tizen.time present: ${hasTime}, getCurrentDateTime type: "${getCurrentDateTimeType}"`);
+
+                // Execute live date query safely
+                const tz = this._getTizenDateTime();
+                if (tz) {
+                    try {
+                        const secOffset = typeof tz.secondsFromUTC === 'function' ? tz.secondsFromUTC() : null;
+                        const tzName = typeof tz.getTimezone === 'function' ? tz.getTimezone() : 'unknown';
+                        log.info(`[TimeManager] Tizen startup OS clock probe — toLocaleString: "${tz.toLocaleString()}", timezone: "${tzName}", secFromUTC: ${secOffset}, raw:`, {
+                            year: tz.getFullYear(),
+                            month: tz.getMonth(),
+                            date: tz.getDate(),
+                            hours: tz.getHours(),
+                            minutes: tz.getMinutes(),
+                            seconds: tz.getSeconds(),
+                            milliseconds: tz.getMilliseconds()
+                        });
+                    } catch (probeErr) {
+                        log.warn('[TimeManager] Tizen startup probe formatting failed:', probeErr);
+                    }
+                } else {
+                    log.warn('[TimeManager] Tizen OS date is currently unavailable via tizen.time.');
+                }
             }
+        } catch (diagErr) {
+            log.warn('[TimeManager] Startup diagnostic probe exception caught safely:', diagErr);
         }
 
         // --------------------------------------------------------------------
@@ -110,12 +171,16 @@ class TimeManager {
                 if (newSource === 'server') {
                     this.syncServerTime();
                 } else if (newSource === 'os') {
-                    if (this._isTizen && window.tizen?.time?.getCurrentDateTime) {
-                        try {
-                            const tz = window.tizen.time.getCurrentDateTime();
-                            log.info(`[TimeManager] Tizen OS date on switch: toLocaleString="${tz.toLocaleString()}", timezone="${tz.getTimezone()}", raw=${tz.getFullYear()}-${tz.getMonth() + 1}-${tz.getDate()} ${tz.getHours()}:${tz.getMinutes()}:${tz.getSeconds()}`);
-                        } catch (e) {
-                            log.warn('[TimeManager] Tizen OS switch probe error:', e);
+                    if (this._isTizen) {
+                        const tz = this._getTizenDateTime();
+                        if (tz) {
+                            try {
+                                log.info(`[TimeManager] Tizen OS date on switch: toLocaleString="${tz.toLocaleString()}", timezone="${tz.getTimezone()}", raw=${tz.getFullYear()}-${tz.getMonth() + 1}-${tz.getDate()} ${tz.getHours()}:${tz.getMinutes()}:${tz.getSeconds()}`);
+                            } catch (e) {
+                                log.warn('[TimeManager] Tizen OS switch probe error:', e);
+                            }
+                        } else {
+                            log.warn('[TimeManager] Tizen OS date unavailable on switch. Check time privilege.');
                         }
                     } else if (this._isWebOS) {
                         this._initWebOSClockDriver();
@@ -319,18 +384,24 @@ class TimeManager {
         // Strategy: Native Device Operating System (Tizen / webOS)
         // --------------------------------------------------------------------
         if (source === 'os') {
-            // 1. Samsung Tizen Native Device Time
-            if (this._isTizen && window.tizen?.time?.getCurrentDateTime) {
+            // ----------------------------------------------------------------
+            // 1. Samsung Tizen Native Hardware Clock Driver
+            // ----------------------------------------------------------------
+            if (this._isTizen) {
                 try {
-                    const tz = window.tizen.time.getCurrentDateTime();
+                    // Query native hardware clock through Tizen time bridge
+                    const tz = this._getTizenDateTime();
                     if (tz && typeof tz.getFullYear === 'function') {
-                        // Diagnostic log: throttled to once per minute or on initial read
+                        // Diagnostic log: throttled to once per minute to avoid spamming
                         const minuteKey = `${tz.getFullYear()}-${tz.getMonth()}-${tz.getDate()} ${tz.getHours()}:${tz.getMinutes()}`;
                         if (this._lastLoggedMinute !== minuteKey) {
                             this._lastLoggedMinute = minuteKey;
-                            log.info(`[TimeManager] Tizen OS active date: "${tz.toLocaleString()}" (tz: ${tz.getTimezone()}, offset: ${tz.getTimezoneOffset()}, year: ${tz.getFullYear()}, hours: ${tz.getHours()}:${tz.getMinutes()}:${tz.getSeconds()})`);
+                            const secOffset = typeof tz.secondsFromUTC === 'function' ? tz.secondsFromUTC() : null;
+                            const tzName = typeof tz.getTimezone === 'function' ? tz.getTimezone() : 'unknown';
+                            log.info(`[TimeManager] Tizen OS active date: "${tz.toLocaleString()}" (tz: ${tzName}, secFromUTC: ${secOffset}, year: ${tz.getFullYear()}, hours: ${tz.getHours()}:${tz.getMinutes()}:${tz.getSeconds()})`);
                         }
 
+                        // Construct native JavaScript Date instance using hardware clock fields
                         return new Date(
                             tz.getFullYear(),
                             tz.getMonth(),
@@ -341,12 +412,20 @@ class TimeManager {
                             tz.getMilliseconds()
                         );
                     }
-                } catch (err) {
-                    log.warn('Tizen native time reading failed:', err);
+                } catch (tizenErr) {
+                    log.warn('[TimeManager] Tizen native date calculation failed:', tizenErr);
+                }
+
+                // Log a throttled warning if Tizen time is unavailable
+                if (!this._warnedNoTizenTime) {
+                    this._warnedNoTizenTime = true;
+                    log.warn('[TimeManager] "os" time source selected, but tizen.time.getCurrentDateTime() is unavailable.');
                 }
             }
 
+            // ----------------------------------------------------------------
             // 2. LG webOS Native System Service Time
+            // ----------------------------------------------------------------
             if (this._isWebOS && this._webosTime) {
                 try {
                     const elapsedMs = performance.now() - this._webosTime.perfMs;
@@ -383,12 +462,14 @@ class TimeManager {
                     const browserOffset = new Date().getTimezoneOffset();
                     let targetTzOffset = null;
 
-                    // Check if Tizen provides native timezone configuration
-                    if (window.tizen?.time?.getCurrentDateTime) {
+                    // Check if Tizen provides native timezone configuration via secondsFromUTC
+                    const tizenTz = this._getTizenDateTime();
+                    if (tizenTz) {
                         try {
-                            const tz = window.tizen.time.getCurrentDateTime();
-                            if (tz && typeof tz.getTimezoneOffset === 'function') {
-                                targetTzOffset = tz.getTimezoneOffset();
+                            if (typeof tizenTz.secondsFromUTC === 'function') {
+                                // secondsFromUTC is seconds East of GMT (e.g. +10800 for UTC+3)
+                                // Convert to minutes West of GMT (e.g. -180 for UTC+3) matching JS getTimezoneOffset
+                                targetTzOffset = -Math.round(tizenTz.secondsFromUTC() / 60);
                             }
                         } catch (_) { }
                     }
