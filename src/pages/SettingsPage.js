@@ -932,6 +932,60 @@ class SettingsPage extends Page {
                     </div>
                 </div>
 
+                <div class="setting-item" id="time-timezone-item" style="${(PlayerSettings.get('timeSource') || 'browser') === 'server' ? '' : 'display: none;'}">
+                    <div class="setting-label">
+                        <span class="setting-name" data-i18n="LabelTimezone">${i18n.t('LabelTimezone') || 'Timezone Offset'}</span>
+                        <span class="setting-description" data-i18n="TimezoneDescription">${i18n.t('TimezoneDescription') || 'Select your local timezone offset when using Jellyfin Server time sync.'}</span>
+                    </div>
+                    <div class="setting-control">
+                        ${this._renderDropdown(
+                'time-timezone-select',
+                [
+                    { value: 'auto', label: i18n.t('TimezoneAuto') || 'Automatic (Device Timezone)' },
+                    { value: '-720', label: 'UTC-12:00 (Baker Island)' },
+                    { value: '-660', label: 'UTC-11:00 (Samoa, Niue)' },
+                    { value: '-600', label: 'UTC-10:00 (Hawaii, Tahiti)' },
+                    { value: '-570', label: 'UTC-09:30 (Marquesas Islands)' },
+                    { value: '-540', label: 'UTC-09:00 (Alaska)' },
+                    { value: '-480', label: 'UTC-08:00 (Pacific Time - US/Canada)' },
+                    { value: '-420', label: 'UTC-07:00 (Mountain Time - US/Canada)' },
+                    { value: '-360', label: 'UTC-06:00 (Central Time - US/Canada, Mexico)' },
+                    { value: '-300', label: 'UTC-05:00 (Eastern Time - US/Canada, Bogota)' },
+                    { value: '-240', label: 'UTC-04:00 (Atlantic Time, Santiago, Caracas)' },
+                    { value: '-210', label: 'UTC-03:30 (Newfoundland)' },
+                    { value: '-180', label: 'UTC-03:00 (Buenos Aires, Sao Paulo)' },
+                    { value: '-120', label: 'UTC-02:00 (South Georgia, Mid-Atlantic)' },
+                    { value: '-60', label: 'UTC-01:00 (Azores, Cape Verde)' },
+                    { value: '0', label: 'UTC+00:00 (London, Dublin, Lisbon, Casablanca, UTC)' },
+                    { value: '60', label: 'UTC+01:00 (Berlin, Paris, Rome, Madrid, Warsaw)' },
+                    { value: '120', label: 'UTC+02:00 (Cairo, Athens, Jerusalem, Helsinki, Kyiv)' },
+                    { value: '180', label: 'UTC+03:00 (Riyadh, Moscow, Istanbul, Nairobi, Baghdad)' },
+                    { value: '210', label: 'UTC+03:30 (Tehran)' },
+                    { value: '240', label: 'UTC+04:00 (Dubai, Baku, Tbilisi, Yerevan)' },
+                    { value: '270', label: 'UTC+04:30 (Kabul)' },
+                    { value: '300', label: 'UTC+05:00 (Karachi, Tashkent, Yekaterinburg)' },
+                    { value: '330', label: 'UTC+05:30 (India Standard Time - New Delhi, Mumbai)' },
+                    { value: '345', label: 'UTC+05:45 (Kathmandu)' },
+                    { value: '360', label: 'UTC+06:00 (Dhaka, Almaty, Astana)' },
+                    { value: '390', label: 'UTC+06:30 (Yangon, Cocos Islands)' },
+                    { value: '420', label: 'UTC+07:00 (Bangkok, Jakarta, Hanoi)' },
+                    { value: '480', label: 'UTC+08:00 (Singapore, Beijing, Hong Kong, Perth)' },
+                    { value: '525', label: 'UTC+08:45 (Eucla)' },
+                    { value: '540', label: 'UTC+09:00 (Tokyo, Seoul)' },
+                    { value: '570', label: 'UTC+09:30 (Adelaide, Darwin)' },
+                    { value: '600', label: 'UTC+10:00 (Sydney, Melbourne, Brisbane, Vladivostok)' },
+                    { value: '630', label: 'UTC+10:30 (Lord Howe Island)' },
+                    { value: '660', label: 'UTC+11:00 (Solomon Islands, Noumea)' },
+                    { value: '720', label: 'UTC+12:00 (Auckland, Fiji, Kamchatka)' },
+                    { value: '765', label: 'UTC+12:45 (Chatham Islands)' },
+                    { value: '780', label: 'UTC+13:00 (Tonga, Samoa, Phoenix Islands)' },
+                    { value: '840', label: 'UTC+14:00 (Line Islands, Kiritimati)' }
+                ],
+                PlayerSettings.get('timeZoneOffset') || 'auto'
+            )}
+                    </div>
+                </div>
+
                 <!-- Screensaver Section -->
                 <h3 class="setting-section-title" data-i18n="Screensaver">${i18n.t('Screensaver') || 'Screensaver'}</h3>
 
@@ -12065,6 +12119,7 @@ class SettingsPage extends Page {
             'remote-blue-select': { key: 'pref:remoteBlueAction', type: 'local', triggerEvent: true },
             'time-format-select': { key: 'timeFormat', type: 'player' },
             'time-source-select': { key: 'timeSource', type: 'player', triggerEvent: true },
+            'time-timezone-select': { key: 'timeZoneOffset', type: 'player', triggerEvent: true },
             'hevc-force-select': { type: 'player', key: 'enableHEVC' },
             'hdr-force-select': { type: 'player', key: 'enableHDR' },
             'dv-force-select': { type: 'player', key: 'enableDolbyVision' },
@@ -12645,6 +12700,15 @@ class SettingsPage extends Page {
                                 settingConfig.key === 'transcodeAudioCodec'
                             ) {
                                 clearCapabilitiesCache();
+                            }
+
+                            // VISIBILITY TOGGLE: Show timezone offset selector only when Jellyfin Server time source is active
+                            if (id === 'time-source-select') {
+                                const tzContainer = document.getElementById('time-timezone-item');
+                                if (tzContainer) {
+                                    tzContainer.style.display = newValue === 'server' ? '' : 'none';
+                                    focusManager.invalidateCache('settings-content');
+                                }
                             }
 
                             // VISIBILITY TIGGLE: Hide background opacity if background is None

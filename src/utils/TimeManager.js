@@ -187,6 +187,14 @@ class TimeManager {
                     }
                 }
             });
+
+            // React immediately when user adjusts timezone offset for server time
+            eventBus.on('pref:timeZoneOffset', (newOffset) => {
+                log.info(`Timezone offset preference updated to: ${newOffset}`);
+                if (typeof eventBus !== 'undefined' && typeof eventBus.emit === 'function') {
+                    eventBus.emit('time:synced');
+                }
+            });
         }
 
         // --------------------------------------------------------------------
@@ -458,41 +466,63 @@ class TimeManager {
                     const elapsed = performance.now() - this._serverAnchor.perfMs;
                     const serverUtcEpoch = this._serverAnchor.serverEpochMs + elapsed;
 
-                    // Browser environment local timezone offset in minutes (e.g. -180 for UTC+3)
-                    const browserOffset = new Date().getTimezoneOffset();
-                    let targetTzOffset = null;
+                    // Browser runtime local timezone offset in minutes West of GMT (e.g. -180 for UTC+3, -120 for UTC+2, 0 for UTC)
+                    const browserOffsetMinutes = new Date().getTimezoneOffset();
 
-                    // Check if Tizen provides native timezone configuration via secondsFromUTC
-                    const tizenTz = this._getTizenDateTime();
-                    if (tizenTz) {
-                        try {
-                            if (typeof tizenTz.secondsFromUTC === 'function') {
-                                // secondsFromUTC is seconds East of GMT (e.g. +10800 for UTC+3)
-                                // Convert to minutes West of GMT (e.g. -180 for UTC+3) matching JS getTimezoneOffset
-                                targetTzOffset = -Math.round(tizenTz.secondsFromUTC() / 60);
-                            }
-                        } catch (_) { }
+                    // Retrieve user-configured timezone offset preference
+                    // Value can be 'auto' or offset in minutes East of UTC as string (e.g. '120' for UTC+2, '-300' for UTC-5)
+                    const selectedTz = (typeof PlayerSettings !== 'undefined' && PlayerSettings.get('timeZoneOffset')) || 'auto';
+                    let targetOffsetEastMinutes = null;
+
+                    // Parse manual UTC offset if explicitly selected
+                    if (selectedTz !== 'auto') {
+                        const parsed = parseInt(selectedTz, 10);
+                        if (!isNaN(parsed)) {
+                            targetOffsetEastMinutes = parsed;
+                        }
                     }
 
-                    // Check if webOS reported a native timezone offset
-                    if (targetTzOffset === null && this._webosTime && typeof this._webosTime.offsetMinutes === 'number') {
-                        // webOS offset is minutes East of GMT (e.g. +180 for UTC+3),
-                        // whereas JS getTimezoneOffset() is minutes West of GMT (e.g. -180 for UTC+3)
-                        targetTzOffset = -this._webosTime.offsetMinutes;
+                    // If 'auto' or parsing was not applicable, resolve local timezone from platform drivers
+                    if (targetOffsetEastMinutes === null) {
+                        // Check if Tizen provides native timezone configuration via secondsFromUTC
+                        const tizenTz = this._getTizenDateTime();
+                        if (tizenTz) {
+                            try {
+                                if (typeof tizenTz.secondsFromUTC === 'function') {
+                                    // secondsFromUTC in Tizen TZDate returns seconds offset
+                                    targetOffsetEastMinutes = -Math.round(tizenTz.secondsFromUTC() / 60);
+                                }
+                            } catch (_) { }
+                        }
+
+                        // Check if webOS reported a native timezone offset
+                        if (targetOffsetEastMinutes === null && this._webosTime && typeof this._webosTime.offsetMinutes === 'number') {
+                            // webOS offset is minutes East of GMT (e.g. +120 for UTC+2)
+                            targetOffsetEastMinutes = this._webosTime.offsetMinutes;
+                        }
+
+                        // If native platform drivers did not report an offset, fallback to browser engine's local timezone
+                        if (targetOffsetEastMinutes === null) {
+                            targetOffsetEastMinutes = -browserOffsetMinutes;
+                        }
                     }
 
-                    // If native platform didn't specify an offset, default to browser's own timezone offset
-                    if (targetTzOffset === null) {
-                        targetTzOffset = browserOffset;
-                    }
+                    /*
+                     * Universal Local Time Alignment Formula
+                     * -------------------------------------------------------------------------
+                     * When formatting a Date instance, the host JavaScript runtime computes:
+                     *   displayedTime = epochMs - (browserOffsetMinutes * 60000)
+                     *
+                     * We require the displayed time to accurately reflect the desired timezone:
+                     *   displayedTime = serverUtcEpoch + (targetOffsetEastMinutes * 60000)
+                     *
+                     * Equating both expressions yields the required runtime timestamp:
+                     *   epochMs = serverUtcEpoch + (targetOffsetEastMinutes + browserOffsetMinutes) * 60000
+                     * -------------------------------------------------------------------------
+                     */
+                    const adjustmentMs = (targetOffsetEastMinutes + browserOffsetMinutes) * 60 * 1000;
 
-                    // Standard new Date(serverUtcEpoch) already applies the browser's local timezone
-                    // when getHours()/getMinutes() are invoked.
-                    // We only apply runtimeGapMs if the host webview runtime is stuck in UTC (browserOffset = 0)
-                    // while the TV OS is configured for a specific timezone (targetTzOffset != 0).
-                    const runtimeGapMs = (browserOffset - targetTzOffset) * 60 * 1000;
-
-                    return new Date(serverUtcEpoch + runtimeGapMs);
+                    return new Date(serverUtcEpoch + adjustmentMs);
                 } catch (err) {
                     log.warn('Server anchor calculation failed:', err);
                 }

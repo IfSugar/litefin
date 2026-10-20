@@ -542,6 +542,7 @@ export class MobileNav extends Component {
         };
         eventBus.on('pref:timeFormat', this._boundHandlers.onTimeFormat);
         eventBus.on('pref:timeSource', this._boundHandlers.onTimeFormat);
+        eventBus.on('pref:timeZoneOffset', this._boundHandlers.onTimeFormat);
         eventBus.on('time:synced', this._boundHandlers.onTimeFormat);
 
         // Bottom navbar background customization listener
@@ -585,6 +586,7 @@ export class MobileNav extends Component {
         if (this._boundHandlers.onTimeFormat) {
             eventBus.off('pref:timeFormat', this._boundHandlers.onTimeFormat);
             eventBus.off('pref:timeSource', this._boundHandlers.onTimeFormat);
+            eventBus.off('pref:timeZoneOffset', this._boundHandlers.onTimeFormat);
             eventBus.off('time:synced', this._boundHandlers.onTimeFormat);
         }
         if (this._boundHandlers.onNavColorChanged) {

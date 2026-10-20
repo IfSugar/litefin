@@ -660,6 +660,9 @@ const DEFAULTS = {
     // Time source for clock and playback timeline calculations ('browser', 'os', 'server')
     timeSource: 'browser',
 
+    // Timezone offset for server time sync ('auto' or minutes East of UTC as string, e.g. '120' for UTC+2)
+    timeZoneOffset: 'auto',
+
     // Instant seek when OSD is hidden using directional arrows
     seekWithArrows: true,
 

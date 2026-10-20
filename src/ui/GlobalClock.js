@@ -59,6 +59,11 @@ class GlobalClock {
             this.update();
         });
 
+        eventBus.on('pref:timeZoneOffset', () => {
+            log.debug('Timezone offset changed, updating clock...');
+            this.update();
+        });
+
         eventBus.on('time:synced', () => {
             log.debug('Server time synced, updating clock...');
             this.update();
