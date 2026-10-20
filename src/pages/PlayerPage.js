@@ -837,6 +837,12 @@ class PlayerPage extends Page {
                     return;
                 }
 
+                // On WebOS, if the Magic Remote pointer is currently inactive (D-pad mode),
+                // do not wake the OSD on ambient gyro tremor from holding or clicking the remote.
+                if (platformInfo.isWebOS && !document.body.classList.contains('webos-cursor-active')) {
+                    return;
+                }
+
                 // Verify client coordinates are provided by the browser event
                 if (e.clientX !== undefined && e.clientY !== undefined) {
                     if (_lastPlayerMouseX !== null && _lastPlayerMouseY !== null) {

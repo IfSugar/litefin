@@ -61,6 +61,7 @@ class WebOSAdapter {
         // Track mouse position to filter out minor gyro noise
         this._lastMouseX = -1;
         this._lastMouseY = -1;
+        this._lastKeyTime = 0;
 
         /*
          * ====================================================================
@@ -216,6 +217,7 @@ class WebOSAdapter {
     _setupKeyHandler() {
         document.addEventListener('keydown', (e) => {
             this._lastInteractionTime = Date.now();
+            this._lastKeyTime = Date.now();
             const keyCode = e.keyCode;
 
             // Hide the Magic Remote cursor as soon as a navigation key is pressed
@@ -369,7 +371,16 @@ class WebOSAdapter {
             const deltaX = Math.abs(e.clientX - this._lastMouseX);
             const deltaY = Math.abs(e.clientY - this._lastMouseY);
 
-            if (deltaX < MOVEMENT_THRESHOLD && deltaY < MOVEMENT_THRESHOLD) {
+            // When cursor is currently hidden (D-pad mode), require a deliberate,
+            // intentional gesture (15px threshold) and ensure we are outside the
+            // 500ms post-keypress settle window to avoid reactivating the cursor
+            // from physical button clicks or hand tremors.
+            const threshold = this._cursorActive ? MOVEMENT_THRESHOLD : 15;
+            if (deltaX < threshold && deltaY < threshold) {
+                return;
+            }
+
+            if (!this._cursorActive && Date.now() - this._lastKeyTime < 500) {
                 return;
             }
 

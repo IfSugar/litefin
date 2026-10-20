@@ -3029,18 +3029,26 @@ export default class OSDController extends Component {
             }
         }
 
+        // ====================================================================
+        // OSD HIDE / PLAYER EXIT CHAIN
+        // ====================================================================
+        // When playback controls or seekbar are currently visible, Back dismisses
+        // the OSD first so the user can continue watching clean video without HUD.
+        // A subsequent Back press when controls are hidden triggers the exit flow.
+        // ====================================================================
         if (this._isOsdVisible) {
-            // Dismiss OSD and establish gyro suppression lockout
             this.hide();
-            this._mouseWakeLockoutUntil = Date.now() + 1200;
-        } else {
-            // If confirmExitPlayer setting is enabled, show the confirmation dialog
-            if (PlayerSettings.get('confirmExitPlayer')) {
-                this.toggleConfirmExitModal(true);
-                return true;
-            }
-            this._executeAction('exit');
+            return true;
         }
+
+        // If confirmExitPlayer setting is enabled, show the confirmation dialog
+        if (PlayerSettings.get('confirmExitPlayer')) {
+            this.toggleConfirmExitModal(true);
+            return true;
+        }
+
+        // Controls are hidden and no modal is active — trigger player exit
+        this._executeAction('exit');
         return true;
     }
 
