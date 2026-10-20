@@ -1532,6 +1532,37 @@ export default class OSDController extends Component {
         // Rebuild cache so the now-hidden widget buttons are removed
         this._cacheFocusableElements();
 
+        /*
+         * ========================================================================
+         * UP NEXT DIALOG FOCUS RETENTION:
+         * If the Up Next episode dialog is currently visible, it actively owns the
+         * overlay row (Row -1) and must retain remote focus.
+         *
+         * When an outro segment ends and its skip-outro button hides, PluginWidgetHost
+         * triggers restoreControlsFocus(). Without this check, focus is erroneously
+         * pulled away from "Play Now" down to Row 1 (Play/Pause) or the seekbar,
+         * causing subsequent OK presses to pause playback rather than starting the next episode.
+         * ========================================================================
+         */
+        if (this.upNextDialog?.isVisible) {
+            // Keep remote focus pinned on the overlay row
+            this._currentFocusRow = -1;
+
+            // Re-align focus index to the active button inside the Up Next dialog
+            if (this.upNextDialog.$el) {
+                const buttons = Array.from(this.upNextDialog.$el.querySelectorAll('.upnext-btn'));
+                const targetBtn = buttons[this.upNextDialog._focusedButton] || buttons[0];
+                const playIdx = targetBtn ? this._cachedOverlayRow.indexOf(targetBtn) : -1;
+                if (playIdx !== -1) {
+                    this._currentFocusIndex = playIdx;
+                }
+            }
+
+            // Apply focus styling and update DOM state immediately
+            this._updateFocus();
+            return;
+        }
+
         // Only restore if focus was actually in the overlay row
         if (this._currentFocusRow === -1) {
             this._currentFocusRow = 1;
@@ -1857,6 +1888,16 @@ export default class OSDController extends Component {
             return;
         }
 
+        /*
+         * Exception: Do not park focus if the Up Next dialog is visible.
+         * The dialog stays visible in the corner while the main OSD controls hide.
+         * Parking focus on Play/Pause or the seekbar while Up Next is visible would cause
+         * subsequent OK/Enter remote presses to toggle playback instead of triggering Play Now.
+         */
+        if (this.upNextDialog?.isVisible) {
+            return;
+        }
+
         // Exception: Do not park focus if a plugin widget currently holds focus
         // (overlay row / Row -1). The widget stays visible even when the main OSD
         // controls hide — e.g. the skip-intro button floats above the video
@@ -1895,6 +1936,9 @@ export default class OSDController extends Component {
      * @private
      */
     _resetFocusToPlayPause() {
+        // Guard: never steal focus from Up Next dialog if it is active
+        if (this.upNextDialog?.isVisible) return;
+
         this._currentFocusRow = 1;
         const playIdx = this._findActionIndex('togglePlay');
         if (playIdx !== -1) this._currentFocusIndex = playIdx;
@@ -1908,6 +1952,9 @@ export default class OSDController extends Component {
      * @private
      */
     _resetFocusToSeekbar() {
+        // Guard: never steal focus from Up Next dialog if it is active
+        if (this.upNextDialog?.isVisible) return;
+
         this._currentFocusRow = 2; // Position Slider row
         this._currentFocusIndex = 0;
         this._updateFocus();
@@ -3132,6 +3179,22 @@ export default class OSDController extends Component {
                 this._cachedOverlayRow.push(...focusables);
             }
         });
+
+        /*
+         * Keep _currentFocusIndex properly aligned with the active Up Next dialog button
+         * when the dialog is visible and focus is on Row -1, preventing index shifts when
+         * preceding widgets (e.g. skip outro) hide and change the array length.
+         */
+        if (this.upNextDialog?.isVisible && this._currentFocusRow === -1 && this.upNextDialog.$el) {
+            const buttons = Array.from(this.upNextDialog.$el.querySelectorAll('.upnext-btn'));
+            const targetBtn = buttons[this.upNextDialog._focusedButton] || buttons[0];
+            if (targetBtn && this._cachedOverlayRow.length > 0) {
+                const idx = this._cachedOverlayRow.indexOf(targetBtn);
+                if (idx !== -1) {
+                    this._currentFocusIndex = idx;
+                }
+            }
+        }
 
         // Header (0)
         const backBtn = this._osdEl.querySelector('.osd-back-btn');
@@ -4875,6 +4938,19 @@ export default class OSDController extends Component {
         if (show) {
             // Guard: only show if there's something to preview
             if (!this.upNextDialog._nextItem) return;
+
+            /*
+             * Abort any pending focus reset or auto-hide timer immediately so
+             * delayed OSD park timers do not clobber Up Next focus asynchronously.
+             */
+            if (this._focusResetTimer) {
+                clearTimeout(this._focusResetTimer);
+                this._focusResetTimer = null;
+            }
+            if (this._autoHideTimer) {
+                clearTimeout(this._autoHideTimer);
+                this._autoHideTimer = null;
+            }
 
             /*
              * Set activeMenu so handleInput() at the Row -1 delegation gate
