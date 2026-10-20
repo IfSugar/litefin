@@ -176,3 +176,91 @@ test('OSDController: updateLayoutMode applies classes and toggles visibility cle
     assert.equal(isShown, true, 'Should show OSD');
     assert.equal(focusPlayPauseCalled, true, 'Should focus play/pause button');
 });
+
+test('Toast: in-place replacement updates existing message and resets timer without piling up', () => {
+    // Simulated minimal DOM and Toast manager
+    const containerChildren = [];
+    const container = {
+        appendChild(el) {
+            containerChildren.push(el);
+            el.parentNode = container;
+        },
+        removeChild(el) {
+            const idx = containerChildren.indexOf(el);
+            if (idx >= 0) containerChildren.splice(idx, 1);
+            el.parentNode = null;
+        }
+    };
+
+    const toasts = [];
+    let timeoutCounter = 0;
+    const timeouts = new Map();
+
+    const mockToastManager = {
+        show(message, duration = 5000, options = {}) {
+            let existingToast = null;
+            if (options.id) {
+                existingToast = toasts.find(
+                    (t) => t._toastId === options.id && !t.classList.has('toast-exit')
+                );
+            } else if (options.replace && toasts.length > 0) {
+                existingToast = toasts.find((t) => !t.classList.has('toast-exit'));
+            }
+
+            if (existingToast) {
+                if (existingToast._timeoutId) {
+                    timeouts.delete(existingToast._timeoutId);
+                    existingToast._timeoutId = null;
+                }
+
+                existingToast.text = message;
+
+                if (duration > 0) {
+                    const tid = ++timeoutCounter;
+                    timeouts.set(tid, { toast: existingToast, duration });
+                    existingToast._timeoutId = tid;
+                }
+
+                return existingToast;
+            }
+
+            const toastEl = {
+                _toastId: options.id || null,
+                _timeoutId: null,
+                text: message,
+                classList: new Set(),
+                parentNode: null
+            };
+
+            container.appendChild(toastEl);
+            toasts.push(toastEl);
+
+            if (duration > 0) {
+                const tid = ++timeoutCounter;
+                timeouts.set(tid, { toast: toastEl, duration });
+                toastEl._timeoutId = tid;
+            }
+
+            return toastEl;
+        }
+    };
+
+    // 1. Initial toggle: show "OSD Layout: Stealth"
+    const toast1 = mockToastManager.show('OSD Layout: Stealth', 2000, { id: 'osd-layout', replace: true });
+    assert.equal(containerChildren.length, 1, 'Only one toast element in container');
+    assert.equal(toast1.text, 'OSD Layout: Stealth');
+    const firstTimeoutId = toast1._timeoutId;
+
+    // 2. Second toggle: show "OSD Layout: Left Aligned"
+    const toast2 = mockToastManager.show('OSD Layout: Left Aligned', 2000, { id: 'osd-layout', replace: true });
+    assert.equal(containerChildren.length, 1, 'Container still has only 1 toast (no piling up)');
+    assert.equal(toast1, toast2, 'Same toast element reference is updated in-place');
+    assert.equal(toast1.text, 'OSD Layout: Left Aligned', 'Text updated in-place');
+    assert.notEqual(toast1._timeoutId, firstTimeoutId, 'Timeout was reset to new duration');
+
+    // 3. Third toggle: show "OSD Layout: Stealth" again
+    const toast3 = mockToastManager.show('OSD Layout: Stealth', 2000, { id: 'osd-layout', replace: true });
+    assert.equal(containerChildren.length, 1, 'Container still strictly has 1 toast');
+    assert.equal(toast1, toast3, 'Same toast reference reused');
+    assert.equal(toast1.text, 'OSD Layout: Stealth', 'Text updated back to Stealth');
+});

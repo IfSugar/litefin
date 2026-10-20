@@ -389,8 +389,11 @@ class RemoteButtonManager {
                 ? (i18n.t('OsdLayoutCentered') || 'Centered')
                 : (i18n.t('OsdLayoutLeft') || 'Left Aligned'));
 
-        // Present subtle on-screen confirmation toast
-        toast.show(`${i18n.t('OsdLayout') || 'OSD Layout'}: ${layoutLabel}`, 2500);
+        // Present subtle on-screen confirmation toast (replaces in-place to prevent pile-up)
+        toast.show(`${i18n.t('OsdLayout') || 'OSD Layout'}: ${layoutLabel}`, 2000, {
+            id: 'osd-layout',
+            replace: true
+        });
     }
 
     /**
@@ -474,7 +477,10 @@ class RemoteButtonManager {
         if (this._sleepTimerMinutes > 120) {
             this._sleepTimerMinutes = 0;
             log.info('Sleep Timer: Exceeded 120 minutes limit. Resetting to 0 (Disabled).');
-            toast.show(i18n.t('SleepTimerDisabled') || 'Sleep Timer: Off', 3000);
+            toast.show(i18n.t('SleepTimerDisabled') || 'Sleep Timer: Off', 2500, {
+                id: 'sleep-timer',
+                replace: true
+            });
             return;
         }
 
@@ -488,7 +494,10 @@ class RemoteButtonManager {
             timeString = mins > 0 ? `${hours}h ${mins}m` : `${hours}h`;
         }
 
-        toast.show(`${i18n.t('SleepTimerSet') || 'Sleep Timer'}: ${timeString}`, 3000);
+        toast.show(`${i18n.t('SleepTimerSet') || 'Sleep Timer'}: ${timeString}`, 2500, {
+            id: 'sleep-timer',
+            replace: true
+        });
 
         // Start countdown interval ticking every 1 minute (60,000 ms)
         this._sleepTimerInterval = setInterval(() => {
