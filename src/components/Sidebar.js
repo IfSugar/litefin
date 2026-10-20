@@ -220,6 +220,22 @@ class Sidebar extends Component {
         eventBus.on('prefChanged:disableSidebarAnimation', this._onAnimationModeChanged);
 
         // ---------------------------------------------------------------------
+        // SIDEBAR ICON SHADOWS CONFIGURATION
+        // ---------------------------------------------------------------------
+        // Read preference via LayoutManager and apply reactive .has-icon-shadows
+        // class to root sidebar DOM node. Subscribe to event bus for live updates.
+        // ---------------------------------------------------------------------
+        const initialIconShadows = layoutManager.getSidebarIconShadows();
+        this.el.classList.toggle('has-icon-shadows', initialIconShadows);
+
+        this._onIconShadowsChanged = () => {
+            const hasShadows = layoutManager.getSidebarIconShadows();
+            this.el.classList.toggle('has-icon-shadows', hasShadows);
+        };
+        eventBus.on('sidebarIconShadows:changed', this._onIconShadowsChanged);
+        eventBus.on('pref:sidebarIconShadows', this._onIconShadowsChanged);
+
+        // ---------------------------------------------------------------------
         // COLLAPSED SIDEBAR LIBRARY SHORTCUT ICONS CONFIGURATION
         // ---------------------------------------------------------------------
         // Read the user preference for collapsed library shortcuts. If enabled,
@@ -491,6 +507,13 @@ class Sidebar extends Component {
         // Clean up sidebar back button preference listener
         if (this._onBackButtonPrefChanged) {
             eventBus.off('pref:sidebarBackButton', this._onBackButtonPrefChanged);
+        }
+
+        // Clean up sidebar icon shadows preference listener
+        if (this._onIconShadowsChanged) {
+            eventBus.off('sidebarIconShadows:changed', this._onIconShadowsChanged);
+            eventBus.off('pref:sidebarIconShadows', this._onIconShadowsChanged);
+            this._onIconShadowsChanged = null;
         }
 
         // Clean up floating island resize listener

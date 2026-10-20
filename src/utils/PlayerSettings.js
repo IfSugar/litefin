@@ -654,8 +654,11 @@ const DEFAULTS = {
     // Enable cinema mode (dim lights during playback)
     enableCinemaMode: false,
 
-    // Time format for clock and playback ('12h', '24h')
+    // Time format for clock and playback ('12h', '24h', 'none')
     timeFormat: '12h',
+
+    // Time source for clock and playback timeline calculations ('browser', 'os', 'server')
+    timeSource: 'browser',
 
     // Instant seek when OSD is hidden using directional arrows
     seekWithArrows: true,

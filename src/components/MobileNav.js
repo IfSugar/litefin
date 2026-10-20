@@ -29,6 +29,7 @@ import { syncPlayGroupMenu } from '../core/syncplay/SyncPlayGroupMenu.js';
 import { sidebarIcons, getLibraryIcon } from '../utils/Icons.js';
 import { seerr } from '../api/seerrClient.js';
 import { storage } from '../utils/StorageService.js';
+import { timeManager } from '../utils/TimeManager.js';
 
 const log = logger.create('MobileNav');
 
@@ -540,6 +541,8 @@ export class MobileNav extends Component {
             if (clockEl) clockEl.textContent = this._getFormattedTime();
         };
         eventBus.on('pref:timeFormat', this._boundHandlers.onTimeFormat);
+        eventBus.on('pref:timeSource', this._boundHandlers.onTimeFormat);
+        eventBus.on('time:synced', this._boundHandlers.onTimeFormat);
 
         // Bottom navbar background customization listener
         this._boundHandlers.onNavColorChanged = () => {
@@ -579,7 +582,11 @@ export class MobileNav extends Component {
         if (this._boundHandlers.onSyncPlayEnabled) eventBus.off('syncplay:enabled', this._boundHandlers.onSyncPlayEnabled);
         if (this._boundHandlers.onSyncPlayDisabled) eventBus.off('syncplay:disabled', this._boundHandlers.onSyncPlayDisabled);
         if (this._boundHandlers.onSeerrResolved) eventBus.off('seerr:statusResolved', this._boundHandlers.onSeerrResolved);
-        if (this._boundHandlers.onTimeFormat) eventBus.off('pref:timeFormat', this._boundHandlers.onTimeFormat);
+        if (this._boundHandlers.onTimeFormat) {
+            eventBus.off('pref:timeFormat', this._boundHandlers.onTimeFormat);
+            eventBus.off('pref:timeSource', this._boundHandlers.onTimeFormat);
+            eventBus.off('time:synced', this._boundHandlers.onTimeFormat);
+        }
         if (this._boundHandlers.onNavColorChanged) {
             eventBus.off('pref:bottomNavBarColor', this._boundHandlers.onNavColorChanged);
             eventBus.off('pref:collapsedSidebarColor', this._boundHandlers.onNavColorChanged);
@@ -986,9 +993,10 @@ export class MobileNav extends Component {
      */
     _getFormattedTime() {
         try {
-            return i18n.formatLocalTime(new Date());
+            // Retrieve accurate local wall-clock time from TimeManager
+            return i18n.formatLocalTime(timeManager.now());
         } catch (_) {
-            const now = new Date();
+            const now = timeManager.now();
             return now.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
         }
     }

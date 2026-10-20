@@ -41,6 +41,7 @@ import { VirtualCardRow } from '../components/VirtualCardRow.js';
 import { logger } from '../utils/Logger.js';
 import { toast } from '../ui/Toast.js';
 import { i18n } from '../utils/i18n.js';
+import { timeManager } from '../utils/TimeManager.js';
 import CardRenderer from '../utils/CardRenderer.js';
 import { shouldShowScore } from '../utils/visibility.js';
 import { storage } from '../utils/StorageService.js';
@@ -2878,7 +2879,8 @@ class DetailsPage extends Page {
             runtimeText = hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
 
             // Ends At
-            const endTime = new Date(Date.now() + item.RunTimeTicks / 10000);
+            // Use timeManager.now() so offline Tizen/WebOS TVs accurately reflect local time
+            const endTime = new Date(timeManager.now().getTime() + item.RunTimeTicks / 10000);
             const timeString = i18n.formatLocalTime(endTime);
             endsAtText = i18n.t('EndsAtValue', [timeString]);
         }
@@ -3672,7 +3674,7 @@ class DetailsPage extends Page {
                 }
                 let endsAtText = '';
                 if (ep.RunTimeTicks) {
-                    const endTime = new Date(Date.now() + ep.RunTimeTicks / 10000);
+                    const endTime = new Date(timeManager.now().getTime() + ep.RunTimeTicks / 10000);
                     const timeString = i18n.formatLocalTime(endTime);
                     endsAtText = i18n.t('EndsAtValue', [timeString]);
                 }
@@ -3870,7 +3872,7 @@ class DetailsPage extends Page {
                     }
                     let endsAtText = '';
                     if (ep.RunTimeTicks) {
-                        const endTime = new Date(Date.now() + ep.RunTimeTicks / 10000);
+                        const endTime = new Date(timeManager.now().getTime() + ep.RunTimeTicks / 10000);
                         const timeString = i18n.formatLocalTime(endTime);
                         endsAtText = i18n.t('EndsAtValue', [timeString]);
                     }

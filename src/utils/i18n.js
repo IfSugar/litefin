@@ -252,7 +252,8 @@ class I18nManager {
      * @returns {string} Formatted time string (e.g., "12:30 PM" or "12:30 م")
      */
     formatLocalTime(date) {
-        if (!date || !(date instanceof Date)) return '';
+        // Support both standard JavaScript Date objects and native platform TZDate objects
+        if (!date || (!(date instanceof Date) && typeof date.getHours !== 'function')) return '';
 
         const hours = date.getHours();
         const minutes = date.getMinutes();

@@ -58,6 +58,7 @@ import { focusManager } from '../ui/FocusManager.js';
 import { imageCache } from '../utils/ImageCache.js';
 import { cssVarsPolyfill } from '../utils/CssVarsPolyfill.js';
 import { versionChecker } from '../utils/VersionChecker.js';
+import { timeManager } from '../utils/TimeManager.js';
 import { globalClock } from '../ui/GlobalClock.js';
 import { smartHubManager } from '../tizen/SmartHubManager.js';
 import { androidLauncherManager } from '../android/AndroidLauncherManager.js';
@@ -272,6 +273,17 @@ class App {
          * ============================================================================
          */
         remoteButtonManager.init();
+
+        /*
+         * ============================================================================
+         * HYBRID TIME MANAGER SUBSYSTEM INITIALIZATION
+         * ============================================================================
+         * Initializes the high-precision platform clock driver (Tizen native time,
+         * WebOS Luna service, and Jellyfin LAN server time sync) before any visual
+         * clock components or playback timeline controllers render.
+         * ============================================================================
+         */
+        timeManager.init();
 
         // Initialize Global Clock — persistent time display above all UI
         globalClock.init();

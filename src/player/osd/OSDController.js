@@ -10,6 +10,7 @@ import { TrickplayManager } from './TrickplayManager.js';
 import { platformInfo } from '../../utils/PlatformInfo.js';
 import { desktopAdapter } from '../../desktop/DesktopAdapter.js';
 import { webAdapter } from '../../web/WebAdapter.js';
+import { timeManager } from '../../utils/TimeManager.js';
 
 import TrackMenu from './TrackMenu.js';
 import SettingsMenu from './SettingsMenu.js';
@@ -4150,7 +4151,8 @@ export default class OSDController extends Component {
         const endsAtEl = this._osdEl.querySelector('#osdEndsAt');
         if (endsAtEl && duration > 0) {
             const remaining = duration - current;
-            const endTime = new Date(Date.now() + (remaining / 10000));
+            // Use timeManager.now() so offline Tizen/WebOS TVs accurately reflect local time
+            const endTime = new Date(timeManager.now().getTime() + (remaining / 10000));
             // Use 12h/24h format based on user preference via i18n helper
             const endStr = i18n.t('EndsAtValue', [i18n.formatLocalTime(endTime)]);
             if (endsAtEl.textContent !== endStr) {
@@ -4194,7 +4196,8 @@ export default class OSDController extends Component {
             return;
         }
         this._osdClockEl.style.display = '';
-        const timeStr = i18n.formatLocalTime(new Date());
+        // Use high-precision local time from TimeManager (Tizen/WebOS/Jellyfin LAN sync)
+        const timeStr = i18n.formatLocalTime(timeManager.now());
         if (this._osdClockEl.textContent !== timeStr) {
             this._osdClockEl.textContent = timeStr;
         }

@@ -914,6 +914,24 @@ class SettingsPage extends Page {
                     </div>
                 </div>
 
+                <div class="setting-item">
+                    <div class="setting-label">
+                        <span class="setting-name" data-i18n="LabelTimeSource">${i18n.t('LabelTimeSource') || 'Time Source'}</span>
+                        <span class="setting-description" data-i18n="TimeSourceDescription">${i18n.t('TimeSourceDescription') || 'Choose where the clock gets the current time (Browser, Device OS, or Jellyfin Server).'}</span>
+                    </div>
+                    <div class="setting-control">
+                        ${this._renderDropdown(
+                'time-source-select',
+                [
+                    { value: 'browser', label: i18n.t('TimeSourceBrowser') || 'Browser' },
+                    { value: 'os', label: i18n.t('TimeSourceOS') || 'Device OS' },
+                    { value: 'server', label: i18n.t('TimeSourceServer') || 'Jellyfin Server' }
+                ],
+                PlayerSettings.get('timeSource') || 'browser'
+            )}
+                    </div>
+                </div>
+
                 <!-- Screensaver Section -->
                 <h3 class="setting-section-title" data-i18n="Screensaver">${i18n.t('Screensaver') || 'Screensaver'}</h3>
 
@@ -12022,6 +12040,7 @@ class SettingsPage extends Page {
             'remote-yellow-select': { key: 'pref:remoteYellowAction', type: 'local', triggerEvent: true },
             'remote-blue-select': { key: 'pref:remoteBlueAction', type: 'local', triggerEvent: true },
             'time-format-select': { key: 'timeFormat', type: 'player' },
+            'time-source-select': { key: 'timeSource', type: 'player', triggerEvent: true },
             'hevc-force-select': { type: 'player', key: 'enableHEVC' },
             'hdr-force-select': { type: 'player', key: 'enableHDR' },
             'dv-force-select': { type: 'player', key: 'enableDolbyVision' },

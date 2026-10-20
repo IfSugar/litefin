@@ -15,5 +15,8 @@
     "splashBackground": "assets/splash.png",
     "bgColor": "#0f0a14",
     "iconColor": "#0f0a14",
-    "supportTouchMode": "full"
+    "supportTouchMode": "full",
+    "requiredPermissions": [
+        "time.query"
+    ]
 }
