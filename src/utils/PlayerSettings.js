@@ -162,6 +162,12 @@ const DEFAULTS = {
     // setting — those always DirectPlay regardless.
     enableFlacInVideo: false,
 
+    // Allow uncompressed PCM audio in video containers (MKV, MP4, etc.) to DirectPlay on Tizen.
+    // Disabled by default: AVPlay hardware decoders fail or mute on raw uncompressed PCM
+    // inside video containers on most Samsung TVs, requiring server transcoding to AAC/AC3.
+    // Enable this setting to force PCM DirectPlay on models that support it.
+    enablePcmInVideo: false,
+
     // Audio normalization mode ('Off', 'TrackGain', 'AlbumGain')
     audioNormalization: 'TrackGain',
 

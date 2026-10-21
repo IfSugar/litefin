@@ -202,9 +202,13 @@ export function isAudioTrackNativelyPlayable(track, mediaSource = null, backendT
     const container = (mediaSource?.Container || '').toLowerCase();
 
     // Raw uncompressed PCM inside video containers (MKV, MP4, TS, etc.):
-    // HTML5 browsers and Smart TV media engines cannot decode raw PCM streams in video
-    // containers natively. Jellyfin server always transcodes PCM video audio to AAC.
-    if ((codec.startsWith('pcm') || codec === 'wav') && !isAdvancedBackend) {
+    // Most standard HTML5 browsers and Smart TV media engines cannot decode raw PCM
+    // streams in video containers natively without audio glitching or silent stalls.
+    // However, if the user explicitly enables PCM in video (e.g. forced AVPlay passthrough
+    // on Samsung Tizen), allow it to bypass this upfront container rejection.
+    const enablePcmInVideo = PlayerSettings.get('enablePcmInVideo');
+    if ((codec.startsWith('pcm') || codec === 'wav') && !isAdvancedBackend && !enablePcmInVideo) {
+        // PCM in video is disabled by default; signal that transcoding is required
         return false;
     }
 
@@ -317,6 +321,15 @@ export function isAudioTrackNativelyPlayable(track, mediaSource = null, backendT
             return !(track.Channels > 2);
         }
         return PlayerSettings.get('enableFlacInVideo') === true;
+    }
+
+    // Uncompressed PCM / WAV in video containers:
+    // Only supported on Samsung Tizen AVPlay when the user has explicitly turned on
+    // the enablePcmInVideo setting. Other standard media engines cannot decode it.
+    if (codec.startsWith('pcm') || codec === 'wav') {
+        const isTizenPlatform = typeof platformInfo !== 'undefined' && platformInfo.isTizen;
+        const isTizen = backendType === 'tizen' || backendType === 'avplay' || isTizenPlatform;
+        return isTizen && Boolean(PlayerSettings.get('enablePcmInVideo'));
     }
 
     // DTS / DTS-HD / DCA passthrough: unsupported when DTS decoding is disabled

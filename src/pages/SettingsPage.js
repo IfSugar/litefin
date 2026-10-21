@@ -4667,6 +4667,20 @@ class SettingsPage extends Page {
                         </button>
                     </div>
                 </div>
+
+                <div class="setting-item">
+                    <div class="setting-label">
+                        <span class="setting-name" data-i18n="PCMPassthrough">${i18n.t('PCMPassthrough') || 'PCM in Video Passthrough'}</span>
+                        <span class="setting-description" data-i18n="PCMPassthroughDescription">${i18n.t('PCMPassthroughDescription') || 'Force uncompressed PCM audio tracks in video files to play directly on Tizen AVPlay. Disabled by default because most Samsung TVs fail to decode raw PCM in video containers.'}</span>
+                    </div>
+                    <div class="setting-control">
+                        <button class="toggle-switch ${PlayerSettings.get('enablePcmInVideo') ? 'active' : ''}" 
+                                id="toggle-enable-pcm-in-video" 
+                                data-setting="enablePcmInVideo"
+                                tabindex="0">
+                        </button>
+                    </div>
+                </div>
                 `
                 : ''
             }
@@ -10130,6 +10144,8 @@ class SettingsPage extends Page {
         const profileToggles = [
             'toggle-prefer-direct-play-audio',
             'toggle-enable-flac-in-video',
+            // Force direct playback of PCM / WAV in video containers on Samsung Tizen
+            'toggle-enable-pcm-in-video',
             'toggle-enable-fmp4-hls',
             'toggle-force-fmp4-hls',
             'toggle-force-transcode',
@@ -10137,6 +10153,8 @@ class SettingsPage extends Page {
             // so the server falls back to lossless DirectStream into MP4
             'toggle-remux-mkv-to-mp4',
             'toggle-force-direct-play',
+            // Auto-fallback to transcoding if DirectPlay / Remux fails
+            'toggle-auto-transcode-on-error',
             'toggle-background-service',
             // Interlaced content fallback — auto-switch to HTML5 when AVPlay
             // encounters interlaced H264 (1080i MPEG-TS in HLS). No profile

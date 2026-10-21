@@ -754,6 +754,8 @@
     "FileName": "File",
     "FLACPassthrough": "FLAC in Video Passthrough",
     "FLACPassthroughDescription": "Allow FLAC audio tracks in video files to play directly. Disable if you hear audio/video sync issues (~2s delay). Does not affect FLAC music files.",
+    "PCMPassthrough": "PCM in Video Passthrough",
+    "PCMPassthroughDescription": "Force uncompressed PCM audio tracks in video files to play directly on Tizen AVPlay. Disabled by default because most Samsung TVs fail to decode raw PCM in video containers.",
     "FocusBorderBlack": "Black",
     "FocusBorderFollowTheme": "Follow Theme",
     "FocusBorderHidden": "Hidden",
