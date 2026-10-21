@@ -631,9 +631,20 @@ class PlayerPage extends Page {
 
             this._onRemoteVolumeUp = () => {
                 log.info('Remote: VolumeUp');
+                // Adjust volume using underlying active media player backend
                 if (this._player?.getVolume && this._player?.setVolume) {
+                    // Automatically unmute if muted so the audio becomes audible immediately
+                    if (this._player.isMuted?.() && typeof this._player.setMuted === 'function') {
+                        this._player.setMuted(false);
+                    }
                     const vol = this._player.getVolume();
-                    this._player.setVolume(Math.min(100, vol + 10));
+                    const nextVol = Math.min(100, vol + 5);
+                    this._player.setVolume(nextVol);
+
+                    // Show transient stealth HUD feedback if full OSD is not visible
+                    if (this._osd && !this._osd.isOsdVisible) {
+                        this._osd.showStealthHud('volume', `${Math.round(nextVol)}%`);
+                    }
                 } else if (typeof tizen !== 'undefined' && tizen.tvaudiocontrol) {
                     try {
                         tizen.tvaudiocontrol.setVolumeUp();
@@ -646,9 +657,16 @@ class PlayerPage extends Page {
 
             this._onRemoteVolumeDown = () => {
                 log.info('Remote: VolumeDown');
+                // Adjust volume down using underlying active media player backend
                 if (this._player?.getVolume && this._player?.setVolume) {
                     const vol = this._player.getVolume();
-                    this._player.setVolume(Math.max(0, vol - 10));
+                    const nextVol = Math.max(0, vol - 5);
+                    this._player.setVolume(nextVol);
+
+                    // Show transient stealth HUD feedback if full OSD is not visible
+                    if (this._osd && !this._osd.isOsdVisible) {
+                        this._osd.showStealthHud('volume', `${Math.round(nextVol)}%`);
+                    }
                 } else if (typeof tizen !== 'undefined' && tizen.tvaudiocontrol) {
                     try {
                         tizen.tvaudiocontrol.setVolumeDown();
@@ -677,8 +695,19 @@ class PlayerPage extends Page {
 
             this._onRemoteToggleMute = () => {
                 log.info('Remote: ToggleMute');
+                // Invert current mute state via active player backend
                 if (this._player?.isMuted && this._player?.setMuted) {
-                    this._player.setMuted(!this._player.isMuted());
+                    const nextMuted = !this._player.isMuted();
+                    this._player.setMuted(nextMuted);
+
+                    // Show transient stealth HUD feedback if full OSD is not visible
+                    if (this._osd && !this._osd.isOsdVisible) {
+                        if (nextMuted) {
+                            this._osd.showStealthHud('mute');
+                        } else {
+                            this._osd.showStealthHud('volume', `${Math.round(this._player.getVolume?.() ?? 100)}%`);
+                        }
+                    }
                 } else if (typeof tizen !== 'undefined' && tizen.tvaudiocontrol) {
                     try {
                         const isMuted = tizen.tvaudiocontrol.isMute();

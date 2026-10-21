@@ -227,9 +227,11 @@
     direction: ltr; /* Timelines always progress left-to-right */
 }
 
-[dir="rtl"] .volume-slider-container {
+[dir="rtl"] .volume-slider-container,
+[dir="rtl"] .osd-volume-slider-container {
     margin-left: 0;
-    margin-right: 20px;
+    margin-right: 0.5em;
+    direction: ltr;
 }
 
 [dir="rtl"] .track-option .track-option-check {
@@ -718,4 +720,22 @@
     margin-right: 0;
     margin-left: 14px;
 }
+
+/* ========================================================================= */
+/* Player OSD Volume Controls RTL Flipping                                   */
+/* ========================================================================= */
+
+/* Reverse margin between mute button and horizontal volume slider track */
+[dir="rtl"] .osd-volume-slider-container {
+    margin-left: 0;
+    margin-right: 0.5em;
+}
+
+/* Anchor volume track and progress fill line to the right edge in RTL */
+[dir="rtl"] .osd-volume-track,
+[dir="rtl"] .osd-volume-fill {
+    left: auto;
+    right: 0;
+}
+
 

@@ -11,6 +11,7 @@ import { platformInfo } from '../../utils/PlatformInfo.js';
 import { desktopAdapter } from '../../desktop/DesktopAdapter.js';
 import { webAdapter } from '../../web/WebAdapter.js';
 import { timeManager } from '../../utils/TimeManager.js';
+import MediaHelper from '../core/MediaHelper.js';
 
 import TrackMenu from './TrackMenu.js';
 import SettingsMenu from './SettingsMenu.js';
@@ -528,6 +529,7 @@ export default class OSDController extends Component {
             this._player.removeAllListeners('seeked');
             this._player.removeAllListeners('durationchange');
             this._player.removeAllListeners('loadedmetadata');
+            this._player.removeAllListeners('volumechange');
         }
 
         if (this.container) {
@@ -575,7 +577,6 @@ export default class OSDController extends Component {
                             <button class="osd-btn" data-action="fastForward" tabindex="0">${this._getForwardIcon()}</button>
                             <button class="osd-btn osd-btn-disabled" data-action="nextChapter" tabindex="-1" id="osdNextChapterBtn">${osdIcons.chapterNext}</button>
                             <button class="osd-btn" data-action="nextTrack" tabindex="0" id="osdNextBtn">${osdIcons.skipNext}</button>
-                            
                         </div>
                         <div class="osd-ends-at" id="osdEndsAt"></div>
                         <div class="osd-spacer"></div>
@@ -602,6 +603,19 @@ export default class OSDController extends Component {
                             <button class="osd-btn" id="osdFavoriteBtn" data-action="favorite" tabindex="0">${osdIcons.favorite}</button>
                             <button class="osd-btn" data-action="settings" tabindex="0">${osdIcons.settings}</button>
                             ${(platformInfo.isDesktop || platformInfo.isWeb) ? `
+                            <!-- ====================================================================
+                                 Volume and Mute controls (Desktop and Web runtimes)
+                                 Positioned alongside secondary actions and fullscreen toggle
+                                 ==================================================================== -->
+                            <div class="osd-volume-group" id="osdVolumeGroup">
+                                <button class="osd-btn" id="osdVolumeBtn" data-action="toggleMute" tabindex="0" aria-label="${i18n.t('Mute') || 'Mute'}" title="${(i18n.t('Mute') || 'Mute') + ' (M)'}">${osdIcons.volumeUp}</button>
+                                <div class="osd-volume-slider-container" id="osdVolumeSliderContainer">
+                                    <div class="osd-volume-track">
+                                        <div class="osd-volume-fill" id="osdVolumeFill"></div>
+                                    </div>
+                                    <input type="range" class="osd-volume-slider" id="osdVolumeSlider" min="0" max="100" step="1" value="100" tabindex="0" aria-label="${i18n.t('Volume') || 'Volume'}">
+                                </div>
+                            </div>
                             <!-- Fullscreen presentation toggle button for desktop window manager and web browsers -->
                             <button class="osd-btn" id="osdFullscreenBtn" data-action="toggleFullscreen" tabindex="0" aria-label="${i18n.t('FullScreen') || 'Full Screen'}" title="${(i18n.t('FullScreen') || 'Full Screen') + ' (F)'}">${osdIcons.fullscreen}</button>
                             ` : ''}
@@ -678,6 +692,13 @@ export default class OSDController extends Component {
         /* Cache fullscreen toggle button on supported desktop and web environments */
         this._osdFullscreenBtnEl = this._osdEl.querySelector('#osdFullscreenBtn');
 
+        /* Cache volume and mute control elements for desktop and web */
+        this._osdVolumeBtnEl = this._osdEl.querySelector('#osdVolumeBtn');
+        this._osdVolumeSliderEl = this._osdEl.querySelector('#osdVolumeSlider');
+        this._osdVolumeFillEl = this._osdEl.querySelector('#osdVolumeFill');
+        this._osdVolumeGroupEl = this._osdEl.querySelector('#osdVolumeGroup');
+        this._osdVolumeSliderContainerEl = this._osdEl.querySelector('#osdVolumeSliderContainer');
+
         /*
          * ====================================================================
          * FULLSCREEN PRESENTATION EVENT SYNCHRONIZATION
@@ -707,6 +728,57 @@ export default class OSDController extends Component {
 
             // Synchronize the button's initial visual presentation
             this._updateFullscreenButton();
+
+            /*
+             * ====================================================================
+             * DESKTOP & WEB AUDIO VOLUME CONTROL INITIALIZATION
+             * ====================================================================
+             * Configures real-time volume slider scrubbing, mute toggling,
+             * player backend synchronization, and mouse wheel input handling.
+             * ====================================================================
+             */
+            // Slider drag / scrub input event
+            if (this._osdVolumeSliderEl) {
+                const handleVolInput = (e) => this._handleVolumeSliderInput(e);
+                const handleVolChange = (e) => this._handleVolumeSliderChange(e);
+                this._osdVolumeSliderEl.addEventListener('input', handleVolInput);
+                this._osdVolumeSliderEl.addEventListener('change', handleVolChange);
+
+                this._subscriptions.push(() => {
+                    this._osdVolumeSliderEl?.removeEventListener('input', handleVolInput);
+                    this._osdVolumeSliderEl?.removeEventListener('change', handleVolChange);
+                });
+            }
+
+            // Mouse wheel listener on volume group container
+            const handleVolWheel = (e) => this._handleVolumeWheel(e);
+            if (this._osdVolumeGroupEl) {
+                this._osdVolumeGroupEl.addEventListener('wheel', handleVolWheel, { passive: false });
+                this._subscriptions.push(() => {
+                    this._osdVolumeGroupEl?.removeEventListener('wheel', handleVolWheel);
+                });
+            }
+
+            // Mouse wheel listener across active player page for desktop/web viewing
+            const playerPageEl = this._playerPage?.el || (typeof document !== 'undefined' ? document.querySelector('.player-page') : null);
+            if (playerPageEl) {
+                playerPageEl.addEventListener('wheel', handleVolWheel, { passive: false });
+                this._subscriptions.push(() => {
+                    playerPageEl?.removeEventListener('wheel', handleVolWheel);
+                });
+            }
+
+            // Synchronize player backend volume events with the UI slider and icon
+            if (this._player) {
+                const onVolumeChanged = () => this._updateVolumeUI();
+                this._player.on('volumechange', onVolumeChanged);
+                this._subscriptions.push(() => {
+                    this._player?.removeListener?.('volumechange', onVolumeChanged);
+                });
+            }
+
+            // Synchronize the volume UI's initial visual presentation
+            this._updateVolumeUI();
         }
 
         // Bind slider
@@ -914,6 +986,11 @@ export default class OSDController extends Component {
                     slider.dispatchEvent(new Event('input', { bubbles: true }));
                     slider.dispatchEvent(new Event('change', { bubbles: true }));
                 }
+                return;
+            }
+
+            // If clicking inside the volume group or volume slider container, do not toggle play/pause
+            if (resolvedTarget.closest?.('.osd-volume-group') || resolvedTarget.closest?.('.osd-volume-slider-container')) {
                 return;
             }
 
@@ -1270,6 +1347,21 @@ export default class OSDController extends Component {
                 const fwdSec = param ? Number(param) : Math.round((PlayerSettings.get('skipForwardLength') || this._config?.seekStepForward || 10000) / 1000);
                 iconHtml = this._getForwardIcon(fwdSec);
                 text = param ? `+${param}s` : `+${fwdSec}s`;
+                break;
+            }
+            case 'volume':
+            case 'volumeUp':
+            case 'volumeDown': {
+                // Determine volume level from parameter or current player backend
+                const vol = typeof param === 'number' ? param : (parseInt(param, 10) || (this._player?.getVolume?.() ?? 100));
+                iconHtml = vol > 50 ? osdIcons.volumeUp : (vol > 0 ? osdIcons.volumeDown : osdIcons.volumeOff);
+                text = typeof param === 'string' && param.endsWith('%') ? param : `${Math.round(vol)}%`;
+                break;
+            }
+            case 'mute': {
+                // Audio muted indicator state
+                iconHtml = osdIcons.volumeOff;
+                text = i18n.t('Muted') || 'Muted';
                 break;
             }
             default:
@@ -3649,6 +3741,10 @@ export default class OSDController extends Component {
                 // Toggle between standard viewport and OS-level fullscreen mode
                 this._toggleFullscreen();
                 break;
+            case 'toggleMute':
+                // Toggle between muted and audible sound presentation
+                this._toggleMute();
+                break;
         }
     }
 
@@ -3775,6 +3871,211 @@ export default class OSDController extends Component {
 
         // Swap between enter fullscreen and exit fullscreen SVG icons
         btn.innerHTML = isFs ? osdIcons.fullscreenExit : osdIcons.fullscreen;
+    }
+
+    /**
+     * ========================================================================
+     * Audio Mute Toggle Action
+     * ========================================================================
+     * Inverts the current sound presentation state between muted and audible.
+     * Restores previous volume level when unmuting, or defaults to 50% if volume was 0%.
+     * ========================================================================
+     * @private
+     */
+    _toggleMute() {
+        const currentlyMuted = Boolean(this._player?.isMuted?.());
+        const currentVol = this._player?.getVolume ? this._player.getVolume() : (MediaHelper.getSavedVolume() * 100);
+
+        if (currentlyMuted) {
+            // Unmuting: restore audio playback presentation
+            if (this._player && typeof this._player.setMuted === 'function') {
+                this._player.setMuted(false);
+            } else if (this._player && typeof this._player.toggleMute === 'function') {
+                this._player.toggleMute();
+            } else if (this._playerPage && typeof this._playerPage._onRemoteToggleMute === 'function') {
+                this._playerPage._onRemoteToggleMute();
+            }
+
+            // If previous volume was silent, raise to audible baseline level
+            if (currentVol === 0) {
+                this._setVolume(50);
+            }
+        } else {
+            // Muting: suppress audio output cleanly
+            if (this._player && typeof this._player.setMuted === 'function') {
+                this._player.setMuted(true);
+            } else if (this._player && typeof this._player.toggleMute === 'function') {
+                this._player.toggleMute();
+            } else if (this._playerPage && typeof this._playerPage._onRemoteToggleMute === 'function') {
+                this._playerPage._onRemoteToggleMute();
+            }
+        }
+
+        // Synchronize visual state immediately across UI controls
+        this._updateVolumeUI();
+    }
+
+    /**
+     * ========================================================================
+     * Volume Adjustment Dispatch
+     * ========================================================================
+     * Clamps target volume (0-100), persists to storage, updates player backend,
+     * and automatically unmutes if volume is raised above 0.
+     * ========================================================================
+     * @param {number} volume - Target volume level between 0 and 100.
+     * @private
+     */
+    _setVolume(volume) {
+        const clamped = Math.max(0, Math.min(100, Math.round(volume)));
+
+        // Route through active player backend
+        if (this._player && typeof this._player.setVolume === 'function') {
+            this._player.setVolume(clamped);
+
+            // Automatically unmute when setting volume > 0 so audio is audible
+            if (clamped > 0 && this._player.isMuted?.() && typeof this._player.setMuted === 'function') {
+                this._player.setMuted(false);
+            }
+        } else if (this._playerPage && typeof this._playerPage._onRemoteVolume === 'function') {
+            this._playerPage._onRemoteVolume(clamped);
+        }
+
+        // Persist volume level across sessions
+        MediaHelper.saveVolume(clamped / 100);
+
+        // Update slider and button UI
+        this._updateVolumeUI();
+    }
+
+    /**
+     * ========================================================================
+     * Volume UI Synchronization
+     * ========================================================================
+     * Synchronizes the volume button icon, slider track fill, and range input
+     * with the current player audio backend volume level and mute state.
+     * ========================================================================
+     * @private
+     */
+    _updateVolumeUI() {
+        if (!this._osdEl) return;
+
+        // Locate cached or live DOM elements
+        const btn = this._osdVolumeBtnEl || this._osdEl.querySelector('#osdVolumeBtn');
+        const slider = this._osdVolumeSliderEl || this._osdEl.querySelector('#osdVolumeSlider');
+        const fill = this._osdVolumeFillEl || this._osdEl.querySelector('#osdVolumeFill');
+
+        if (!btn && !slider) return;
+
+        // Determine mute state and volume level
+        const isMuted = Boolean(this._player?.isMuted?.());
+        const rawVol = this._player?.getVolume ? this._player.getVolume() : (MediaHelper.getSavedVolume() * 100);
+        const volume = Math.max(0, Math.min(100, Math.round(rawVol)));
+
+        // When muted, visual slider indicates silent (0%) level
+        const displayVol = isMuted ? 0 : volume;
+
+        // Synchronize native input range value
+        if (slider && Number(slider.value) !== displayVol) {
+            slider.value = displayVol;
+        }
+
+        // Synchronize track fill line width
+        if (fill) {
+            fill.style.width = `${displayVol}%`;
+        }
+
+        // Synchronize button icon, accessibility label, and shortcut tooltip
+        if (btn) {
+            let icon;
+            if (isMuted || volume === 0) {
+                icon = osdIcons.volumeOff;
+            } else if (volume <= 50) {
+                icon = osdIcons.volumeDown;
+            } else {
+                icon = osdIcons.volumeUp;
+            }
+
+            const label = isMuted ? (i18n.t('Unmute') || 'Unmute') : (i18n.t('Mute') || 'Mute');
+            btn.innerHTML = icon;
+            btn.setAttribute('aria-label', label);
+            btn.title = `${label} (M)`;
+        }
+    }
+
+    /**
+     * ========================================================================
+     * Volume Slider Scrubbing Event Handler
+     * ========================================================================
+     * Updates visual fill line in real-time as user scrubs slider thumb.
+     * ========================================================================
+     * @param {Event} e - Input scrub event.
+     * @private
+     */
+    _handleVolumeSliderInput(e) {
+        const val = parseFloat(e.target.value);
+        if (this._osdVolumeFillEl) {
+            this._osdVolumeFillEl.style.width = `${val}%`;
+        }
+        this._setVolume(val);
+        this.resetAutoHide();
+    }
+
+    /**
+     * ========================================================================
+     * Volume Slider Release Event Handler
+     * ========================================================================
+     * Commits final volume level when user releases slider thumb.
+     * ========================================================================
+     * @param {Event} e - Change commit event.
+     * @private
+     */
+    _handleVolumeSliderChange(e) {
+        const val = parseFloat(e.target.value);
+        this._setVolume(val);
+        this.resetAutoHide();
+    }
+
+    /**
+     * ========================================================================
+     * Volume Mouse Wheel Event Handler
+     * ========================================================================
+     * Intercepts vertical mouse wheel scroll over the player or volume slider,
+     * stepping volume up or down in 5% increments.
+     * ========================================================================
+     * @param {WheelEvent} e - Mouse wheel event.
+     * @private
+     */
+    _handleVolumeWheel(e) {
+        // Suppress volume scrolling when a modal or dropdown menu is active
+        if (this.isModalOpen || (typeof document !== 'undefined' && document.querySelector('.track-menu.visible, .settings-menu.visible, .modal.visible, .osd-menu.visible'))) {
+            return;
+        }
+
+        e.preventDefault();
+        const step = 5;
+        const currentVol = this._player?.getVolume ? this._player.getVolume() : (MediaHelper.getSavedVolume() * 100);
+        const isMuted = Boolean(this._player?.isMuted?.());
+
+        let newVol;
+        if (e.deltaY < 0) {
+            // Scroll Up: increase sound level and unmute if necessary
+            if (isMuted && this._player && typeof this._player.setMuted === 'function') {
+                this._player.setMuted(false);
+            }
+            newVol = Math.min(100, currentVol + step);
+        } else if (e.deltaY > 0) {
+            // Scroll Down: decrease sound level
+            newVol = Math.max(0, currentVol - step);
+        }
+
+        if (newVol !== undefined) {
+            this._setVolume(newVol);
+
+            // Display transient stealth HUD when full OSD is hidden
+            if (!this._isOsdVisible) {
+                this.showStealthHud('volume', `${Math.round(newVol)}%`);
+            }
+        }
     }
 
     _seekTimeline(direction, e) {

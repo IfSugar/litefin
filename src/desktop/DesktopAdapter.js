@@ -1,4 +1,4 @@
-﻿/**
+/**
  * ============================================================================
  * Litefin - Desktop Platform Adapter
  * ============================================================================
@@ -273,6 +273,28 @@ class DesktopAdapter {
                         e.preventDefault();
                         this.toggleFullscreen();
                         return;
+
+                    // Volume increase shortcut (ArrowUp)
+                    case 'ArrowUp':
+                    case 'Up':
+                        // Only intercept when no modal popup or selection menu is open in view
+                        if (!document.querySelector('.track-menu.visible, .settings-menu.visible, .modal.visible, .osd-menu.visible')) {
+                            e.preventDefault();
+                            eventBus.emit('remote:volumeup');
+                            return;
+                        }
+                        break;
+
+                    // Volume decrease shortcut (ArrowDown)
+                    case 'ArrowDown':
+                    case 'Down':
+                        // Only intercept when no modal popup or selection menu is open in view
+                        if (!document.querySelector('.track-menu.visible, .settings-menu.visible, .modal.visible, .osd-menu.visible')) {
+                            e.preventDefault();
+                            eventBus.emit('remote:volumedown');
+                            return;
+                        }
+                        break;
 
                     default:
                         break;

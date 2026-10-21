@@ -1504,12 +1504,26 @@ class DetailsPage extends Page {
     async _loadSecondaryContent() {
         // Load additional data based on type
         if (this._item.Type === 'Series') {
-            // Next Up is above Seasons visually
+            /*
+             * Visual hierarchy for TV series: Next Up episode is prioritized
+             * and positioned directly above the Seasons row.
+             */
             await this._loadNextUp();
             await this._loadSeasons();
         } else if (this._item.Type === 'Season') {
-            this._parentSeries = state.get(`details:series:${this._item.SeriesId}`);
-            await this._loadEpisodes(this._item.SeriesId, this._itemId);
+            /*
+             * Resolve parent series identifier for metadata queries.
+             * Jellyfin seasons provide SeriesId directly, or ParentId as fallback.
+             */
+            const seriesId = this._item.SeriesId || this._item.ParentId;
+            this._parentSeries = state.get(`details:series:${seriesId}`);
+
+            /*
+             * Present Next Up on Season view if the upcoming episode falls within this season.
+             * Visually positioned right above the episode list to streamline resumption.
+             */
+            await this._loadNextUp();
+            await this._loadEpisodes(seriesId, this._itemId);
         } else if (this._item.Type === 'Episode') {
             this._parentSeries = state.get(`details:series:${this._item.SeriesId}`);
             // More from Season is above Guest Stars visually
@@ -3593,6 +3607,29 @@ class DetailsPage extends Page {
         }
 
         try {
+            // =====================================================================
+            // Series Context Resolution
+            // =====================================================================
+            // Determine series identifier based on whether the active details page
+            // represents a top-level Series or an individual Season.
+            let seriesId = this._itemId;
+            if (this._item?.Type === 'Season') {
+                seriesId = this._item.SeriesId || this._item.ParentId;
+                if (!seriesId) {
+                    const parentSeries = await this._getParentSeriesItem();
+                    seriesId = parentSeries?.Id;
+                }
+            }
+
+            // Abort gracefully if series context could not be resolved
+            if (!seriesId) {
+                const nextUpSection = this.$('#next-up-section');
+                if (nextUpSection) {
+                    nextUpSection.classList.add('hidden');
+                }
+                return;
+            }
+
             let response;
 
             // Check if the current server is Emby. Emby ignores the SeriesId parameter
@@ -3601,7 +3638,7 @@ class DetailsPage extends Page {
             if (api.isEmby()) {
                 // Fetch the oldest unplayed episode of this series.
                 response = await api.getItems({
-                    ParentId: this._itemId,
+                    ParentId: seriesId,
                     Recursive: true,
                     IncludeItemTypes: 'Episode',
                     Limit: 1,
@@ -3612,14 +3649,42 @@ class DetailsPage extends Page {
                 });
             } else {
                 // For Jellyfin, use the standard NextUp endpoint which filters by SeriesId correctly.
-                response = await api.getNextUp({ SeriesId: this._itemId, Limit: 1 });
+                response = await api.getNextUp({ SeriesId: seriesId, Limit: 1 });
             }
 
             this._nextUp = response.Items || [];
 
+            // =====================================================================
+            // Season Scope Verification
+            // =====================================================================
+            // When viewing a Season details page, only display the Next Up card
+            // if the upcoming episode actually belongs to this specific season.
+            // If the next unplayed episode is in another season (or none exists),
+            // suppress the Next Up section so the episode list takes primary focus.
+            if (this._item?.Type === 'Season' && this._nextUp.length > 0) {
+                const nextEp = this._nextUp[0];
+                const isWithinThisSeason = Boolean(
+                    (nextEp.SeasonId && nextEp.SeasonId === this._itemId) ||
+                    (nextEp.ParentId && nextEp.ParentId === this._itemId) ||
+                    (nextEp.ParentIndexNumber != null &&
+                        this._item.IndexNumber != null &&
+                        nextEp.ParentIndexNumber === this._item.IndexNumber)
+                );
+
+                if (!isWithinThisSeason) {
+                    this._nextUp = [];
+                }
+            }
+
+            // Render next up if available and eligible for this view
             if (this._nextUp.length > 0) {
                 this._renderNextUp();
                 prewarmManager.prewarm(this._nextUp[0]);
+            } else {
+                const nextUpSection = this.$('#next-up-section');
+                if (nextUpSection) {
+                    nextUpSection.classList.add('hidden');
+                }
             }
         } catch (error) {
             log.warn('Failed to load next up', error);
@@ -5032,6 +5097,15 @@ class DetailsPage extends Page {
                 let target;
                 if (isShufflePlay) {
                     target = this._episodes[Math.floor(Math.random() * this._episodes.length)];
+                } else if (this._nextUp?.length > 0) {
+                    /*
+                     * If an upcoming episode within this season was resolved,
+                     * prioritize playing it when user triggers playback on the season.
+                     */
+                    target = this._nextUp[0];
+                    if (target.UserData?.PlaybackPositionTicks > 0) {
+                        resume = true;
+                    }
                 } else {
                     target = this._episodes.find((ep) => !ep.UserData?.Played) || this._episodes[0];
                 }
