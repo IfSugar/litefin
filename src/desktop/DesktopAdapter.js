@@ -274,6 +274,32 @@ class DesktopAdapter {
                         this.toggleFullscreen();
                         return;
 
+                    /*
+                     * =================================================================
+                     * Escape / Esc Fullscreen Dismissal Override
+                     * =================================================================
+                     * When player is actively rendering in fullscreen mode, pressing
+                     * Escape disables fullscreen back to windowed mode without exiting
+                     * the player or navigating backward.
+                     *
+                     * Exception: If a selection modal (subtitles, audio, settings) is
+                     * currently open, let Escape pass through to back handler to dismiss
+                     * the menu popup first.
+                     * =================================================================
+                     */
+                    case 'Escape':
+                    case 'Esc':
+                        if (this.isFullscreen()) {
+                            // If a modal or menu popup is active, let back close the modal first
+                            if (document.querySelector('.track-menu.visible, .settings-menu.visible, .modal.visible, .osd-menu.visible')) {
+                                break;
+                            }
+                            e.preventDefault();
+                            this.toggleFullscreen();
+                            return;
+                        }
+                        break;
+
                     // Volume increase shortcut (ArrowUp)
                     case 'ArrowUp':
                     case 'Up':

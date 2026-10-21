@@ -134,6 +134,9 @@ class PlayerPage extends Page {
         this._onNetworkOffline = null;
         this._onNetworkOnline = null;
 
+        // Background single-click debouncing timer for desktop and web runtimes
+        this._bgClickTimer = null;
+
         // Lifecycle destruction tracker
         this._isDestroyed = false;
     }
@@ -902,11 +905,12 @@ class PlayerPage extends Page {
                 }
             });
 
-            // 2. Clicking the video background shows/hides the OSD.
+            // 2. Clicking the video background shows/hides the OSD or toggles play/pause.
             //    Use a robust contains() guard against the entire #osd-overlay subtree
             //    so OSD button clicks can never accidentally reach this handler even if
             //    stopPropagation() is still in flight on older TV browsers.
             this.el.addEventListener('click', (e) => {
+                // If playback controls are locked, visually notify the user and discard
                 if (this._isScreenLocked) {
                     this._showLockIndicator();
                     return;
@@ -928,7 +932,7 @@ class PlayerPage extends Page {
                     return;
                 }
 
-                // Ignore the error panel
+                // Ignore clicks landing inside the error recovery panel
                 if (e.target.closest('.error-panel')) {
                     return;
                 }
@@ -947,13 +951,96 @@ class PlayerPage extends Page {
                     return;
                 }
 
-                // Click landed on the raw video background.
+                /*
+                 * ====================================================================
+                 * DESKTOP & WEB BACKGROUND SINGLE-CLICK BUFFERING
+                 * ====================================================================
+                 * Differentiates a solitary single-click (which toggles play/pause)
+                 * from the first tap of a double-click gesture (which toggles fullscreen).
+                 * Buffers execution by 250ms; if a second click arrives within this
+                 * window, the timer is cleared and play/pause is prevented from executing.
+                 * ====================================================================
+                 */
+                if (platformInfo.isDesktop || platformInfo.isWeb) {
+                    // Reset any pending single-click timer
+                    if (this._bgClickTimer) {
+                        clearTimeout(this._bgClickTimer);
+                        this._bgClickTimer = null;
+                    }
+
+                    // If this click is part of a multi-click sequence (e.g. 2nd click),
+                    // discard immediately so play/pause cannot override the double-click
+                    if (e.detail > 1) {
+                        return;
+                    }
+
+                    // Buffer single-click play/pause execution
+                    this._bgClickTimer = setTimeout(() => {
+                        this._bgClickTimer = null;
+                        this._onRemotePlayPause();
+                    }, 250);
+                    return;
+                }
+
+                // Click landed on the raw video background on TV platforms.
                 // In all layouts, clicking the video background is the standard media player convention to toggle playback.
                 // - In stealth mode (hidden layout): _onRemotePlayPause shows the transient stealth HUD without waking the full OSD.
                 // - In standard layout: _onRemotePlayPause toggles playback and reveals/focuses the Play/Pause button.
                 // OSD buttons, seekbars, and modals are fully guarded by the contains() check above.
                 this._onRemotePlayPause();
             });
+
+            /*
+             * ====================================================================
+             * DESKTOP & WEB DOUBLE-CLICK FULLSCREEN SHORTCUT
+             * ====================================================================
+             * Double clicking anywhere on the video player surface toggles between
+             * windowed and fullscreen presentation modes. Immediately cancels any
+             * pending single-click play/pause buffer to guarantee pure fullscreen toggling.
+             * ====================================================================
+             */
+            if (platformInfo.isDesktop || platformInfo.isWeb) {
+                this.el.addEventListener('dblclick', (e) => {
+                    // Discard gesture when playback controls are locked
+                    if (this._isScreenLocked) return;
+
+                    // Immediately abort pending single-click play/pause toggle
+                    if (this._bgClickTimer) {
+                        clearTimeout(this._bgClickTimer);
+                        this._bgClickTimer = null;
+                    }
+
+                    // Clear OSD level background buffer if active
+                    if (this._osd && typeof this._osd._clearBackgroundClickTimeout === 'function') {
+                        this._osd._clearBackgroundClickTimeout();
+                    }
+
+                    // If double-click landed on interactive controls, menus, or modals, ignore
+                    const osdOverlay = this.el.querySelector('#osd-overlay');
+                    if (osdOverlay && osdOverlay.contains(e.target)) {
+                        if (
+                            e.target.closest?.(
+                                'button, input, [data-action], .osd-btn, .osd-volume-group, .osd-volume-slider-container, .osd-slider-container, .track-menu, .settings-menu, .modal, .osd-menu, .osd-overlays > *'
+                            ) ||
+                            this._osd?.isModalOpen
+                        ) {
+                            return;
+                        }
+                    }
+
+                    // Ignore double-clicks on playback error dialog
+                    if (e.target.closest?.('.error-panel')) return;
+
+                    // Consume the event completely
+                    e.preventDefault();
+                    e.stopPropagation();
+
+                    // Delegate to OSD controller fullscreen presentation toggle
+                    if (this._osd && typeof this._osd._toggleFullscreen === 'function') {
+                        this._osd._toggleFullscreen();
+                    }
+                });
+            }
 
             // ================================================================
             // PHYSICAL REMOTE CONTROL HANDLERS (WebOS/Tizen)
@@ -5046,6 +5133,12 @@ class PlayerPage extends Page {
         }
         this._isExiting = true;
 
+        // Cancel any pending background single-click play/pause timers
+        if (this._bgClickTimer) {
+            clearTimeout(this._bgClickTimer);
+            this._bgClickTimer = null;
+        }
+
         // =====================================================================
         // Persist Track Selections Before Teardown
         // =====================================================================
@@ -5423,6 +5516,12 @@ class PlayerPage extends Page {
         this._resumeVideoDisplayAfterProfileSelection = '';
         this._backgroundPrepared = false;
         log.info('destroy() called');
+
+        // Cancel any pending background single-click timers
+        if (this._bgClickTimer) {
+            clearTimeout(this._bgClickTimer);
+            this._bgClickTimer = null;
+        }
 
         // Defensive safety net: if destroy is invoked directly without _stopAndExit having run
         // (e.g. emergency external route discard), report stopped to server with synchronous XHR

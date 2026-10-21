@@ -905,19 +905,26 @@ export default class OSDController extends Component {
                     this.show();
                     return;
                 }
-                // Route through PlayerPage remote play/pause handler to update heartbeat and UI
-                if (this._playerPage && typeof this._playerPage._onRemotePlayPause === 'function') {
-                    this._playerPage._onRemotePlayPause();
-                } else if (this._player?.togglePlay) {
-                    const wasPaused = this._player.isPaused?.();
-                    this._player.togglePlay();
-                    // Display appropriate visual feedback based on layout mode
-                    if (PlayerSettings.get('osdLayout') === 'hidden') {
-                        this.showStealthHud(wasPaused ? 'play' : 'pause');
-                    } else {
-                        this.showAndFocusPlayPause();
+
+                // Encapsulate playback toggle logic
+                const executeHiddenPlayPause = () => {
+                    // Route through PlayerPage remote play/pause handler to update heartbeat and UI
+                    if (this._playerPage && typeof this._playerPage._onRemotePlayPause === 'function') {
+                        this._playerPage._onRemotePlayPause();
+                    } else if (this._player?.togglePlay) {
+                        const wasPaused = this._player.isPaused?.();
+                        this._player.togglePlay();
+                        // Display appropriate visual feedback based on layout mode
+                        if (PlayerSettings.get('osdLayout') === 'hidden') {
+                            this.showStealthHud(wasPaused ? 'play' : 'pause');
+                        } else {
+                            this.showAndFocusPlayPause();
+                        }
                     }
-                }
+                };
+
+                // Buffer single clicks on desktop and web to distinguish double-click fullscreen
+                this._dispatchBackgroundClick(executeHiddenPlayPause, e);
                 return;
             }
 
@@ -1004,9 +1011,63 @@ export default class OSDController extends Component {
                     this.hide();
                     return;
                 }
-                this._executeAction('togglePlay');
+                // Buffer single clicks on desktop and web to distinguish double-click fullscreen
+                this._dispatchBackgroundClick(() => {
+                    this._executeAction('togglePlay');
+                }, e);
             }
         });
+
+        /*
+         * ====================================================================
+         * DESKTOP & WEB DOUBLE-CLICK FULLSCREEN SHORTCUT
+         * ====================================================================
+         * Double clicking anywhere on the player video surface / background toggles
+         * between windowed and fullscreen presentation mode (enables fullscreen
+         * on the first double click, disables on the second double click).
+         * ====================================================================
+         */
+        if (platformInfo.isDesktop || platformInfo.isWeb) {
+            this._osdEl.addEventListener('dblclick', (e) => {
+                // Cancel pending background single-click toggle immediately
+                this._clearBackgroundClickTimeout();
+
+                let resolvedTarget = e.target;
+                if (resolvedTarget.classList && resolvedTarget.classList.contains('osd-overlays')) {
+                    const els = document.elementsFromPoint(e.clientX, e.clientY);
+                    for (const el of els) {
+                        if (el.classList && el.classList.contains('osd-overlays')) continue;
+                        if (el.closest?.('.osd-main') || el.closest?.('[data-action]')) {
+                            resolvedTarget = el;
+                            break;
+                        }
+                    }
+                }
+
+                // Guard: Ignore double-clicks on buttons, inputs, sliders, volume, menus, modals
+                if (
+                    resolvedTarget.closest?.('[data-action]') ||
+                    resolvedTarget.closest?.('.osd-btn') ||
+                    resolvedTarget.closest?.('button') ||
+                    resolvedTarget.closest?.('input') ||
+                    resolvedTarget.closest?.('.osd-volume-group') ||
+                    resolvedTarget.closest?.('.osd-volume-slider-container') ||
+                    resolvedTarget.closest?.('.osd-slider-container') ||
+                    resolvedTarget.closest?.('.track-menu') ||
+                    resolvedTarget.closest?.('.settings-menu') ||
+                    resolvedTarget.closest?.('.modal') ||
+                    resolvedTarget.closest?.('.osd-menu') ||
+                    resolvedTarget.closest?.('.osd-overlays > *') ||
+                    this.isModalOpen
+                ) {
+                    return;
+                }
+
+                e.preventDefault();
+                e.stopPropagation();
+                this._toggleFullscreen();
+            });
+        }
 
         /*
          * Audio mode: hide buttons that only apply to video.
@@ -1903,6 +1964,7 @@ export default class OSDController extends Component {
     hide() {
         this._clearSeekState();
         this._cancelDownHold();
+        this._clearBackgroundClickTimeout();
         // Don't hide if a modal menu is open
         if (this.isModalOpen) return;
 
@@ -3169,6 +3231,21 @@ export default class OSDController extends Component {
             }
         }
 
+        /*
+         * ====================================================================
+         * FULLSCREEN ESCAPE OVERRIDE (DESKTOP & WEB)
+         * ====================================================================
+         * When in fullscreen mode on desktop or web runtimes, pressing Escape / Back
+         * overrides back navigation to exit fullscreen mode first, keeping video
+         * playback active in the windowed presentation.
+         * ====================================================================
+         */
+        if ((platformInfo.isDesktop || platformInfo.isWeb) && this._isFullscreen()) {
+            log.info('OSDController: Overriding back navigation to exit fullscreen presentation');
+            this._toggleFullscreen();
+            return true;
+        }
+
         // ====================================================================
         // OSD HIDE / PLAYER EXIT CHAIN
         // ====================================================================
@@ -3807,14 +3884,68 @@ export default class OSDController extends Component {
 
     /**
      * ========================================================================
+     * Background Single-Click Dispatcher
+     * ========================================================================
+     * On desktop and web runtimes, buffers single clicks landing on the player
+     * background by 250ms. If a second click arrives within this window,
+     * the pending single click is cancelled and double-click fullscreen triggers.
+     * On TV platforms, executes immediately without latency.
+     * ========================================================================
+     * @param {Function} action - Action callback to execute on single click.
+     * @param {MouseEvent} [e] - Optional DOM mouse event.
+     * @private
+     */
+    _dispatchBackgroundClick(action, e) {
+        // Enforce debouncing on desktop and browser runtimes
+        if (platformInfo.isDesktop || platformInfo.isWeb) {
+            // Cancel any previously scheduled single-click action
+            this._clearBackgroundClickTimeout();
+
+            // Discard second click in rapid succession so double click isn't overridden
+            if (e && e.detail > 1) {
+                return;
+            }
+
+            // Schedule buffered single-click action
+            this._backgroundClickTimeout = setTimeout(() => {
+                this._backgroundClickTimeout = null;
+                action();
+            }, 250);
+        } else {
+            // Instant execution on television platforms
+            action();
+        }
+    }
+
+    /**
+     * Clears any buffered background single-click timer.
+     * @private
+     */
+    _clearBackgroundClickTimeout() {
+        if (this._backgroundClickTimeout) {
+            clearTimeout(this._backgroundClickTimeout);
+            this._backgroundClickTimeout = null;
+        }
+    }
+
+    /**
+     * ========================================================================
      * Fullscreen Mode Toggle
      * ========================================================================
      * Toggles the display between windowed and fullscreen presentation mode.
      * Routes through platform adapters (DesktopAdapter, WebAdapter, or Player).
+     * Includes a 300ms debounce guard to prevent double-invocation jitter.
      * ========================================================================
      * @private
      */
     async _toggleFullscreen() {
+        // Debounce double-invocations occurring in rapid succession
+        const now = Date.now();
+        if (this._lastToggleFullscreenTime && now - this._lastToggleFullscreenTime < 300) {
+            return;
+        }
+        this._lastToggleFullscreenTime = now;
+
         try {
             // Handle native desktop shell toggling via desktopAdapter
             if (platformInfo.isDesktop && typeof desktopAdapter !== 'undefined') {
