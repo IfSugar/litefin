@@ -111,6 +111,9 @@ export class HtmlVideoPlayer {
 
         // Media element error that HLS.js is recovering from (one recovery per HLS.js session)
         this._hlsRecoveringError = null;
+
+        // Aspect ratio mode ('auto' | 'zoom' | 'stretch')
+        this._aspectRatio = 'auto';
     }
 
     // ========================================================================
@@ -224,6 +227,9 @@ export class HtmlVideoPlayer {
         this._previousOffset = 0;
 
         const video = this._ensureVideoElement();
+
+        // Apply display layout geometry for active stream
+        this._applyDisplayGeometry();
 
         // ====================================================================
         // Temporarily Mute Audio When Resuming Playback:
@@ -1579,29 +1585,236 @@ export class HtmlVideoPlayer {
     }
 
     /**
+     * Retrieve active video stream dimensions and presentation Display Aspect Ratio (DAR).
+     *
+     * Non-square pixel streams (such as standard-definition DVD remuxes in NTSC 720x480
+     * or PAL 720x576) store frames using rectangular pixels. By default, HTML5 <video> elements
+     * calculate display bounds solely from videoWidth / videoHeight, distorting NTSC 4:3 DVDs
+     * to a squashed 3:2 frame. This method inspects media source and container stream metadata
+     * to resolve the intended DAR.
+     *
+     * @private
+     * @returns {{width: number, height: number, aspectRatio: number, isAnamorphic: boolean}}
+     */
+    _getVideoDimensions() {
+        const video = this._videoElement;
+        let vw = video?.videoWidth || 0;
+        let vh = video?.videoHeight || 0;
+        let aspectStr = '';
+
+        // Query active HLS variant if running HLS.js
+        if ((!vw || !vh) && this._hlsPlayer) {
+            const level = this._hlsPlayer.levels?.[this._hlsPlayer.currentLevel];
+            if (level?.width && level?.height) {
+                vw = level.width;
+                vh = level.height;
+            }
+        }
+
+        // Query Jellyfin MediaSource metadata
+        const mediaSource = this._currentPlayOptions?.mediaSource;
+        if (mediaSource) {
+            if (!vw || !vh) {
+                vw = mediaSource.Width || 0;
+                vh = mediaSource.Height || 0;
+            }
+            if (Array.isArray(mediaSource.MediaStreams)) {
+                const videoStream = mediaSource.MediaStreams.find((s) => s && s.Type === 'Video');
+                if (videoStream) {
+                    if (!vw || !vh) {
+                        vw = videoStream.Width || 0;
+                        vh = videoStream.Height || 0;
+                    }
+                    if (videoStream.AspectRatio) {
+                        aspectStr = String(videoStream.AspectRatio);
+                    }
+                }
+            }
+            if (!aspectStr && mediaSource.AspectRatio) {
+                aspectStr = String(mediaSource.AspectRatio);
+            }
+        }
+
+        // Query Jellyfin Item metadata
+        const item = this._currentPlayOptions?.item;
+        if (item) {
+            if (!vw || !vh) {
+                vw = item.Width || 0;
+                vh = item.Height || 0;
+            }
+            if (!aspectStr) {
+                const streams = item.MediaStreams || item.MediaSources?.[0]?.MediaStreams;
+                if (Array.isArray(streams)) {
+                    const videoStream = streams.find((s) => s && s.Type === 'Video');
+                    if (videoStream?.AspectRatio) {
+                        aspectStr = String(videoStream.AspectRatio);
+                    }
+                }
+            }
+            if (!aspectStr && item.AspectRatio) {
+                aspectStr = String(item.AspectRatio);
+            }
+        }
+
+        // Parse AspectRatio string into numeric ratio
+        let parsedRatio = 0;
+        if (aspectStr && typeof aspectStr === 'string') {
+            if (aspectStr.includes(':')) {
+                const parts = aspectStr.split(':');
+                const num = parseFloat(parts[0]);
+                const den = parseFloat(parts[1]);
+                if (num > 0 && den > 0) {
+                    parsedRatio = num / den;
+                }
+            } else {
+                const val = parseFloat(aspectStr);
+                if (!isNaN(val) && val > 0) {
+                    parsedRatio = val;
+                }
+            }
+        }
+
+        // Evaluate Anamorphic / Non-Square Pixel Geometry
+        let isAnamorphic = false;
+        if (vw > 0 && vh > 0 && parsedRatio > 0) {
+            const storageRatio = vw / vh;
+            if (Math.abs(storageRatio - parsedRatio) > 0.05) {
+                isAnamorphic = true;
+            }
+        } else if (parsedRatio <= 0 && vw > 0 && vh > 0) {
+            parsedRatio = vw / vh;
+        }
+
+        return {
+            width: vw,
+            height: vh,
+            aspectRatio: parsedRatio > 0 ? parsedRatio : 0,
+            isAnamorphic
+        };
+    }
+
+    /**
+     * Compute and apply layout geometry to the HTML5 <video> element.
+     *
+     * In standard HTML5 video, object-fit: contain relies on intrinsic videoWidth / videoHeight.
+     * For non-square pixel (anamorphic) video, the browser assumes square pixels and distorts
+     * the image. By calculating the exact target layout bounding box and centering it,
+     * we guarantee that non-square pixel content (such as NTSC/PAL DVD remuxes) renders in
+     * the intended display aspect ratio (e.g., 4:3 or 16:9).
+     *
+     * @private
+     */
+    _applyDisplayGeometry() {
+        const video = this._videoElement;
+        if (!video) return;
+
+        // Container dimensions with viewport fallback
+        const cw = (this.container && this.container.clientWidth) || (typeof window !== 'undefined' ? window.innerWidth : 1920) || 1920;
+        const ch = (this.container && this.container.clientHeight) || (typeof window !== 'undefined' ? window.innerHeight : 1080) || 1080;
+        const style = video.style;
+
+        const mode = this._aspectRatio || 'auto';
+
+        // --------------------------------------------------------------------
+        // Mode 1: Fullscreen Stretch
+        // --------------------------------------------------------------------
+        if (mode === 'stretch') {
+            style.position = 'absolute';
+            style.left = '0px';
+            style.top = '0px';
+            style.width = '100%';
+            style.height = '100%';
+            style.objectFit = 'fill';
+            style.objectPosition = 'center';
+            log.info('Setting aspect ratio (stretch): 100% fill');
+            return;
+        }
+
+        // --------------------------------------------------------------------
+        // Mode 2: Zoom / Cover
+        // --------------------------------------------------------------------
+        if (mode === 'zoom') {
+            style.position = 'absolute';
+            style.left = '0px';
+            style.top = '0px';
+            style.width = '100%';
+            style.height = '100%';
+            style.objectFit = 'cover';
+            style.objectPosition = 'center';
+            log.info('Setting aspect ratio (zoom): 100% cover');
+            return;
+        }
+
+        // --------------------------------------------------------------------
+        // Mode 3: Auto (Contain / Anamorphic DAR Correction)
+        // --------------------------------------------------------------------
+        const dims = this._getVideoDimensions();
+        if (dims.isAnamorphic && dims.aspectRatio > 0) {
+            const targetRatio = dims.aspectRatio;
+            const containerRatio = cw / ch;
+            let targetW = cw;
+            let targetH = ch;
+            let targetLeft = 0;
+            let targetTop = 0;
+
+            if (targetRatio < containerRatio) {
+                // Taller/narrower than viewport (e.g. 4:3 inside 16:9 screen) -> Pillarbox
+                targetH = Math.round(ch);
+                targetW = Math.round(ch * targetRatio);
+                targetLeft = Math.round((cw - targetW) / 2);
+                targetTop = 0;
+            } else if (targetRatio > containerRatio) {
+                // Wider than viewport (e.g. Cinemascope inside 16:9 screen) -> Letterbox
+                targetW = Math.round(cw);
+                targetH = Math.round(cw / targetRatio);
+                targetLeft = 0;
+                targetTop = Math.round((ch - targetH) / 2);
+            }
+
+            // Set explicit bounding box coordinates and stretch frame into DAR box
+            style.position = 'absolute';
+            style.left = `${targetLeft}px`;
+            style.top = `${targetTop}px`;
+            style.width = `${targetW}px`;
+            style.height = `${targetH}px`;
+            style.objectFit = 'fill';
+            style.objectPosition = 'center';
+            log.info('Setting aspect ratio (auto anamorphic DAR correction):', {
+                x: targetLeft,
+                y: targetTop,
+                width: targetW,
+                height: targetH,
+                aspectRatio: targetRatio
+            });
+            return;
+        }
+
+        // Standard square-pixel content in auto mode
+        style.position = 'absolute';
+        style.left = '0px';
+        style.top = '0px';
+        style.width = '100%';
+        style.height = '100%';
+        style.objectFit = 'contain';
+        style.objectPosition = 'center';
+        log.info('Setting aspect ratio (auto): 100% contain');
+    }
+
+    /**
      * Set aspect ratio mode
      * @param {string} mode - 'auto', 'zoom', 'stretch'
      */
     setAspectRatio(mode) {
-        if (!this._videoElement) return;
+        this._aspectRatio = mode || 'auto';
+        this._applyDisplayGeometry();
+    }
 
-        let objectFit = 'contain'; // Default/Auto
-
-        switch (mode) {
-            case 'zoom':
-                objectFit = 'cover';
-                break;
-            case 'stretch':
-                objectFit = 'fill';
-                break;
-            case 'auto':
-            default:
-                objectFit = 'contain';
-                break;
-        }
-
-        log.info('Setting aspect ratio:', mode, '->', objectFit);
-        this._videoElement.style.objectFit = objectFit;
+    /**
+     * Get current aspect ratio mode
+     * @returns {string} 'auto', 'zoom', 'stretch'
+     */
+    getAspectRatio() {
+        return this._aspectRatio || 'auto';
     }
 
     /**
@@ -1980,6 +2193,7 @@ export class HtmlVideoPlayer {
     /** @private */
     _onLoadedMetadata() {
         log.debug('Metadata loaded');
+        this._applyDisplayGeometry();
         this.onEvent({ type: 'loadedmetadata', data: { duration: this.getDuration() } });
     }
 
