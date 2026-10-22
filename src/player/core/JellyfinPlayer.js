@@ -1481,6 +1481,9 @@ export class JellyfinPlayer extends EventEmitter {
         // (see the resumeseekfailed handler); any other restart creates new options
         this._resumeRetryOptions = null;
 
+        // Play options of the reload a stuck seek gets (see the seekstuck handler)
+        this._seekReloadOptions = null;
+
         // ────────────────────────────────────────────────────────────────────
         // DirectPlay Failure Escalation Guard
         // ────────────────────────────────────────────────────────────────────
@@ -2066,6 +2069,58 @@ export class JellyfinPlayer extends EventEmitter {
                     this.emit(PlayerEvent.MEDIA_STREAMS_CHANGE, { audioStreamIndex: targetIndex });
                 })();
             }
+            return;
+        }
+
+        // ── A seek the backend's pipeline never completes ─────────────────────
+        //
+        // The element stays 'seeking' with playback requested and holds every
+        // later seek and play (an LG C4 after a rejected seek in a native-HLS
+        // remux). Reload the stream at the target in the same mode. If the
+        // reloaded stream gets stuck too, the resumeseekfailed escalation
+        // takes over (remux → transcode).
+        if (event.type === 'seekstuck') {
+            if (this._isRestarting || !this._currentPlayOptions) return;
+            const targetTicks = event.data?.targetPositionTicks ?? this.getCurrentPositionTicks();
+
+            if (this._seekReloadOptions && this._currentPlayOptions === this._seekReloadOptions) {
+                log.warn('seekstuck: the reloaded stream got stuck too — escalating like a failed resume');
+                this._handleBackendEvent({ type: 'resumeseekfailed', data: { targetPositionTicks: targetTicks } });
+                return;
+            }
+
+            log.warn(`seekstuck: seek to ${(targetTicks / 10000000).toFixed(2)} s never completed — reloading the stream there`);
+            const restartOptions = {
+                ...this._currentPlayOptions,
+                audioStreamIndex: this._currentAudioStreamIndex,
+                subtitleStreamIndex: this._currentSubtitleStreamIndex,
+                secondarySubtitleStreamIndex: this._currentSecondarySubtitleStreamIndex,
+                startPositionTicks: targetTicks,
+                playbackMode: this._playbackMode
+            };
+            // Identity, as for _resumeRetryOptions: later restarts create new options
+            this._seekReloadOptions = restartOptions;
+            this._currentPlayOptions = restartOptions;
+            this._lastPlayOptions = restartOptions;
+            this._isRestarting = true;
+            this.emit(PlayerEvent.RESTARTING);
+
+            (async () => {
+                try {
+                    await this.stop();
+                    const started = await this._playAfterRestartPause(restartOptions, 0);
+                    // A reloaded remux that does not start is escalated by the watchdog,
+                    // as after a failed resume
+                    if (started !== false && (this._currentPlayMethod === 'Remux' || this._currentPlayMethod === 'DirectStream')) {
+                        this._armRemuxStuckWatchdog(targetTicks);
+                    }
+                } catch (e) {
+                    log.error('seekstuck reload failed:', e);
+                    this._clearRemuxStuckWatchdog();
+                } finally {
+                    this._isRestarting = false;
+                }
+            })();
             return;
         }
 

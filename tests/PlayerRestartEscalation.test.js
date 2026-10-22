@@ -308,3 +308,65 @@ test('JellyfinPlayer: an error in a forced remux escalates to a transcode', asyn
     await settle();
     assert.strictEqual(player.playCalls[0]?.playbackMode, 'transcode');
 });
+
+// ----------------------------------------------------------------------------
+// D11 — a seek the backend's pipeline never completes
+// ----------------------------------------------------------------------------
+
+function seekStuck(player, ticks = 600000000) {
+    player._handleBackendEvent({ type: 'seekstuck', data: { targetPositionTicks: ticks } });
+}
+
+test('JellyfinPlayer: a stuck seek reloads the stream at its target in the same mode', async () => {
+    const player = createPlayer(['_handleBackendEvent(event) {']);
+    player._currentPlayMethod = 'Remux';
+    player._playbackMode = 'remux';
+    player._currentAudioStreamIndex = 1;
+    seekStuck(player);
+    await settle();
+
+    assert.strictEqual(player.playCalls.length, 1);
+    assert.strictEqual(player.playCalls[0].startPositionTicks, 600000000);
+    assert.strictEqual(player.playCalls[0].playbackMode, 'remux');
+    assert.strictEqual(player.playCalls[0].audioStreamIndex, 1);
+    assert.ok(player.events.includes('restarting'));
+    assert.strictEqual(player._isRestarting, false);
+    // A reloaded remux that does not start is escalated by the watchdog
+    assert.deepStrictEqual(player.armedWatchdogs, [600000000]);
+});
+
+test('JellyfinPlayer: a stuck seek in direct play reloads without the remux watchdog', async () => {
+    const player = createPlayer(['_handleBackendEvent(event) {']);
+    seekStuck(player);
+    await settle();
+    assert.strictEqual(player.playCalls.length, 1);
+    assert.strictEqual(player.playCalls[0].playbackMode, 'auto');
+    assert.deepStrictEqual(player.armedWatchdogs, []);
+});
+
+test('JellyfinPlayer: a reloaded stream that gets stuck again escalates like a failed resume', async () => {
+    const player = createPlayer(['_handleBackendEvent(event) {']);
+    player._currentPlayMethod = 'Remux';
+    player._playbackMode = 'remux';
+    seekStuck(player);
+    await settle();
+    // play() keeps its options as the current ones
+    player._currentPlayOptions = player.playCalls[0];
+
+    seekStuck(player, 900000000);
+    await settle();
+    assert.strictEqual(player.playCalls.length, 2);
+    assert.strictEqual(player.playCalls[1].playbackMode, 'transcode');
+    assert.strictEqual(player.playCalls[1].startPositionTicks, 900000000);
+});
+
+test('JellyfinPlayer: a stuck seek during a restart or after stop() is ignored', async () => {
+    const player = createPlayer(['_handleBackendEvent(event) {']);
+    player._isRestarting = true;
+    seekStuck(player);
+    player._isRestarting = false;
+    player._currentPlayOptions = null;
+    seekStuck(player);
+    await settle();
+    assert.strictEqual(player.playCalls.length, 0);
+});
