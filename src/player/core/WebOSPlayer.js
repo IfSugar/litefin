@@ -193,8 +193,10 @@ export class WebOSPlayer {
         this._resumeVideoSuppressed = false;
 
         // ---- Audio normalization (Web Audio API) ----
+        // { element, context, source, gain } — see _applyAudioNormalization();
+        // the context is shared by every element of this player
+        this._audioGraph = null;
         this._audioContext = null;
-        this._gainNode = null;
 
         log.info('WebOSPlayer constructed');
     }
@@ -438,32 +440,19 @@ export class WebOSPlayer {
     }
 
     /**
-     * Apply audio normalization (TrackGain / AlbumGain) using the Web Audio API.
-     * Only applies to audio-only items. The gain value comes from the server
+     * Resolve the normalization gain (linear) for an item, or null when none applies.
+     * Only audio-only items are normalized. The gain value comes from the server
      * metadata (NormalizationGain / albumNormalizationGain).
      * @private
      * @param {Object} options - Play options (item, mediaSource)
+     * @returns {number|null}
      */
-    _applyAudioNormalization(options) {
-        log.info('Audio normalization: entered, mode=' + PlayerSettings.get('audioNormalization') + ' itemType=' + (options.item?.MediaType || options.item?.Type || 'unknown'));
-
+    _getNormalizationGain(options) {
         const mode = PlayerSettings.get('audioNormalization');
-        if (mode === 'Off') {
-            log.info('Audio normalization: mode is Off, skipping');
-            return;
-        }
+        if (mode === 'Off') return null;
 
         const isAudioItem = options.item?.MediaType === 'Audio' || options.item?.Type === 'AudioBook';
-        if (!isAudioItem) {
-            log.info('Audio normalization: not an audio item, skipping');
-            return;
-        }
-
-        const video = this._videoElement;
-        if (!video) {
-            log.info('Audio normalization: no video element');
-            return;
-        }
+        if (!isAudioItem) return null;
 
         let normalizationGain;
         if (mode === 'TrackGain') {
@@ -474,35 +463,137 @@ export class WebOSPlayer {
                 ?? options.item?.NormalizationGain;
         }
 
-        if (normalizationGain == null) {
-            log.info('Audio normalization: no gain value available');
+        if (normalizationGain == null) return null;
+        return Math.pow(10, normalizationGain / 20);
+    }
+
+    /**
+     * Apply audio normalization (TrackGain / AlbumGain) using the Web Audio API.
+     *
+     * A media element can be connected to a MediaElementAudioSourceNode only
+     * once, and from then on its audio only reaches the speakers through that
+     * graph. So the graph is built once per <video> element and reused (only
+     * the gain changes); stop() releases it together with the element, so the
+     * next item starts on a fresh element with its normal audio path.
+     *
+     * The AudioContext itself is kept for the player's lifetime and reused for
+     * every element: old TV browsers (Chromium 38) cannot close() a context and
+     * Chromium caps how many can exist, so a context per item would stop
+     * working after a few tracks.
+     *
+     * @private
+     * @param {Object} options - Play options (item, mediaSource)
+     */
+    _applyAudioNormalization(options) {
+        const video = this._videoElement;
+        if (!video) return;
+
+        const gainValue = this._getNormalizationGain(options);
+        const graph = this._audioGraph && this._audioGraph.element === video ? this._audioGraph : null;
+
+        if (gainValue === null) {
+            // The element is still routed through an earlier item's graph
+            // (play() without stop()): play this item at unity gain.
+            if (graph) graph.gain.gain.value = 1;
             return;
         }
 
         try {
-            const AudioContext = window.AudioContext || window.webkitAudioContext;
-            if (!AudioContext) {
-                log.warn('Audio normalization: Web Audio API not available');
-                return;
+            let activeGraph = graph;
+            if (!activeGraph) {
+                const AudioContext = window.AudioContext || window.webkitAudioContext;
+                if (!AudioContext) {
+                    log.warn('Audio normalization: Web Audio API not available');
+                    return;
+                }
+                this._releaseAudioGraph();
+                if (!this._audioContext || this._audioContext.state === 'closed') {
+                    this._audioContext = new AudioContext();
+                }
+                const context = this._audioContext;
+                const source = context.createMediaElementSource(video);
+                const gain = context.createGain();
+                source.connect(gain);
+                gain.connect(context.destination);
+                activeGraph = { element: video, context, source, gain };
+                this._audioGraph = activeGraph;
             }
 
-            if (!this._audioContext) {
-                this._audioContext = new AudioContext();
+            activeGraph.gain.gain.value = gainValue;
+            // Always resume: the context may still be suspending after the last stop()
+            if (typeof activeGraph.context.resume === 'function') {
+                const resuming = activeGraph.context.resume();
+                if (resuming && typeof resuming.catch === 'function') {
+                    resuming.catch((e) => log.warn('Audio normalization: AudioContext resume failed', e));
+                }
             }
-
-            const source = this._audioContext.createMediaElementSource(video);
-            const gainNode = this._audioContext.createGain();
-            const gainValue = Math.pow(10, normalizationGain / 20);
-            gainNode.gain.value = gainValue;
-
-            source.connect(gainNode);
-            gainNode.connect(this._audioContext.destination);
-
-            this._gainNode = gainNode;
-            log.info(`Audio normalization: applied ${mode} gain of ${gainValue} (${normalizationGain} dB)`);
+            log.info(`Audio normalization: applied ${PlayerSettings.get('audioNormalization')} gain of ${gainValue}`);
         } catch (e) {
-            log.error('Audio normalization: failed to create gain node', e);
+            log.error('Audio normalization: failed to set up the gain node', e);
         }
+    }
+
+    /**
+     * Disconnect the normalization graph, if any. The shared AudioContext is
+     * kept for the next element and suspended meanwhile (where supported).
+     * @private
+     */
+    _releaseAudioGraph() {
+        const graph = this._audioGraph;
+        if (!graph) return;
+        this._audioGraph = null;
+        try {
+            graph.source.disconnect();
+            graph.gain.disconnect();
+        } catch (e) {
+            // already disconnected
+        }
+        if (typeof graph.context.suspend === 'function') {
+            try {
+                const suspending = graph.context.suspend();
+                if (suspending && typeof suspending.catch === 'function') suspending.catch(() => {});
+            } catch (e) {
+                // closed
+            }
+        }
+    }
+
+    /**
+     * Close the shared normalization AudioContext (destroy() only; Chromium 38
+     * has no close(), the context then ends with the page).
+     * @private
+     */
+    _closeAudioContext() {
+        const context = this._audioContext;
+        this._audioContext = null;
+        if (!context || typeof context.close !== 'function') return;
+        try {
+            const closing = context.close();
+            if (closing && typeof closing.catch === 'function') closing.catch(() => {});
+        } catch (e) {
+            // already closed
+        }
+    }
+
+    /**
+     * Release the normalization graph and drop the <video> element it captured.
+     * The next getVideoElement() / play() creates a fresh element, whose audio
+     * goes straight to the TV again. The user's mute state carries over.
+     * @private
+     */
+    _replaceVideoElement() {
+        const old = this._videoElement;
+        this._releaseAudioGraph();
+        if (!old) return;
+
+        this._unbindEvents(old);
+        if (old.parentNode) {
+            old.parentNode.removeChild(old);
+        }
+        this._videoElement = null;
+
+        const fresh = this._ensureVideoElement();
+        fresh.muted = old.muted;
     }
 
     /**
@@ -1703,22 +1794,13 @@ export class WebOSPlayer {
             }
         }
 
-        // Clean up audio normalization
-        if (this._gainNode) {
-            try {
-                this._gainNode.disconnect();
-            } catch (e) {
-                // ignore
-            }
-            this._gainNode = null;
-        }
-        if (this._audioContext) {
-            try {
-                this._audioContext.close();
-            } catch (e) {
-                // ignore
-            }
-            this._audioContext = null;
+        // --------------------------------------------------------------------
+        // Audio normalization: an element routed into Web Audio cannot be routed
+        // back, and closing its AudioContext silences it. Release the graph with
+        // the element; the next item starts on a fresh <video>.
+        // --------------------------------------------------------------------
+        if (this._audioGraph) {
+            this._replaceVideoElement();
         }
 
         this._currentSrc         = null;
@@ -3439,6 +3521,8 @@ export class WebOSPlayer {
     destroy() {
         this.stop();
         this._destroyHlsPlayer();
+        this._releaseAudioGraph();
+        this._closeAudioContext();
 
         if (this._containerObserver) {
             this._containerObserver.disconnect();
