@@ -804,18 +804,40 @@ export class HtmlVideoPlayer {
             // -----------------------------------------------------------------
             this._clearHlsStartTimeout();
             this._hlsStartTimeout = setTimeout(() => {
-                if (!this._started && !this._videoElement?.paused) {
-                    if (resumeSeconds > 0) {
-                        log.warn(`HtmlVideoPlayer: HLS playback failed to start after 8s on resume (target: ${resumeSeconds.toFixed(2)}s) — emitting resumeseekfailed for transcode fallback`);
-                        this.onEvent({
-                            type: 'resumeseekfailed',
-                            data: { targetPositionTicks: options.playerStartPositionTicks || 0 }
-                        });
-                    } else {
-                        log.warn('HtmlVideoPlayer: No playback start detected after 8s');
-                    }
-                }
+                this._onHlsStartTimeout(options, resumeSeconds, appendedSegmentsCount);
             }, 8000);
+        });
+    }
+
+    /**
+     * HLS start watchdog, 8 s after the HLS.js load began.
+     *
+     * A resume that has buffered segments but still not started points at a
+     * stuck decoder (e.g. a remux cut mid-GOP), so JellyfinPlayer gets a
+     * 'resumeseekfailed' and restarts at the target. A transcode that has not
+     * delivered its first segment yet is just slow (a 4K transcode can take
+     * longer than 8 s); restarting it would only start the transcode again.
+     *
+     * @private
+     * @param {Object} options - Play options of the load
+     * @param {number} resumeSeconds - Resume target in seconds (0 for a start from the beginning)
+     * @param {number} segmentsBuffered - Segments HLS.js appended so far
+     */
+    _onHlsStartTimeout(options, resumeSeconds, segmentsBuffered) {
+        if (this._started || this._videoElement?.paused) return;
+
+        if (resumeSeconds <= 0) {
+            log.warn('HtmlVideoPlayer: No playback start detected after 8s');
+            return;
+        }
+        if (options.playMethod === 'Transcode' && segmentsBuffered === 0) {
+            log.warn('HtmlVideoPlayer: Transcode has not delivered its first segment after 8s — still waiting, not a failed resume');
+            return;
+        }
+        log.warn(`HtmlVideoPlayer: HLS playback failed to start after 8s on resume (target: ${resumeSeconds.toFixed(2)}s) — emitting resumeseekfailed for transcode fallback`);
+        this.onEvent({
+            type: 'resumeseekfailed',
+            data: { targetPositionTicks: options.playerStartPositionTicks || 0 }
         });
     }
 

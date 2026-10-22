@@ -385,3 +385,23 @@ test('HtmlVideoPlayer: the shared AudioContext is resumed for the next track and
     assert.strictEqual(mediaContexts()[0].closed, true);
     delete window.AudioContext;
 });
+
+// ----------------------------------------------------------------------------
+// HLS start watchdog
+// ----------------------------------------------------------------------------
+
+test('HtmlVideoPlayer: a slow transcode start is not reported as a failed resume', () => {
+    const { player, events } = createPlayer();
+    const video = player._ensureVideoElement();
+    video.paused = false;
+    const resume = { playerStartPositionTicks: 6000000000 };
+
+    // No segment from the transcoder yet: restarting would only start the transcode again
+    player._onHlsStartTimeout({ ...resume, playMethod: 'Transcode' }, 600, 0);
+    assert.ok(!events.includes('resumeseekfailed'));
+
+    // Segments buffered but no start: stuck decoder → restart at the target
+    player._onHlsStartTimeout({ ...resume, playMethod: 'Transcode' }, 600, 2);
+    player._onHlsStartTimeout({ ...resume, playMethod: 'Remux' }, 600, 0);
+    assert.strictEqual(events.filter((e) => e === 'resumeseekfailed').length, 2);
+});
