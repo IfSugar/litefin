@@ -1089,6 +1089,43 @@ export function resolveBestAudioStream(mediaSource, targetLang, backendType = nu
     return standardDefaultTrack;
 }
 
+// ────────────────────────────────────────────────────────────────────────────
+// Containers Without Audio Track Lists (per app session)
+// ────────────────────────────────────────────────────────────────────────────
+// webOS does not fill video.audioTracks for progressive MKV/MP4 direct play,
+// so a non-default track there fails to switch, and playback restarts as a
+// remux (audiotrackswitchfailed). Once that happened for a backend and
+// container, later non-default tracks of that container go to the remux
+// directly instead of paying for a direct-play load and a restart each time.
+// A plain object keyed "backend:container" (no Set: ES5 legacy build).
+// ────────────────────────────────────────────────────────────────────────────
+const containersWithoutAudioTracks = {};
+
+function audioTrackContainerKey(backendType, container) {
+    const name = String(container || '').toLowerCase();
+    return name ? `${backendType}:${name}` : null;
+}
+
+/**
+ * Remember that direct play of this container on this backend exposed no audio tracks.
+ * @param {string} backendType - Active backend ('webos', 'html5', ...)
+ * @param {string} container - MediaSource.Container
+ */
+export function rememberContainerWithoutAudioTracks(backendType, container) {
+    const key = audioTrackContainerKey(backendType, container);
+    if (key) containersWithoutAudioTracks[key] = true;
+}
+
+/**
+ * @param {string} backendType - Active backend
+ * @param {string} container - MediaSource.Container
+ * @returns {boolean} True when direct play of this container exposed no audio tracks this session
+ */
+export function hasContainerWithoutAudioTracks(backendType, container) {
+    const key = audioTrackContainerKey(backendType, container);
+    return Boolean(key && containersWithoutAudioTracks[key]);
+}
+
 /**
  * Determine whether playing a specific audio track requires server DirectStream (remux)
  * rather than raw DirectPlay (Static=true).
@@ -1186,6 +1223,15 @@ export function doesAudioTrackRequireDirectStream(mediaSource, audioStreamIndex,
     // and that track is confirmed natively playable, DirectPlay operates natively.
     if (physicalDefaultStream && targetStream.Index === physicalDefaultStream.Index) {
         return false;
+    }
+
+    // -------------------------------------------------------------------------
+    // 5b. Containers Without Audio Track Lists
+    // -------------------------------------------------------------------------
+    // Direct play of this container already came back without video.audioTracks
+    // on this backend, so a non-default track cannot be switched to natively.
+    if (hasContainerWithoutAudioTracks(backendType, mediaSource.Container)) {
+        return true;
     }
 
     // -------------------------------------------------------------------------
@@ -1946,6 +1992,13 @@ export class JellyfinPlayer extends EventEmitter {
             log.warn('audiotrackswitchfailed: audioTracks empty on WebOS direct-play.',
                 'Restarting to apply audio index', targetIndex);
 
+            // Direct play of this container exposes no track list here: later
+            // non-default tracks of it go to the remux directly (see
+            // doesAudioTrackRequireDirectStream)
+            if (this._currentPlayMethod === 'DirectPlay' && this._currentMediaSource) {
+                rememberContainerWithoutAudioTracks(this._backendType, this._currentMediaSource.Container);
+            }
+
             if (this._currentPlayOptions && !this._audioRestartInProgress) {
                 const currentTicks = this.getCurrentPositionTicks();
 
@@ -1980,11 +2033,15 @@ export class JellyfinPlayer extends EventEmitter {
 
                 this.emit(PlayerEvent.RESTARTING);
 
-                // Restart asynchronously so this event handler can return cleanly
+                // Restart asynchronously so this event handler can return cleanly.
+                // No pause between stop() and play(): only the webOS and HTML5
+                // backends fire this event, their stop() is synchronous, and the
+                // stopped session was a static direct-play file, so there is no
+                // server transcode to wind down first.
                 (async () => {
                     try {
                         await this.stop();
-                        await this._playAfterRestartPause(restartOptions, 500);
+                        await this._playAfterRestartPause(restartOptions, 0);
                         this._isRestarting = false;
                     } catch (e) {
                         log.error('audiotrackswitchfailed restart failed:', e);
@@ -2428,7 +2485,9 @@ export class JellyfinPlayer extends EventEmitter {
      */
     async _playAfterRestartPause(options, pauseMs) {
         const request = this._playRequestId;
-        await new Promise(resolve => setTimeout(resolve, pauseMs));
+        if (pauseMs > 0) {
+            await new Promise(resolve => setTimeout(resolve, pauseMs));
+        }
         if (request !== this._playRequestId) {
             log.info('Restart abandoned: playback was stopped or replaced while it was pending');
             return false;
