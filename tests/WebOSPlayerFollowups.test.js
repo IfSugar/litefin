@@ -542,3 +542,92 @@ test('WebOSPlayer: a Pause that cancels a play queued behind a seek reports the 
     assert.deepStrictEqual(events, []);
     await player.stop();
 });
+
+// ----------------------------------------------------------------------------
+// D11 — a seek the pipeline never completes
+// ----------------------------------------------------------------------------
+
+/** Advance mock time in check-sized steps (a timer set inside a tick waits for the next tick). */
+function advance(t, ms) {
+    for (let elapsed = 0; elapsed < ms; elapsed += 2000) t.mock.timers.tick(2000);
+}
+
+/** Started direct play whose events (with data) are collected. */
+async function watchedPlayback(player) {
+    const video = await directPlayStarted(player);
+    const seen = [];
+    const forward = player.onEvent;
+    player.onEvent = (e) => {
+        seen.push(e);
+        forward(e);
+    };
+    video.buffered = { length: 1, start: () => 0, end: () => 47 };
+    return { video, stuck: () => seen.filter((e) => e.type === 'seekstuck') };
+}
+
+test('WebOSPlayer: a seek still pending 8 s into playback with no new data asks for a reload at its target', async (t) => {
+    // LG C4: after a rejected seek the next one never completed; the element stayed
+    // 'seeking' at the target with playback requested and the buffer unchanged
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const { player } = createPlayer();
+    const { video, stuck } = await watchedPlayback(player);
+
+    video.seeking = true;
+    video.paused = false;
+    video.currentTime = 60;
+    video.fire('seeking');
+    advance(t, 6000);
+    assert.strictEqual(stuck().length, 0, 'gave up on a seek that may still land');
+    advance(t, 2000);
+    assert.deepStrictEqual(stuck().map((e) => e.data.targetPositionTicks), [600000000]);
+
+    advance(t, 30000);
+    assert.strictEqual(stuck().length, 1, 'reported more than once');
+    await player.stop();
+});
+
+test('WebOSPlayer: a paused seek, a seek receiving data and a seek that lands are not reported early', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const { player } = createPlayer();
+    const { video, stuck } = await watchedPlayback(player);
+
+    // Paused: webOS completes the seek only once playback starts
+    video.seeking = true;
+    video.paused = true;
+    video.fire('seeking');
+    advance(t, 60000);
+    assert.strictEqual(stuck().length, 0, 'counted a paused seek');
+
+    // Playing and receiving data (a slow 4K remux seek): waits up to 30 s
+    video.paused = false;
+    let end = 47;
+    for (let elapsed = 0; elapsed < 28000; elapsed += 2000) {
+        end += 3;
+        video.buffered = { length: 1, start: () => 0, end: () => end };
+        t.mock.timers.tick(2000);
+    }
+    assert.strictEqual(stuck().length, 0, 'gave up on a seek still receiving data');
+    t.mock.timers.tick(2000);
+    assert.strictEqual(stuck().length, 1, 'no limit for a seek that never lands');
+
+    // A seek that lands ends the watch
+    video.fire('seeking');
+    advance(t, 4000);
+    video.seeking = false;
+    video.fire('seeked');
+    advance(t, 60000);
+    assert.strictEqual(stuck().length, 1);
+    await player.stop();
+});
+
+test('WebOSPlayer: stop() ends the seek watch', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const { player } = createPlayer();
+    const { video, stuck } = await watchedPlayback(player);
+    video.seeking = true;
+    video.paused = false;
+    video.fire('seeking');
+    await player.stop();
+    advance(t, 60000);
+    assert.strictEqual(stuck().length, 0);
+});

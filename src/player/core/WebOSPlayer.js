@@ -152,6 +152,21 @@ function describeAudioTracks(tracks) {
  */
 const SEEK_PLAY_FALLBACK_MS = 500;
 
+/**
+ * A seek the pipeline never completes. On an LG C4 the pipeline rejected a
+ * seek in a native-HLS remux ('seek Failure', error 700) and never finished
+ * the next one: the element stayed `seeking` with playback requested, and
+ * Chromium held every later seek and play behind it. While the element seeks
+ * with playback requested, it is checked every SEEK_STUCK_CHECK_MS. The seek
+ * counts as stuck after SEEK_STUCK_MS without new buffered data, or after
+ * SEEK_STUCK_MAX_MS in any case, and the player is asked to reload the stream
+ * at the target ('seekstuck'). A paused seek is not counted: webOS completes it
+ * only once playback starts.
+ */
+const SEEK_STUCK_CHECK_MS = 2000;
+const SEEK_STUCK_MS = 8000;
+const SEEK_STUCK_MAX_MS = 30000;
+
 /** canPlayType answers by MIME type; they do not change while the app runs. */
 const canPlayTypeCache = Object.create(null);
 
@@ -327,6 +342,8 @@ export class WebOSPlayer {
         this._sessionCleanups = [];
         // True while play() waits for the first 'canplay' (the load waiter owns load errors)
         this._loadPending = false;
+        // Seek being watched until it lands (_watchSeek)
+        this._seekWatch = null;
 
         // ====================================================================
         // Audio Suppression State (Resume Playback):
@@ -504,6 +521,7 @@ export class WebOSPlayer {
      */
     _endSession() {
         this._loadPending = false;
+        this._seekWatch = null;
         const cleanups = this._sessionCleanups;
         this._sessionCleanups = [];
         for (let i = 0; i < cleanups.length; i++) {
@@ -3728,11 +3746,70 @@ export class WebOSPlayer {
         if (video && !video.paused) {
             this.onEvent({ type: 'waiting' });
         }
+        // The startup resume has its own retries and watchdogs
+        if (video && this._started) {
+            this._watchSeek(video);
+        }
+    }
+
+    /**
+     * Watch the seek that just started until it lands (see SEEK_STUCK_MS).
+     * A new seek restarts the watch.
+     * @private
+     * @param {HTMLVideoElement} video
+     */
+    _watchSeek(video) {
+        const bufferedEnd = () => {
+            const ranges = video.buffered;
+            let sum = 0;
+            for (let i = 0; i < (ranges?.length || 0); i++) sum += ranges.end(i);
+            return sum;
+        };
+        const watch = { buffered: bufferedEnd(), playingMs: 0, noDataMs: 0 };
+        this._seekWatch = watch;
+
+        const check = () => {
+            if (this._seekWatch !== watch || this._videoElement !== video) return;
+            if (!video.seeking) {
+                this._seekWatch = null;
+                return;
+            }
+            if (video.paused) {
+                // A paused seek completes only once playback starts
+                watch.playingMs = 0;
+                watch.noDataMs = 0;
+            } else {
+                watch.playingMs += SEEK_STUCK_CHECK_MS;
+                const buffered = bufferedEnd();
+                if (buffered !== watch.buffered) {
+                    watch.buffered = buffered;
+                    watch.noDataMs = 0;
+                } else {
+                    watch.noDataMs += SEEK_STUCK_CHECK_MS;
+                }
+                if (watch.noDataMs >= SEEK_STUCK_MS || watch.playingMs >= SEEK_STUCK_MAX_MS) {
+                    this._seekWatch = null;
+                    // While seeking, currentTime reports the pending target
+                    const offsetTicks = this._currentPlayOptions?.transcodingOffsetTicks || 0;
+                    const targetTicks = Math.round(video.currentTime * 10000000) + offsetTicks;
+                    log.warn(
+                        `WebOSPlayer: seek to ${video.currentTime.toFixed(2)}s still pending after ` +
+                        `${watch.playingMs / 1000}s of playback (${watch.noDataMs / 1000}s without new data) — ` +
+                        'asking for a reload at the target'
+                    );
+                    this.onEvent({ type: 'seekstuck', data: { targetPositionTicks: targetTicks } });
+                    return;
+                }
+            }
+            this._timer(check, SEEK_STUCK_CHECK_MS);
+        };
+        this._timer(check, SEEK_STUCK_CHECK_MS);
     }
 
     /** @private */
     _onSeeked() {
         const video = this._videoElement;
+        this._seekWatch = null;
 
         // ---------------------------------------------------------------------
         // Demuxer Landed Confirmation:
