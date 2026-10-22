@@ -157,8 +157,9 @@ export class PrewarmManager {
                 backendType = 'webos';
             }
 
-            // Retrieve maximum streaming bitrate configured by user or default to 120Mbps
-            const manualBitrate = PlayerSettings.get('maxBitrateInternet') || 120000000;
+            // The user's bitrate limit, as JellyfinPlayer starts with it; the profile adds
+            // the device default (40 Mbps without UHD) when there is none
+            const manualBitrate = PlayerSettings.get('maxBitrateInternet') || null;
 
             // Resolve target MediaSource object for track requirement analysis
             const targetSource = targetMediaSourceId && item.MediaSources
@@ -229,13 +230,17 @@ export class PrewarmManager {
             const requestBody = {
                 DeviceProfile: clonedProfile,
                 UserId: api.userId,
-                MaxStreamingBitrate: manualBitrate,
+                // Same value JellyfinPlayer._getPlaybackInfo() sends for this profile
+                MaxStreamingBitrate: clonedProfile.MaxStreamingBitrate || manualBitrate || 120000000,
                 StartTimeTicks: prewarmOptions.startPositionTicks ?? defaultStartTicks,
                 AutoOpenLiveStream: true,
                 IsPlayback: true,
                 EnableDirectPlay: true,
                 EnableDirectStream: true
             };
+
+            // consumePlaybackInfo() reuses the response only for the same bitrate limit
+            this._prewarmParams.maxStreamingBitrate = requestBody.MaxStreamingBitrate;
 
             // Attach MediaSourceId if specifically resolved and not a dynamic Live TV channel
             const isLiveChannel = item.Type === 'TvChannel';
@@ -376,6 +381,22 @@ export class PrewarmManager {
             if (prewarmedSubtitle !== requestedSubtitle) {
                 log.info(
                     `[Prewarm] Subtitle stream mismatch (prewarmed: ${prewarmedSubtitle}, requested: ${requestedSubtitle}). Discarding prewarm.`
+                );
+                this.clear();
+                return null;
+            }
+
+            // =================================================================
+            // 5. Validate Bitrate Limit Parity
+            // =================================================================
+            // The server picks direct play or a transcode (and its bitrate) from
+            // the request's limit. A quality lowered in the OSD must not reuse a
+            // response negotiated for the default limit.
+            // =================================================================
+            const prewarmedBitrate = this._prewarmParams?.maxStreamingBitrate;
+            if (options.maxStreamingBitrate && prewarmedBitrate && Number(options.maxStreamingBitrate) !== Number(prewarmedBitrate)) {
+                log.info(
+                    `[Prewarm] Bitrate limit mismatch (prewarmed: ${prewarmedBitrate}, requested: ${options.maxStreamingBitrate}). Discarding prewarm.`
                 );
                 this.clear();
                 return null;

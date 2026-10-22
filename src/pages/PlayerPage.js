@@ -1753,6 +1753,8 @@ class PlayerPage extends Page {
 
         // Start playback using the player's internal logic
         // This handles PlaybackInfo fetching, media source selection, and stream URL building
+        // play() resolves false when stop() (Back, next item) superseded the load
+        let superseded = false;
         try {
             // Reset player error latch for the new playback attempt
             this._hasPlayerError = false;
@@ -1788,21 +1790,22 @@ class PlayerPage extends Page {
                 }
             }
 
-            await this._player.play(playOptions);
+            superseded = (await this._player.play(playOptions)) === false;
         } catch (err) {
             if (err.name === 'NotAllowedError') {
                 log.warn('_startPlayback: Autoplay blocked. Forcing mute and retrying.');
                 this._player.setMuted(true);
-                await this._player.play({
-                    item: item,
-                    itemId: item.Id,
-                    userId: api.userId,
-                    startPositionTicks: this._resumePosition,
-                    mediaSourceId: mediaSource?.Id,
-                    audioStreamIndex: savedAudioIndex,
-                    subtitleStreamIndex: savedSubtitleIndex,
-                    autoPlay: syncPlayManager.wantsAutoPlay()
-                });
+                superseded =
+                    (await this._player.play({
+                        item: item,
+                        itemId: item.Id,
+                        userId: api.userId,
+                        startPositionTicks: this._resumePosition,
+                        mediaSourceId: mediaSource?.Id,
+                        audioStreamIndex: savedAudioIndex,
+                        subtitleStreamIndex: savedSubtitleIndex,
+                        autoPlay: syncPlayManager.wantsAutoPlay()
+                    })) === false;
             } else {
                 /*
                  * -------------------------------------------------------------
@@ -1818,6 +1821,16 @@ class PlayerPage extends Page {
                 log.error('_startPlayback: Player play failed:', err);
                 throw err;
             }
+        }
+
+        // --------------------------------------------------------------------
+        // Superseded load: the user backed out or another item started before
+        // this one loaded. Whoever stopped it owns the page now — do not report
+        // playback start, build the OSD or notify plugins for this item.
+        // --------------------------------------------------------------------
+        if (superseded) {
+            log.info(`_startPlayback: load of ${item.Id} was superseded before it started — not starting the session`);
+            return;
         }
 
         // ====================================================================
