@@ -1319,16 +1319,36 @@ body {
     z-index: 8;
 }
 
-.count-badge.media-source-count-badge {
+/* Version Count Badge (Bottom Left) */
+.version-badge,
+.media-source-count-badge {
+    position: absolute;
+    bottom: 12px;
+    left: 12px;
+    top: auto;
+    right: auto;
+    min-width: 40px;
+    height: 40px;
+    padding: 0 8px;
+    border-radius: var(--jf-border-radius-lg);
     background-color: var(--jf-accent, #00a4dc);
     color: var(--jf-accent-content-color, #ffffff);
     font-size: 1.1rem;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 8;
+    box-sizing: border-box;
 }
 
-.played-badge {
+/* Favorite Badge (Bottom Left) */
+.favorite-badge {
     position: absolute;
     bottom: 12px;
-    right: 12px;
+    left: 12px;
+    top: auto;
+    right: auto;
     width: 40px;
     height: 40px;
     border-radius: var(--jf-border-radius-lg);
@@ -1336,7 +1356,42 @@ body {
     align-items: center;
     justify-content: center;
     z-index: 8;
-    /* PERFORMANCE: Removed box-shadow for Tizen/WebOS grid stability */
+    color: #ff3b30;
+    box-sizing: border-box;
+}
+
+/* Sibling Offset: Shift Favorite Badge when Version Count is present */
+.version-badge ~ .favorite-badge,
+.media-source-count-badge ~ .favorite-badge {
+    left: 60px;
+}
+
+/* Watched Badge (Bottom Right) */
+.played-badge {
+    position: absolute;
+    bottom: 12px;
+    right: 12px;
+    top: auto;
+    left: auto;
+    width: 40px;
+    height: 40px;
+    border-radius: var(--jf-border-radius-lg);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 8;
+}
+
+/* Elevate bottom badges when progress bar is present */
+.card-progress-container ~ .played-badge,
+.card-progress-container ~ .version-badge,
+.card-progress-container ~ .media-source-count-badge,
+.card-progress-container ~ .favorite-badge,
+.media-card.has-progress .played-badge,
+.media-card.has-progress .version-badge,
+.media-card.has-progress .media-source-count-badge,
+.media-card.has-progress .favorite-badge {
+    bottom: 18px;
 }
 
 .video-badge {
@@ -1467,20 +1522,34 @@ html[data-badge-style="tinted"] .count-badge,
 html[data-badge-style="tinted"] .played-badge,
 html[data-badge-style="tinted"] .episode-badge,
 html[data-badge-style="tinted"] .quality-badge,
-html[data-badge-style="tinted"] .game-card-badge {
+html[data-badge-style="tinted"] .game-card-badge,
+html[data-badge-style="tinted"] .version-badge,
+html[data-badge-style="tinted"] .media-source-count-badge,
+html[data-badge-style="tinted"] .favorite-badge {
     background-color: var(--jf-accent);
     color: var(--jf-accent-content-color);
     border: none;
+}
+
+html[data-badge-style="tinted"] .favorite-badge {
+    color: var(--jf-accent-content-color, #ffffff);
 }
 
 html[data-badge-style="dark"] .count-badge,
 html[data-badge-style="dark"] .played-badge,
 html[data-badge-style="dark"] .episode-badge,
 html[data-badge-style="dark"] .quality-badge,
-html[data-badge-style="dark"] .game-card-badge {
+html[data-badge-style="dark"] .game-card-badge,
+html[data-badge-style="dark"] .version-badge,
+html[data-badge-style="dark"] .media-source-count-badge,
+html[data-badge-style="dark"] .favorite-badge {
     background-color: rgba(0, 0, 0, 0.65);
     color: #ffffff;
     border: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+html[data-badge-style="dark"] .favorite-badge {
+    color: #ff3b30;
 }
 
 /* ============================================================================

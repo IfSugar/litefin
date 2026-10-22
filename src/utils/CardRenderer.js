@@ -176,6 +176,39 @@ class CardRenderer {
     }
 
     /**
+     * ========================================================================
+     * Generate Favorite Badge HTML (Heart Icon)
+     * ========================================================================
+     * Inspects UserData to verify if the media item is flagged as a favorite.
+     * Controlled by the 'pref:showFavoriteBadges' user preference switch.
+     * Positioned at the bottom-left corner of the card artwork.
+     * ========================================================================
+     * @param {Object} item - Media item payload with UserData
+     * @returns {string} Badge markup string or empty string
+     */
+    static getFavoriteBadgeHtml(item) {
+        // Guard check for missing payload or uninitialized UserData metadata
+        if (!item || !item.UserData || !item.UserData.IsFavorite) {
+            return '';
+        }
+
+        // Verify if user preference permits favorite badges (off by default)
+        const showFavoriteBadges = storage.getItem('pref:showFavoriteBadges') === 'true';
+        if (!showFavoriteBadges) {
+            return '';
+        }
+
+        // Render sleek heart icon badge matching the universal design system
+        return `
+            <div class="favorite-badge" title="Favorite">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
+                </svg>
+            </div>
+        `;
+    }
+
+    /**
      * Generate Quality (Resolution/HDR) Badge HTML
      * @param {Object} item
      * @returns {string} HTML string
@@ -853,24 +886,34 @@ class CardRenderer {
             `;
         }
 
-        // --- Unplayed Count Badge ---
-        //
-        // Generates the circular badge on the top-right of media cards.
-        // On series and seasons, this indicates the total unplayed episode count.
-        // It is optional and can be disabled via preferences to declutter the UI.
-        let badgeHtml = '';
-
-        // Fetch user preferences for badges
+        // ====================================================================
+        // --- 1. Top-Right Badges: Unplayed Episodes Count ---
+        // ====================================================================
+        // Generates the circular unplayed badge positioned on the top-right of series/season cards.
+        // Can be disabled via user preferences ('pref:hideEpisodeCounts').
+        let unplayedCountBadgeHtml = '';
         const hideEpisodeCounts = storage.getItem('pref:hideEpisodeCounts') === 'true';
-        const showMediaSourceCounts = storage.getItem('pref:showMediaSourceCounts') !== 'false';
-
-        // Only render the unplayed count badge if the user hasn't explicitly disabled it
         if (!hideEpisodeCounts && item.UserData && item.UserData.UnplayedItemCount > 0) {
-            badgeHtml = `<div class="count-badge">${item.UserData.UnplayedItemCount}</div>`;
-        } else if (showMediaSourceCounts && item.MediaSourceCount > 1) {
-            // Render media source version count badge (e.g. for items with multiple versions like Movies/Episodes)
-            badgeHtml = `<div class="count-badge media-source-count-badge">${item.MediaSourceCount}</div>`;
+            unplayedCountBadgeHtml = `<div class="count-badge unplayed-count-badge">${item.UserData.UnplayedItemCount}</div>`;
         }
+
+        // ====================================================================
+        // --- 2. Bottom-Left Badges: Media Source Versions Count ---
+        // ====================================================================
+        // Displays the number of available video streams or multi-version releases (e.g. 4K, 1080p, cuts).
+        // Unified position: bottom-left corner of the card artwork.
+        let versionCountBadgeHtml = '';
+        const showMediaSourceCounts = storage.getItem('pref:showMediaSourceCounts') !== 'false';
+        if (showMediaSourceCounts && item.MediaSourceCount > 1) {
+            versionCountBadgeHtml = `<div class="version-badge media-source-count-badge">${item.MediaSourceCount}</div>`;
+        }
+
+        // ====================================================================
+        // --- 3. Bottom-Left Badges: Favorite Indicator ---
+        // ====================================================================
+        // Displays a heart badge when an item is marked as favorite in Jellyfin.
+        // Sits at the bottom-left corner, positioned next to version count if versions are present.
+        let favoriteBadgeHtml = CardRenderer.getFavoriteBadgeHtml(item);
 
         // Played Badge (Check Mark)
         let playedBadgeHtml = CardRenderer.getPlayedBadgeHtml(item);
@@ -1162,6 +1205,29 @@ class CardRenderer {
         // In Expanded Posters layout, person cards (cast/crew/guest stars) render as square (1:1) cards.
         if (type === 'square' || type === 'artist' || (isExpanded && type === 'person')) cssClass = 'media-card square';
 
+        // -------------------------------------------------------------
+        // PROGRESS MARKER CLASS
+        // -------------------------------------------------------------
+        // When active playback progress exists on the card, we attach 'has-progress'.
+        // This enables styling hooks (such as shifting bottom badges upward) to prevent
+        // visual collisions with the floating progress bar track.
+        // -------------------------------------------------------------
+        if (progressHtml) {
+            cssClass += ' has-progress';
+        }
+
+        // -------------------------------------------------------------
+        // BOTTOM BADGES MARKER CLASS
+        // -------------------------------------------------------------
+        // If bottom badges exist on this item (Watched, Versions count, or Favorite),
+        // we attach 'has-bottom-badges'. This allows layouts with integrated artwork labels
+        // (such as Expanding mode) to elevate the title and subtitle above the badges.
+        // -------------------------------------------------------------
+        const hasBottomBadges = !!(playedBadgeHtml || versionCountBadgeHtml || favoriteBadgeHtml);
+        if (hasBottomBadges) {
+            cssClass += ' has-bottom-badges';
+        }
+
         // Live TV Channel card classification
         if (item.Type === 'TvChannel') {
             cssClass += ' tv-channel-card';
@@ -1398,17 +1464,22 @@ class CardRenderer {
          * ====================================================================
          * Metadata Badge Container
          * ====================================================================
-         * Groups overlay metadata badges (watched state, episode index, quality,
-         * game/seerr flags). videoBadgeHtml is excluded here because it is a
-         * centered play button rendered exclusively within the card-image frame.
+         * Assembles unified badges across all media row layouts:
+         * - Top Left: Episode code (SxxExx)
+         * - Top Right: Video Quality (4K, 1080p, HDR) or Unplayed Episodes count
+         * - Bottom Left: Version count and Favorite badge (heart icon)
+         * - Bottom Right: Watched indicator (played checkmark)
+         * - Outside overlays: Seerr request/type chips
          * ====================================================================
          */
         const badgeContainer = `
-            ${badgeHtml}
-            ${playedBadgeHtml}
             ${episodeBadgeHtml}
+            ${unplayedCountBadgeHtml}
             ${qualityBadgeHtml}
             ${gameBadgeHtml}
+            ${versionCountBadgeHtml}
+            ${favoriteBadgeHtml}
+            ${playedBadgeHtml}
             ${seerrTypeBadgeHtml}
             ${seerrBadgeHtml}
         `;

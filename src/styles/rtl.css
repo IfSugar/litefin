@@ -286,6 +286,106 @@
     left: 12px;
 }
 
+[dir="rtl"] .version-badge,
+[dir="rtl"] .media-source-count-badge {
+    left: auto;
+    right: 12px;
+}
+
+[dir="rtl"] .favorite-badge {
+    left: auto;
+    right: 12px;
+}
+
+[dir="rtl"] .version-badge ~ .favorite-badge,
+[dir="rtl"] .media-source-count-badge ~ .favorite-badge {
+    left: auto;
+    right: 60px;
+}
+
+html[data-layout-media-rows="modern"][dir="rtl"] .played-badge,
+html[data-layout-media-rows="expanded"][dir="rtl"] .played-badge,
+html[data-layout-media-rows="modern-posters"][dir="rtl"] .played-badge,
+html[data-layout-media-rows="expanding"][dir="rtl"] .played-badge {
+    right: auto;
+    left: 22px;
+}
+
+html[data-layout-media-rows="modern"][dir="rtl"] .version-badge,
+html[data-layout-media-rows="modern"][dir="rtl"] .media-source-count-badge,
+html[data-layout-media-rows="expanded"][dir="rtl"] .version-badge,
+html[data-layout-media-rows="expanded"][dir="rtl"] .media-source-count-badge,
+html[data-layout-media-rows="modern-posters"][dir="rtl"] .version-badge,
+html[data-layout-media-rows="modern-posters"][dir="rtl"] .media-source-count-badge,
+html[data-layout-media-rows="expanding"][dir="rtl"] .version-badge,
+html[data-layout-media-rows="expanding"][dir="rtl"] .media-source-count-badge {
+    left: auto;
+    right: 22px;
+}
+
+html[data-layout-media-rows="modern"][dir="rtl"] .favorite-badge,
+html[data-layout-media-rows="expanded"][dir="rtl"] .favorite-badge,
+html[data-layout-media-rows="modern-posters"][dir="rtl"] .favorite-badge,
+html[data-layout-media-rows="expanding"][dir="rtl"] .favorite-badge {
+    left: auto;
+    right: 22px;
+}
+
+html[data-layout-media-rows="modern"][dir="rtl"] .version-badge ~ .favorite-badge,
+html[data-layout-media-rows="modern"][dir="rtl"] .media-source-count-badge ~ .favorite-badge,
+html[data-layout-media-rows="expanded"][dir="rtl"] .version-badge ~ .favorite-badge,
+html[data-layout-media-rows="expanded"][dir="rtl"] .media-source-count-badge ~ .favorite-badge,
+html[data-layout-media-rows="modern-posters"][dir="rtl"] .version-badge ~ .favorite-badge,
+html[data-layout-media-rows="modern-posters"][dir="rtl"] .media-source-count-badge ~ .favorite-badge,
+html[data-layout-media-rows="expanding"][dir="rtl"] .version-badge ~ .favorite-badge,
+html[data-layout-media-rows="expanding"][dir="rtl"] .media-source-count-badge ~ .favorite-badge {
+    left: auto;
+    right: 74px;
+}
+
+/* RTL: Expanding layout expanded badges positioned above text */
+html[data-layout-media-rows="expanding"][dir="rtl"] .media-card.landscape .version-badge,
+html[data-layout-media-rows="expanding"][dir="rtl"] .media-card.landscape .media-source-count-badge,
+html[data-layout-media-rows="expanding"][dir="rtl"] .media-card.landscape .favorite-badge,
+html[data-layout-media-rows="expanding"][dir="rtl"] .media-card.square .version-badge,
+html[data-layout-media-rows="expanding"][dir="rtl"] .media-card.square .media-source-count-badge,
+html[data-layout-media-rows="expanding"][dir="rtl"] .media-card.square .favorite-badge,
+html[data-layout-media-rows="expanding"][dir="rtl"] .media-row:not(:hover) .media-card.has-expansion:focus .version-badge,
+html[data-layout-media-rows="expanding"][dir="rtl"] .media-row:not(:hover) .media-card.has-expansion:focus .media-source-count-badge,
+html[data-layout-media-rows="expanding"][dir="rtl"] .media-row:not(:hover) .media-card.has-expansion:focus .favorite-badge,
+html[data-layout-media-rows="expanding"][dir="rtl"] .media-row:not(:hover) .media-card.has-expansion.focused .version-badge,
+html[data-layout-media-rows="expanding"][dir="rtl"] .media-row:not(:hover) .media-card.has-expansion.focused .media-source-count-badge,
+html[data-layout-media-rows="expanding"][dir="rtl"] .media-row:not(:hover) .media-card.has-expansion.focused .favorite-badge,
+html[data-layout-media-rows="expanding"][dir="rtl"] .media-card.has-expansion:hover .version-badge,
+html[data-layout-media-rows="expanding"][dir="rtl"] .media-card.has-expansion:hover .media-source-count-badge,
+html[data-layout-media-rows="expanding"][dir="rtl"] .media-card.has-expansion:hover .favorite-badge {
+    left: auto;
+    right: 30px;
+}
+
+html[data-layout-media-rows="expanding"][dir="rtl"] .media-card.landscape .played-badge,
+html[data-layout-media-rows="expanding"][dir="rtl"] .media-card.square .played-badge,
+html[data-layout-media-rows="expanding"][dir="rtl"] .media-row:not(:hover) .media-card.has-expansion:focus .played-badge,
+html[data-layout-media-rows="expanding"][dir="rtl"] .media-row:not(:hover) .media-card.has-expansion.focused .played-badge,
+html[data-layout-media-rows="expanding"][dir="rtl"] .media-card.has-expansion:hover .played-badge {
+    right: auto;
+    left: 30px;
+}
+
+html[data-layout-media-rows="expanding"][dir="rtl"] .media-card.landscape .version-badge ~ .favorite-badge,
+html[data-layout-media-rows="expanding"][dir="rtl"] .media-card.landscape .media-source-count-badge ~ .favorite-badge,
+html[data-layout-media-rows="expanding"][dir="rtl"] .media-card.square .version-badge ~ .favorite-badge,
+html[data-layout-media-rows="expanding"][dir="rtl"] .media-card.square .media-source-count-badge ~ .favorite-badge,
+html[data-layout-media-rows="expanding"][dir="rtl"] .media-row:not(:hover) .media-card.has-expansion:focus .version-badge ~ .favorite-badge,
+html[data-layout-media-rows="expanding"][dir="rtl"] .media-row:not(:hover) .media-card.has-expansion:focus .media-source-count-badge ~ .favorite-badge,
+html[data-layout-media-rows="expanding"][dir="rtl"] .media-row:not(:hover) .media-card.has-expansion.focused .version-badge ~ .favorite-badge,
+html[data-layout-media-rows="expanding"][dir="rtl"] .media-row:not(:hover) .media-card.has-expansion.focused .media-source-count-badge ~ .favorite-badge,
+html[data-layout-media-rows="expanding"][dir="rtl"] .media-card.has-expansion:hover .version-badge ~ .favorite-badge,
+html[data-layout-media-rows="expanding"][dir="rtl"] .media-card.has-expansion:hover .media-source-count-badge ~ .favorite-badge {
+    left: auto;
+    right: 82px;
+}
+
 /* ================== DETAILS PAGE ================== */
 [dir="rtl"] .hero-poster {
     margin-right: 0;

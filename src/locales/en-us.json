@@ -1597,6 +1597,8 @@
     "ShowDatesIncludeYearDescription": "Include the calendar year when displaying added and premiere dates on the details page.",
     "ShowDebugOverlay": "Show Debug Overlay",
     "ShowDebugOverlayDescription": "Display logs on screen (requires Debug Logs)",
+    "ShowFavoriteBadges": "Show Favorite Badges",
+    "ShowFavoriteBadgesDescription": "Display a heart badge on favorited media cards.",
     "ShowFavoriteTracksOnly": "Show Favorites Only",
     "ShowLogoInOsdDescription": "Display show or movie logo instead of text title in the player interface (if available).",
     "ShowMdbAwards": "Show Awards Badges",

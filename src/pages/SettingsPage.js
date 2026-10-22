@@ -2384,6 +2384,21 @@ class SettingsPage extends Page {
                     </div>
                 </div>
 
+                <!-- Favorite Badge on Media Cards -->
+                <!-- Allows users to display a heart badge at the bottom-left on favorited media cards -->
+                <div class="setting-item">
+                    <div class="setting-label">
+                        <span class="setting-name" data-i18n="ShowFavoriteBadges">${i18n.t('ShowFavoriteBadges') || 'Show Favorite Badges'}</span>
+                        <span class="setting-description" data-i18n="ShowFavoriteBadgesDescription">${i18n.t('ShowFavoriteBadgesDescription') || 'Display a heart badge on favorited media cards.'}</span>
+                    </div>
+                    <div class="setting-control">
+                         <button class="toggle-switch ${storage.getItem('pref:showFavoriteBadges') === 'true' ? 'active' : ''}" 
+                                 id="toggle-show-favorite-badges" 
+                                 tabindex="0">
+                        </button>
+                    </div>
+                </div>
+
                 <!-- Details Page Section -->
                 <!-- Allows users to toggle specific metadata fields on the Details Page hero section -->
                 <h3 class="setting-section-title" data-i18n="DetailsPage">${i18n.t('DetailsPage') || 'Details Page'}</h3>
@@ -9140,6 +9155,33 @@ class SettingsPage extends Page {
 
                 // Log action for support debugging
                 log.info(`Use Season Badges set to: ${newValue}`);
+            });
+        }
+
+        // -------------------------------------------------------------
+        // Toggle Show Favorite Badges
+        // Binds the click event to toggle-show-favorite-badges button.
+        // Controls display of the heart badge at bottom-left of media cards.
+        // Clears CardRenderer cache to ensure fresh cards render immediately.
+        // -------------------------------------------------------------
+        const showFavoriteBadgesBtn = this.$('#toggle-show-favorite-badges');
+        if (showFavoriteBadgesBtn) {
+            showFavoriteBadgesBtn.addEventListener('click', () => {
+                // Determine whether favorite badges are currently enabled (defaults to false)
+                const isEnabled = storage.getItem('pref:showFavoriteBadges') === 'true';
+                const newValue = !isEnabled;
+
+                // Persist user selection into local storage
+                storage.setItem('pref:showFavoriteBadges', newValue);
+
+                // Update visual switch presentation state
+                showFavoriteBadgesBtn.classList.toggle('active', newValue);
+
+                // Clear cached card markup to reflect badge toggling instantly
+                CardRenderer.clearCache();
+
+                // Log state transition for diagnostic telemetry
+                log.info(`Show Favorite Badges set to: ${newValue}`);
             });
         }
 
