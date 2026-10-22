@@ -1,6 +1,8 @@
 package org.litefin.app
 
 import android.app.Activity
+import android.app.ActivityManager
+import android.content.Context
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
@@ -11,8 +13,11 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionOverride
+import androidx.media3.common.TrackSelectionParameters
 import androidx.media3.common.VideoSize
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.extractor.DefaultExtractorsFactory
+import androidx.media3.extractor.ts.TsExtractor
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
@@ -134,6 +139,63 @@ class ExoPlayerPlugin(private val activity: Activity) : Plugin(activity) {
     }
   }
 
+  @Volatile
+  private var isTunnelingEnabled: Boolean = true
+
+  @Volatile
+  private var isAudioOffloadEnabled: Boolean = true
+
+  /**
+   * Applies hardware tunneling and audio offload parameters to the track selector.
+   *
+   * Tunneled video playback offloads audio-to-video clock synchronization directly
+   * to the hardware video decoder/SoC display pipeline, dramatically reducing CPU
+   * scheduling latency, jitter, and dropped frames on 4K/HDR Android TV devices.
+   *
+   * Audio offload directs compressed or PCM audio streams directly to a dedicated
+   * hardware DSP/audio processor to reduce CPU power consumption and eliminate
+   * audio buffer under-runs during heavy decoding workloads.
+   */
+  private fun applyTrackSelectorParameters(
+    selector: DefaultTrackSelector,
+    tunneling: Boolean,
+    audioOffload: Boolean
+  ) {
+    val builder = selector.buildUponParameters()
+      .setTunnelingEnabled(tunneling)
+
+    if (audioOffload) {
+      builder.setAudioOffloadPreferences(
+        TrackSelectionParameters.AudioOffloadPreferences.DEFAULT.buildUpon()
+          .setAudioOffloadMode(TrackSelectionParameters.AudioOffloadPreferences.AUDIO_OFFLOAD_MODE_ENABLED)
+          .build()
+      )
+    } else {
+      builder.setAudioOffloadPreferences(
+        TrackSelectionParameters.AudioOffloadPreferences.DEFAULT.buildUpon()
+          .setAudioOffloadMode(TrackSelectionParameters.AudioOffloadPreferences.AUDIO_OFFLOAD_MODE_DISABLED)
+          .build()
+      )
+    }
+    selector.setParameters(builder)
+  }
+
+  /**
+   * Builds an extractors factory tailored to the device memory capabilities.
+   * Expands MPEG-TS timestamp search buffer to 3x default (TsExtractor.DEFAULT_TIMESTAMP_SEARCH_BYTES * 3)
+   * on standard memory hardware, resolving live TV and recorded MPEG-TS sync and seek stutter.
+   */
+  private fun createExtractorsFactory(): DefaultExtractorsFactory {
+    val activityManager = activity.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
+    val isLowRamDevice = activityManager?.isLowRamDevice == true
+    return DefaultExtractorsFactory().apply {
+      setTsExtractorTimestampSearchBytes(
+        if (isLowRamDevice) TsExtractor.TS_PACKET_SIZE * 1800
+        else TsExtractor.DEFAULT_TIMESTAMP_SEARCH_BYTES * 3
+      )
+    }
+  }
+
   /**
    * Initializes or returns the existing Media3 ExoPlayer instance on the main thread.
    */
@@ -149,6 +211,7 @@ class ExoPlayerPlugin(private val activity: Activity) : Plugin(activity) {
 
     val selector = DefaultTrackSelector(activity)
     this.trackSelector = selector
+    applyTrackSelectorParameters(selector, isTunnelingEnabled, isAudioOffloadEnabled)
 
     // -------------------------------------------------------------------------
     // Configure Media3 DefaultRenderersFactory with Extension Fallback
@@ -439,6 +502,14 @@ class ExoPlayerPlugin(private val activity: Activity) : Plugin(activity) {
       try {
         val exo = ensurePlayer()
 
+        val tunneling = args.tunneling ?: isTunnelingEnabled
+        val audioOffload = args.audioOffload ?: isAudioOffloadEnabled
+        this.isTunnelingEnabled = tunneling
+        this.isAudioOffloadEnabled = audioOffload
+        trackSelector?.let { sel ->
+          applyTrackSelectorParameters(sel, tunneling, audioOffload)
+        }
+
         // ---------------------------------------------------------------------
         // Build OkHttp Data Source with Custom Headers
         // ---------------------------------------------------------------------
@@ -450,7 +521,7 @@ class ExoPlayerPlugin(private val activity: Activity) : Plugin(activity) {
         httpDataSourceFactory.setUserAgent("Litefin (Linux; Android; ExoPlayer)")
 
         val dataSourceFactory = DefaultDataSource.Factory(activity, httpDataSourceFactory)
-        val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory)
+        val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory, createExtractorsFactory())
 
         // Create MediaItem and configure start position if resuming
         val mediaItem = MediaItem.fromUri(Uri.parse(args.url))
@@ -728,6 +799,32 @@ class ExoPlayerPlugin(private val activity: Activity) : Plugin(activity) {
   }
 
   /**
+   * Updates hardware video tunneling preference.
+   */
+  @Command
+  fun setTunnelingEnabled(invoke: Invoke) {
+    val enabled = invoke.parseArgs(BooleanArgs::class.java).enabled ?: true
+    activity.runOnUiThread {
+      isTunnelingEnabled = enabled
+      trackSelector?.let { applyTrackSelectorParameters(it, isTunnelingEnabled, isAudioOffloadEnabled) }
+      invoke.resolve()
+    }
+  }
+
+  /**
+   * Updates audio offload preference.
+   */
+  @Command
+  fun setAudioOffloadEnabled(invoke: Invoke) {
+    val enabled = invoke.parseArgs(BooleanArgs::class.java).enabled ?: true
+    activity.runOnUiThread {
+      isAudioOffloadEnabled = enabled
+      trackSelector?.let { applyTrackSelectorParameters(it, isTunnelingEnabled, isAudioOffloadEnabled) }
+      invoke.resolve()
+    }
+  }
+
+  /**
    * Checks whether the native FFmpeg audio decoding extension (libffmpeg.so)
    * is successfully loaded and operational within the runtime environment.
    */
@@ -819,9 +916,27 @@ class ExoPlayerPlugin(private val activity: Activity) : Plugin(activity) {
 
     @JavascriptInterface
     fun prepare(url: String, headersJson: String?, startPositionMs: Long) {
+      prepare(url, headersJson, startPositionMs, isTunnelingEnabled, isAudioOffloadEnabled)
+    }
+
+    @JavascriptInterface
+    fun prepare(
+      url: String,
+      headersJson: String?,
+      startPositionMs: Long,
+      tunneling: Boolean,
+      audioOffload: Boolean
+    ) {
       activity.runOnUiThread {
         try {
+          isTunnelingEnabled = tunneling
+          isAudioOffloadEnabled = audioOffload
+
           val exo = ensurePlayer()
+          trackSelector?.let { sel ->
+            applyTrackSelectorParameters(sel, tunneling, audioOffload)
+          }
+
           val httpDataSourceFactory = OkHttpDataSource.Factory(okHttpClient)
 
           if (!headersJson.isNullOrBlank()) {
@@ -834,7 +949,7 @@ class ExoPlayerPlugin(private val activity: Activity) : Plugin(activity) {
           }
 
           val dataSourceFactory = DefaultDataSource.Factory(activity, httpDataSourceFactory)
-          val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory)
+          val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory, createExtractorsFactory())
           val mediaItem = MediaItem.fromUri(Uri.parse(url))
           val mediaSource = mediaSourceFactory.createMediaSource(mediaItem)
 
@@ -969,6 +1084,32 @@ class ExoPlayerPlugin(private val activity: Activity) : Plugin(activity) {
         false
       }
     }
+
+    @JavascriptInterface
+    fun setTunnelingEnabled(enabled: Boolean) {
+      activity.runOnUiThread {
+        isTunnelingEnabled = enabled
+        trackSelector?.let { applyTrackSelectorParameters(it, isTunnelingEnabled, isAudioOffloadEnabled) }
+      }
+    }
+
+    @JavascriptInterface
+    fun setAudioOffloadEnabled(enabled: Boolean) {
+      activity.runOnUiThread {
+        isAudioOffloadEnabled = enabled
+        trackSelector?.let { applyTrackSelectorParameters(it, isTunnelingEnabled, isAudioOffloadEnabled) }
+      }
+    }
+
+    @JavascriptInterface
+    fun isTunnelingEnabled(): Boolean {
+      return isTunnelingEnabled
+    }
+
+    @JavascriptInterface
+    fun isAudioOffloadEnabled(): Boolean {
+      return isAudioOffloadEnabled
+    }
   }
 
   // ===========================================================================
@@ -978,6 +1119,12 @@ class ExoPlayerPlugin(private val activity: Activity) : Plugin(activity) {
     var url: String = ""
     var headers: Map<String, String>? = null
     var startPositionMs: Long? = null
+    var tunneling: Boolean? = null
+    var audioOffload: Boolean? = null
+  }
+
+  class BooleanArgs {
+    var enabled: Boolean? = null
   }
 
   class SeekArgs {

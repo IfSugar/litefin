@@ -3915,6 +3915,40 @@ class SettingsPage extends Page {
                     </div>
                 </div>
 
+                ${platformInfo.isAndroid
+                ? `
+                <!-- Tunneled Video Playback Toggle (ExoPlayer) -->
+                <div class="setting-item">
+                    <div class="setting-label">
+                        <span class="setting-name" data-i18n="EnableTunneling">${i18n.t('EnableTunneling') || 'Tunneled Video Playback'}</span>
+                        <span class="setting-description" data-i18n="EnableTunnelingDescription">${i18n.t('EnableTunnelingDescription') || 'Enables hardware A/V clock tunneling in ExoPlayer for smoother 4K HDR playback and reduced CPU jitter.'}</span>
+                    </div>
+                    <div class="setting-control">
+                        <button class="toggle-switch ${PlayerSettings.get('enableTunneling') !== false ? 'active' : ''}" 
+                                id="toggle-enable-tunneling" 
+                                data-setting="enableTunneling"
+                                tabindex="0">
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Audio Offload Toggle (ExoPlayer) -->
+                <div class="setting-item">
+                    <div class="setting-label">
+                        <span class="setting-name" data-i18n="EnableAudioOffload">${i18n.t('EnableAudioOffload') || 'Audio Offload'}</span>
+                        <span class="setting-description" data-i18n="EnableAudioOffloadDescription">${i18n.t('EnableAudioOffloadDescription') || 'Directs audio decoding to the dedicated hardware DSP to reduce CPU power consumption and prevent audio stalls.'}</span>
+                    </div>
+                    <div class="setting-control">
+                        <button class="toggle-switch ${PlayerSettings.get('enableAudioOffload') !== false ? 'active' : ''}" 
+                                id="toggle-enable-audio-offload" 
+                                data-setting="enableAudioOffload"
+                                tabindex="0">
+                        </button>
+                    </div>
+                </div>
+                `
+                : ''}
+
                 ${platformInfo.isTizen
                 ? `
                 <!-- Interlaced content backend fallback toggle.
@@ -13177,6 +13211,30 @@ class SettingsPage extends Page {
                 PlayerSettings.set('resetSeekSpeedOnDirectionChange', enabled);
                 resetSeekSpeedToggle.classList.toggle('active', enabled);
                 log.info(`Reset Seek Speed on Direction Change set to: ${enabled}`);
+            });
+        }
+
+        // Toggle Switch for Tunneled Video Playback (ExoPlayer)
+        const enableTunnelingToggle = this.$('#toggle-enable-tunneling');
+        if (enableTunnelingToggle) {
+            enableTunnelingToggle.addEventListener('click', () => {
+                const current = PlayerSettings.get('enableTunneling') !== false;
+                const next = !current;
+                PlayerSettings.set('enableTunneling', next);
+                enableTunnelingToggle.classList.toggle('active', next);
+                log.info(`Tunneled Video Playback set to: ${next}`);
+            });
+        }
+
+        // Toggle Switch for Audio Offload (ExoPlayer)
+        const enableAudioOffloadToggle = this.$('#toggle-enable-audio-offload');
+        if (enableAudioOffloadToggle) {
+            enableAudioOffloadToggle.addEventListener('click', () => {
+                const current = PlayerSettings.get('enableAudioOffload') !== false;
+                const next = !current;
+                PlayerSettings.set('enableAudioOffload', next);
+                enableAudioOffloadToggle.classList.toggle('active', next);
+                log.info(`Audio Offload set to: ${next}`);
             });
         }
 

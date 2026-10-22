@@ -109,6 +109,25 @@ const DEFAULTS = {
     // =========================================================================
     preferDirectPlayAudio: true,
 
+    // =========================================================================
+    // TUNNELED VIDEO PLAYBACK (Android ExoPlayer)
+    // =========================================================================
+    // Enables hardware audio/video synchronization tunneling in ExoPlayer.
+    // Offloads A/V sync clock timing directly to the hardware video decoder/SoC,
+    // reducing CPU load, eliminating dropped frames, and preventing stutter
+    // on 4K, HDR, and high-bitrate media.
+    // =========================================================================
+    enableTunneling: true,
+
+    // =========================================================================
+    // AUDIO OFFLOAD PLAYBACK (Android ExoPlayer)
+    // =========================================================================
+    // Routes audio playback directly to a dedicated hardware DSP/audio processor
+    // in the Android device (AUDIO_OFFLOAD_MODE_ENABLED), reducing CPU power
+    // consumption and preventing buffer under-runs during heavy decoding.
+    // =========================================================================
+    enableAudioOffload: true,
+
     // -------------------------------------------------------------------------
     // EAC3 (E-AC3 / Dolby Digital Plus) FORCE STATE
     // -------------------------------------------------------------------------

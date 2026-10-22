@@ -55,7 +55,21 @@ async function invokeNative(command, args = {}) {
                 let res;
                 if (command === 'prepare') {
                     const headersJson = args.headers ? JSON.stringify(args.headers) : null;
-                    res = bridge.prepare(args.url || '', headersJson, args.startPositionMs || 0);
+                    if (typeof args.tunneling === 'boolean' || typeof args.audioOffload === 'boolean') {
+                        res = bridge.prepare(
+                            args.url || '',
+                            headersJson,
+                            args.startPositionMs || 0,
+                            args.tunneling ?? true,
+                            args.audioOffload ?? true
+                        );
+                    } else {
+                        res = bridge.prepare(args.url || '', headersJson, args.startPositionMs || 0);
+                    }
+                } else if (command === 'setTunnelingEnabled') {
+                    res = bridge.setTunnelingEnabled(Boolean(args.enabled));
+                } else if (command === 'setAudioOffloadEnabled') {
+                    res = bridge.setAudioOffloadEnabled(Boolean(args.enabled));
                 } else if (command === 'seek') {
                     res = bridge.seek(args.positionMs || 0);
                 } else if (command === 'setPlaybackSpeed') {
@@ -128,6 +142,37 @@ export class ExoVideoPlayer {
             return Boolean(res?.available);
         } catch {
             return false;
+        }
+    }
+
+    /**
+     * Toggles hardware video tunneling in ExoPlayer.
+     * Offloads audio-to-video clock synchronization directly to hardware decoders,
+     * eliminating jitter and dropped video frames on 4K/HDR Android TV displays.
+     *
+     * @param {boolean} enabled - Whether tunneling should be active
+     * @returns {Promise<void>}
+     */
+    static async setTunnelingEnabled(enabled) {
+        try {
+            await invokeNative('setTunnelingEnabled', { enabled: Boolean(enabled) });
+        } catch (err) {
+            log.warn('Failed to set tunneling state in native ExoPlayer:', err);
+        }
+    }
+
+    /**
+     * Toggles audio offload playback in ExoPlayer.
+     * Routes audio decoding directly to the hardware audio DSP/processor.
+     *
+     * @param {boolean} enabled - Whether audio offload should be active
+     * @returns {Promise<void>}
+     */
+    static async setAudioOffloadEnabled(enabled) {
+        try {
+            await invokeNative('setAudioOffloadEnabled', { enabled: Boolean(enabled) });
+        } catch (err) {
+            log.warn('Failed to set audio offload state in native ExoPlayer:', err);
         }
     }
 
@@ -466,11 +511,18 @@ export class ExoVideoPlayer {
         // Arm startup deadlock watchdog
         this._armStartupWatchdog();
 
-        // 1. Prepare ExoPlayer hardware pipeline
+        // 1. Prepare ExoPlayer hardware pipeline with tunneling and audio offload preferences
+        const enableTunneling = (this.settings?.get?.('enableTunneling') ?? PlayerSettings.get('enableTunneling')) !== false;
+        const enableAudioOffload = (this.settings?.get?.('enableAudioOffload') ?? PlayerSettings.get('enableAudioOffload')) !== false;
+
+        log.info(`ExoVideoPlayer.play: configuring hardware tunneling=${enableTunneling}, audioOffload=${enableAudioOffload}`);
+
         await invokeNative('prepare', {
             url: options.url,
             headers: options.headers || {},
-            startPositionMs: resumeMs
+            startPositionMs: resumeMs,
+            tunneling: enableTunneling,
+            audioOffload: enableAudioOffload
         });
 
         // 2. Apply initial volume setting and aspect ratio mode
