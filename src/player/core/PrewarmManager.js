@@ -10,6 +10,7 @@
  */
 
 import { logger } from '../../utils/Logger.js';
+import { eventBus } from '../../core/EventBus.js';
 import { api } from '../../api/index.js';
 import { PlayerSettings } from '../../utils/PlayerSettings.js';
 import { buildJellyfinProfile } from '../../api/DeviceProfile.js';
@@ -406,6 +407,17 @@ export class PrewarmManager {
     }
 
     /**
+     * Drop a prewarmed PlaybackInfo that no playback has taken yet, e.g. because
+     * the device profile it was built with changed. A request already handed to
+     * the player by consumePlaybackInfo() is left to finish.
+     */
+    discardUnconsumed() {
+        if (!this._playbackInfoPromise) return;
+        log.info('[Prewarm] Device capabilities changed — discarding the prewarmed PlaybackInfo');
+        this.clear();
+    }
+
+    /**
      * Abort any ongoing network operations and clear memory references.
      */
     clear() {
@@ -425,5 +437,16 @@ export class PrewarmManager {
     }
 }
 
-export const prewarmManager = new PrewarmManager();
+/**
+ * webOS reports the real panel (UHD, Dolby Vision) only after startup, and a
+ * PlaybackInfo prewarmed before that was built with the fallback profile.
+ * @param {PrewarmManager} manager
+ * @returns {PrewarmManager}
+ */
+function discardOnCapabilityChange(manager) {
+    eventBus.on('webos:deviceInfoReady', () => manager.discardUnconsumed());
+    return manager;
+}
+
+export const prewarmManager = discardOnCapabilityChange(new PrewarmManager());
 export default prewarmManager;

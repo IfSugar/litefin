@@ -77,7 +77,12 @@ class WebOSAdapter {
         this._screenSaverSubscription = null;
         this._screenSaverRegistered = false;
         this._keepScreenActivityId = null;
+        // A create request is in flight (its activityId is not known yet)
+        this._keepScreenActivityPending = false;
         this._isPlaybackKeepOnRequested = false;
+        // PalmServiceBridge objects waiting for their reply: a bridge nothing references
+        // can be garbage-collected before its callback fires
+        this._pendingBridges = [];
 
         // Immediate platform detection via User Agent or Global
         this._detectPlatform();
@@ -626,10 +631,9 @@ class WebOSAdapter {
                     }
                 });
             } else if (typeof window.PalmServiceBridge !== 'undefined') {
-                const bridge = new window.PalmServiceBridge();
-                bridge.call(
+                this._callPalmServiceBridge(
                     'luna://com.webos.service.tvpower/power/responseScreenSaverRequest',
-                    JSON.stringify(parameters)
+                    parameters
                 );
             }
         } catch (e) {
@@ -700,7 +704,7 @@ class WebOSAdapter {
      * @private
      */
     _createKeepScreenActivity() {
-        if (!this._isWebOS || this._keepScreenActivityId) return;
+        if (!this._isWebOS || this._keepScreenActivityId || this._keepScreenActivityPending) return;
 
         try {
             const params = {
@@ -719,33 +723,83 @@ class WebOSAdapter {
                 subscribe: false
             };
 
+            /*
+             * The activityId is only known in the reply. 'player:playing' fires after every
+             * seek and rebuffer, so without the pending flag another create went out while
+             * one was in flight. And a stop in that window found no id to cancel: the reply
+             * then stored the id of a continuous power activity nothing would cancel, which
+             * kept the screensaver off after playback.
+             */
+            this._keepScreenActivityPending = true;
+            const onCreated = (res) => {
+                this._keepScreenActivityPending = false;
+                this._keepScreenActivityId = res?.activityId || null;
+                log.info('Keep-screen activity registered, activityId:', this._keepScreenActivityId);
+                // Playback stopped or paused (or the setting was turned off) while create was in flight
+                if (!this._screenSaverBlocked) {
+                    this._cancelKeepScreenActivity();
+                }
+            };
+            const onFailed = (err) => {
+                this._keepScreenActivityPending = false;
+                log.warn('Failed to create keep-screen activity:', err);
+            };
+
             if (window.webOS && window.webOS.service && typeof window.webOS.service.request === 'function') {
                 window.webOS.service.request('luna://com.palm.activitymanager', {
                     method: 'create',
                     parameters: params,
-                    onSuccess: (res) => {
-                        this._keepScreenActivityId = res?.activityId || null;
-                        log.info('Keep-screen activity registered, activityId:', this._keepScreenActivityId);
-                    },
-                    onFailure: (err) => {
-                        log.warn('Failed to create keep-screen activity:', err);
-                    }
+                    onSuccess: onCreated,
+                    onFailure: onFailed
                 });
             } else if (typeof window.PalmServiceBridge !== 'undefined') {
-                const bridge = new window.PalmServiceBridge();
-                bridge.onservicecallback = (msg) => {
+                this._callPalmServiceBridge('luna://com.palm.activitymanager/create', params, (msg) => {
+                    let res;
                     try {
-                        const res = JSON.parse(msg);
-                        this._keepScreenActivityId = res?.activityId || null;
-                        log.info('Keep-screen activity registered (via PalmServiceBridge):', this._keepScreenActivityId);
+                        res = JSON.parse(msg);
                     } catch (e) {
-                        log.warn('Error parsing activity manager response:', e);
+                        onFailed(e);
+                        return;
                     }
-                };
-                bridge.call('luna://com.palm.activitymanager/create', JSON.stringify(params));
+                    if (res && res.returnValue === false) {
+                        onFailed(res);
+                    } else {
+                        onCreated(res);
+                    }
+                });
+            } else {
+                this._keepScreenActivityPending = false;
             }
         } catch (e) {
+            this._keepScreenActivityPending = false;
             log.warn('Exception creating keep-screen activity:', e);
+        }
+    }
+
+    /**
+     * Call a Luna service through PalmServiceBridge, keeping the bridge referenced
+     * until its reply arrives.
+     * @param {string} uri - Full Luna URI including the method
+     * @param {Object} params - Call parameters
+     * @param {Function} [onReply] - Receives the raw reply string
+     * @private
+     */
+    _callPalmServiceBridge(uri, params, onReply) {
+        const bridge = new window.PalmServiceBridge();
+        const release = () => {
+            const index = this._pendingBridges.indexOf(bridge);
+            if (index !== -1) this._pendingBridges.splice(index, 1);
+        };
+        this._pendingBridges.push(bridge);
+        bridge.onservicecallback = (msg) => {
+            release();
+            if (onReply) onReply(msg);
+        };
+        try {
+            bridge.call(uri, JSON.stringify(params));
+        } catch (e) {
+            release();
+            throw e;
         }
     }
 
@@ -774,8 +828,7 @@ class WebOSAdapter {
                     }
                 });
             } else if (typeof window.PalmServiceBridge !== 'undefined') {
-                const bridge = new window.PalmServiceBridge();
-                bridge.call('luna://com.palm.activitymanager/cancel', JSON.stringify(params));
+                this._callPalmServiceBridge('luna://com.palm.activitymanager/cancel', params);
             }
         } catch (e) {
             log.warn('Exception canceling keep-screen activity:', e);
