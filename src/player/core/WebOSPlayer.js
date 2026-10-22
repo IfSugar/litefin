@@ -231,6 +231,9 @@ export class WebOSPlayer {
         this._outputWindowRetryTimer = null;
         this._outputWindowRefreshTimer = null;
 
+        /** Last box written to the <video> style by _fitVideoBox */
+        this._appliedVideoBox = null;
+
         /** @type {ResizeObserver|null} Refits the video box when the container resizes */
         this._containerObserver = null;
 
@@ -3051,44 +3054,38 @@ export class WebOSPlayer {
         // Container dimensions with fallback to viewport dimensions
         const cw = (this.container && this.container.clientWidth) || window.innerWidth || 1920;
         const ch = (this.container && this.container.clientHeight) || window.innerHeight || 1080;
-        const style = video.style;
 
         // Container has no valid layout dimensions yet
         if (!cw || !ch) return;
 
-        // Ensure positioning context is absolute within container and clear residual stretch constraints
-        style.position = 'absolute';
-        style.margin = '0';
-        style.right = '';
-        style.bottom = '';
-
         // The TV crops via _applyOutputWindow. The box covers the screen because the TV clips the
         // picture (and the OSD over it) to the box when the page is composited above the video.
         if (this._canUseOutputWindow()) {
-            style.left = '0px';
-            style.top = '0px';
-            style.right = '0px';
-            style.bottom = '0px';
-            style.width = `${cw}px`;
-            style.height = `${ch}px`;
-            style.objectFit = 'fill';
+            this._applyVideoBox(video, this._fullScreenBox(cw, ch, 'fill'));
             this._applyOutputWindow();
             return;
         }
 
+        this._applyVideoBox(video, this._computeVideoBox(cw, ch));
+    }
+
+    /** A box covering the whole container. @private */
+    _fullScreenBox(cw, ch, objectFit) {
+        return { left: 0, top: 0, width: cw, height: ch, anchored: true, objectFit };
+    }
+
+    /**
+     * Video box for the current aspect mode inside a cw × ch container.
+     * @private
+     * @returns {{left: number, top: number, width: number, height: number, anchored: boolean, objectFit: string}}
+     */
+    _computeVideoBox(cw, ch) {
         // ====================================================================
         // Mode 1: Fullscreen Stretch
         // ====================================================================
         // Forces the hardware video plane to stretch edge-to-edge across the screen
         if (this._aspectMode === 'stretch') {
-            style.left = '0px';
-            style.top = '0px';
-            style.right = '0px';
-            style.bottom = '0px';
-            style.width = `${cw}px`;
-            style.height = `${ch}px`;
-            style.objectFit = 'fill';
-            return;
+            return this._fullScreenBox(cw, ch, 'fill');
         }
 
         // Intrinsic video stream dimensions with comprehensive fallback chain
@@ -3100,62 +3097,60 @@ export class WebOSPlayer {
 
         // If metadata has not loaded yet, default to full viewport until metadata/playback initializes
         if (!vw || !vh) {
-            style.left = '0px';
-            style.top = '0px';
-            style.right = '0px';
-            style.bottom = '0px';
-            style.width = `${cw}px`;
-            style.height = `${ch}px`;
-            style.objectFit = 'contain';
-            return;
+            return this._fullScreenBox(cw, ch, 'contain');
         }
 
         // ====================================================================
-        // Mode 2: Zoom (Cover / Crop)
+        // Mode 2: Zoom (Cover / Crop) scales by the larger factor to cover the
+        // screen and crops the overflowing edges symmetrically (negative offsets).
+        // Mode 3: Auto (Contain / Letterbox) scales by the smaller factor to fit
+        // the screen and centers the picture between the bars.
         // ====================================================================
-        // Scale by maximum factor to cover the full viewport, cropping overflowing edges
-        if (this._aspectMode === 'zoom') {
-            const scale = Math.max(cw / cwContent, ch / chContent);
-            const w = Math.round(vw * scale);
-            const h = Math.round(vh * scale);
-
-            // Center the cropped frame symmetrically using negative offsets
-            const left = Math.round((cw - w) / 2);
-            const top = Math.round((ch - h) / 2);
-
-            // Apply explicit bounding coordinates and cover fit
-            style.left = `${left}px`;
-            style.top = `${top}px`;
-            style.right = '';
-            style.bottom = '';
-            style.width = `${w}px`;
-            style.height = `${h}px`;
-            style.objectFit = 'cover';
-            style.objectPosition = 'center';
-            return;
-        }
-
-        // ====================================================================
-        // Mode 3: Auto (Contain / Letterbox)
-        // ====================================================================
-        // Scale by minimum factor to preserve intrinsic aspect ratio within the viewport
-        const scale = Math.min(cw / vw, ch / vh);
+        const zoom = this._aspectMode === 'zoom';
+        const scale = zoom ? Math.max(cw / cwContent, ch / chContent) : Math.min(cw / vw, ch / vh);
         const w = Math.round(vw * scale);
         const h = Math.round(vh * scale);
+        return {
+            left: Math.round((cw - w) / 2),
+            top: Math.round((ch - h) / 2),
+            width: w,
+            height: h,
+            anchored: false,
+            objectFit: zoom ? 'cover' : 'contain'
+        };
+    }
 
-        // Center the letterboxed/pillarboxed video inside the screen
-        const left = Math.round((cw - w) / 2);
-        const top = Math.round((ch - h) / 2);
+    /**
+     * Write the video box to the element's inline style, only when it changed.
+     * _fitVideoBox runs on every 'playing' (after each seek, unpause and
+     * rebuffer), 'resize' and container resize; rewriting identical styles
+     * still invalidates style and layout on the TV each time.
+     * @private
+     * @param {HTMLVideoElement} video
+     * @param {{left: number, top: number, width: number, height: number, anchored: boolean, objectFit: string}} box
+     * @returns {boolean} Whether the styles were written
+     */
+    _applyVideoBox(video, box) {
+        const key = `${box.left},${box.top},${box.width},${box.height},${box.anchored},${box.objectFit}`;
+        if (this._appliedVideoBox && this._appliedVideoBox.video === video && this._appliedVideoBox.key === key) {
+            return false;
+        }
 
-        // Apply explicit bounding coordinates and contain fit
-        style.left = `${left}px`;
-        style.top = `${top}px`;
-        style.right = '';
-        style.bottom = '';
-        style.width = `${w}px`;
-        style.height = `${h}px`;
-        style.objectFit = 'contain';
+        const style = video.style;
+        // Absolute positioning within the container, no residual margins
+        style.position = 'absolute';
+        style.margin = '0';
+        style.left = `${box.left}px`;
+        style.top = `${box.top}px`;
+        // A full-screen box is anchored on all four edges; a computed one only by left/top
+        style.right = box.anchored ? '0px' : '';
+        style.bottom = box.anchored ? '0px' : '';
+        style.width = `${box.width}px`;
+        style.height = `${box.height}px`;
+        style.objectFit = box.objectFit;
         style.objectPosition = 'center';
+        this._appliedVideoBox = { video, key };
+        return true;
     }
 
     /** Old webOS (Chromium < 79) cannot crop centered via the box, so the TV's video output service does it. */
