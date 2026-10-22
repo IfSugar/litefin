@@ -3181,11 +3181,14 @@ export class JellyfinPlayer extends EventEmitter {
             // ────────────────────────────────────────────────────────────────
             // If the initial backend preparation or media pipeline setup rejected
             // during DirectPlay or Remux, immediately attempt server transcode before
-            // surfacing a fatal error.
+            // surfacing a fatal error. Not when the server sent nothing at all
+            // (stalled or unreachable): a transcode request would only add another
+            // timeout before the error shows.
             // ────────────────────────────────────────────────────────────────
             const isAutoTranscodeEnabled = PlayerSettings.get('autoTranscodeOnError') !== false;
             const canEscalate =
                 isAutoTranscodeEnabled &&
+                !error?.isNetworkError &&
                 !this._isRestarting &&
                 !this._directPlayEscalated &&
                 this._currentPlayOptions &&

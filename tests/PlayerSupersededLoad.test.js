@@ -11,7 +11,8 @@ import vm from 'node:vm';
  * backend rejects with a `superseded` error and JellyfinPlayer.play()
  * resolves false. Callers must then drop the request: a restart flow must not
  * arm the remux watchdog for playback the user already stopped, or it
- * restarts a transcode on the stopped player 8 s later.
+ * restarts a transcode on the stopped player 8 s later. A load that failed
+ * because the server sent nothing is not escalated to a transcode either.
  * The JellyfinPlayer methods under test are taken from the source and run on a
  * stub player (the module itself needs a full DOM).
  * ============================================================================
@@ -88,4 +89,60 @@ test('JellyfinPlayer: a resume restart that starts still arms the remux watchdog
     player._handleBackendEvent({ type: 'resumeseekfailed', data: { targetPositionTicks: 6000000000 } });
     await settle();
     assert.deepStrictEqual(player.armedWatchdogs, [6000000000]);
+});
+
+// ----------------------------------------------------------------------------
+// No escalation for a server that sends nothing
+// ----------------------------------------------------------------------------
+
+/** A stub player running the real play() up to a failing step. */
+function createFailingPlay(failure) {
+    const context = vm.createContext({
+        setTimeout: (fn) => setTimeout(fn, 0),
+        clearTimeout,
+        Promise,
+        log: { info() {}, debug() {}, warn() {}, error() {} },
+        PlayerSettings: { get: () => undefined },
+        TizenAVPlayer: class {},
+        HtmlVideoPlayer: class {},
+        platformInfo: {},
+        webCodecsProbe: {},
+        buildJellyfinProfile: () => ({ Name: 'stub', DirectPlayProfiles: [] })
+    });
+    const methods = vm.runInContext(`${playerEventSource}\n({\n${extractMethod('async play(options) {')}\n})`, context);
+    const player = Object.assign(Object.create(methods), {
+        events: [],
+        stopCalls: 0,
+        _isRestarting: false,
+        _audioRestartInProgress: false,
+        _directPlayEscalated: false,
+        _backendType: 'webos',
+        _backend: { stop: async () => {} },
+        _currentPlayMethod: 'DirectPlay',
+        _playbackMode: 'auto',
+        emit(type) {
+            this.events.push(type);
+        },
+        async stop() {
+            this.stopCalls++;
+        },
+        async _getPlaybackInfo() {
+            throw failure;
+        }
+    });
+    return player;
+}
+
+test('JellyfinPlayer: a load that received no data is reported, not escalated to a transcode', async () => {
+    const noData = Object.assign(new Error('No media data arrived from the server for 30 s'), {
+        name: 'PlaybackLoadTimeoutError',
+        isNetworkError: true
+    });
+    const player = createFailingPlay(noData);
+    player._currentPlayOptions = { itemId: 'item1' };
+
+    await player.play({ itemId: 'item1' }).catch(() => {});
+    await settle();
+    assert.strictEqual(player.stopCalls, 0, 'escalated to a transcode the stalled server cannot deliver either');
+    assert.ok(player.events.includes('error'));
 });
