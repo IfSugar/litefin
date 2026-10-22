@@ -8,6 +8,7 @@ import android.os.Handler
 import android.os.Looper
 import android.webkit.JavascriptInterface
 import androidx.annotation.OptIn
+import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
@@ -232,8 +233,28 @@ class ExoPlayerPlugin(private val activity: Activity) : Plugin(activity) {
       .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
       .setEnableDecoderFallback(true)
 
+    // -------------------------------------------------------------------------
+    // Instantiate ExoPlayer with Movie Audio Attributes and Network Wake Lock
+    // -------------------------------------------------------------------------
+    // USAGE_MEDIA + CONTENT_TYPE_MOVIE directs Android audio policy to treat
+    // the stream as cinema content, properly routing surround sound (5.1/7.1)
+    // to external soundbars/AVRs via HDMI eARC and preserving full dynamic range.
+    //
+    // Enabling audio focus management (true) guarantees smooth ducking and
+    // pausing when system notifications or voice assistants interrupt.
+    //
+    // WAKE_MODE_NETWORK prevents the OS power manager from sleeping the CPU
+    // or throttling the Wi-Fi radio during long, high-bitrate 4K streaming sessions.
+    // -------------------------------------------------------------------------
+    val audioAttributes = AudioAttributes.Builder()
+      .setUsage(C.USAGE_MEDIA)
+      .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
+      .build()
+
     val newPlayer = ExoPlayer.Builder(activity, renderersFactory)
       .setTrackSelector(selector)
+      .setAudioAttributes(audioAttributes, /* handleAudioFocus = */ true)
+      .setWakeMode(C.WAKE_MODE_NETWORK)
       .build()
 
     // -------------------------------------------------------------------------
