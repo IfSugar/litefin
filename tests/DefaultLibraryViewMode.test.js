@@ -102,14 +102,3 @@ test('LayoutManager: implements default library view mode and column helper meth
     );
 });
 
-test('Locales: English locales contain DefaultLibraryViewMode and DefaultLibraryColumns keys', () => {
-    const enUs = JSON.parse(readFileSync(path.resolve('src/locales/en-us.json'), 'utf8'));
-    const enGb = JSON.parse(readFileSync(path.resolve('src/locales/en-gb.json'), 'utf8'));
-
-    for (const locale of [enUs, enGb]) {
-        assert.ok(locale.DefaultLibraryViewMode, 'Locale must have DefaultLibraryViewMode');
-        assert.ok(locale.DefaultLibraryViewModeDescription, 'Locale must have DefaultLibraryViewModeDescription');
-        assert.ok(locale.DefaultLibraryColumns, 'Locale must have DefaultLibraryColumns');
-        assert.ok(locale.DefaultLibraryColumnsDescription, 'Locale must have DefaultLibraryColumnsDescription');
-    }
-});

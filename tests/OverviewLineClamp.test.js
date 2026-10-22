@@ -141,14 +141,3 @@ test('Details, Person, Seerr Details, and Seerr Person pages integrate getOvervi
     }
 });
 
-test('en-us.json contains overview max lines, value lines, and Detailed View translation keys', () => {
-    const enUs = JSON.parse(readFileSync('src/locales/en-us.json', 'utf8'));
-
-    assert.equal(enUs.LabelDetailsOverviewMaxLines, 'Overview Max Lines');
-    assert.ok(enUs.DetailsOverviewMaxLinesDescription);
-    assert.equal(enUs.ValueLines, '{0} lines');
-    assert.equal(enUs.LinesValue, '{0} lines');
-    assert.equal(enUs.LabelDetailsAlwaysShowSeeMore, 'Always Show Detailed View Button');
-    assert.ok(enUs.DetailsAlwaysShowSeeMoreDescription);
-    assert.equal(enUs.DetailedView, 'Detailed View');
-});

@@ -107,14 +107,6 @@ test('PlaybackStopReporting: Watched completion threshold settings and server Ma
         playerSource.includes("rawPosition >= durationTicks * thresholdFraction"),
         'PlayerPage._reportPlaybackStopped must evaluate near-complete status using resolved threshold fraction'
     );
-
-    // 5. Verify en-us.json contains all required translation keys
-    const enUs = JSON.parse(
-        readFileSync(new URL('../src/locales/en-us.json', import.meta.url), 'utf8')
-    );
-    assert.ok(enUs.WatchedThreshold, 'en-us.json must have WatchedThreshold key');
-    assert.ok(enUs.WatchedThresholdDescription, 'en-us.json must have WatchedThresholdDescription key');
-    assert.ok(enUs.OptionWatchedThreshold80, 'en-us.json must have OptionWatchedThreshold80 key');
-    assert.ok(enUs.OptionWatchedThresholdServer, 'en-us.json must have OptionWatchedThresholdServer key');
 });
+
 

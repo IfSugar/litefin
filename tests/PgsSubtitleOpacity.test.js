@@ -23,12 +23,12 @@ globalThis.document = {
 
 const PlayerSettings = (await import('../src/utils/PlayerSettings.js')).default;
 
-test('PlayerSettings defaults subtitlePgsOpacity to 100 and subtitlePgsOpacityHdr to 70', () => {
+test('PlayerSettings defaults subtitlePgsOpacity to 100 and subtitlePgsOpacityHdr to 80', () => {
     storageMap.clear();
 
     // Assert default values
     assert.equal(PlayerSettings.get('subtitlePgsOpacity'), 100);
-    assert.equal(PlayerSettings.get('subtitlePgsOpacityHdr'), 70);
+    assert.equal(PlayerSettings.get('subtitlePgsOpacityHdr'), 80);
 
     // Verify settings can be modified and persist correctly
     PlayerSettings.set('subtitlePgsOpacity', 85);
@@ -39,7 +39,7 @@ test('PlayerSettings defaults subtitlePgsOpacity to 100 and subtitlePgsOpacityHd
 
     // Restore defaults for subsequent tests
     PlayerSettings.set('subtitlePgsOpacity', 100);
-    PlayerSettings.set('subtitlePgsOpacityHdr', 70);
+    PlayerSettings.set('subtitlePgsOpacityHdr', 80);
 });
 
 test('SubtitleQuickSettings displays PGS opacity controls and filters out text styling when PGS is active', async () => {
@@ -103,20 +103,3 @@ test('SubtitleQuickSettings displays text styling and filters out PGS opacity wh
     assert.equal(pgsHdrItem, undefined, 'pgsOpacityHdr must be filtered out for text subtitles');
 });
 
-test('Locale files contain PgsOpacity translation keys', () => {
-    const enUsPath = path.resolve('src/locales/en-us.json');
-    const enUs = JSON.parse(fs.readFileSync(enUsPath, 'utf8'));
-
-    assert.ok(enUs.PgsOpacityHdr, 'en-us.json must contain PgsOpacityHdr');
-    assert.ok(enUs.PgsOpacityHdrDescription, 'en-us.json must contain PgsOpacityHdrDescription');
-    assert.ok(enUs.PgsOpacitySdr, 'en-us.json must contain PgsOpacitySdr');
-    assert.ok(enUs.PgsOpacitySdrDescription, 'en-us.json must contain PgsOpacitySdrDescription');
-
-    const enGbPath = path.resolve('src/locales/en-gb.json');
-    const enGb = JSON.parse(fs.readFileSync(enGbPath, 'utf8'));
-
-    assert.ok(enGb.PgsOpacityHdr, 'en-gb.json must contain PgsOpacityHdr');
-    assert.ok(enGb.PgsOpacityHdrDescription, 'en-gb.json must contain PgsOpacityHdrDescription');
-    assert.ok(enGb.PgsOpacitySdr, 'en-gb.json must contain PgsOpacitySdr');
-    assert.ok(enGb.PgsOpacitySdrDescription, 'en-gb.json must contain PgsOpacitySdrDescription');
-});

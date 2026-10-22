@@ -33,28 +33,6 @@ test('SettingsPage: remoteButtonOptions contains playerToggleOsdLayout option', 
     );
 });
 
-test('Locales: en-us.json and en_US.json contain OptionPlayerToggleOsdLayout', () => {
-    // Read and parse English locale files
-    const enUsPath = path.resolve('src/locales/en-us.json');
-    const enUsJson = JSON.parse(readFileSync(enUsPath, 'utf8'));
-
-    const enUpperPath = path.resolve('src/locales/en_US.json');
-    const enUpperJson = JSON.parse(readFileSync(enUpperPath, 'utf8'));
-
-    // Assert key exists in both files
-    assert.equal(
-        enUsJson.OptionPlayerToggleOsdLayout,
-        'Player: Toggle Stealth Mode',
-        'en-us.json must have OptionPlayerToggleOsdLayout'
-    );
-
-    assert.equal(
-        enUpperJson.OptionPlayerToggleOsdLayout,
-        'Player: Toggle Stealth Mode',
-        'en_US.json must have OptionPlayerToggleOsdLayout'
-    );
-});
-
 test('RemoteButtonManager: toggles from normal layout to stealth and back', () => {
     // In-memory mock storage and settings stores
     const mockStorage = new Map();

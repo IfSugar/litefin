@@ -752,7 +752,9 @@ class AndroidAdapter {
         const pressedKeys = new Set();
 
         // Clear tracking set if window loses focus to prevent stuck keys
-        window.addEventListener('blur', () => pressedKeys.clear(), { passive: true });
+        if (typeof window?.addEventListener === 'function') {
+            window.addEventListener('blur', () => pressedKeys.clear(), { passive: true });
+        }
 
         /**
          * Unified key event processor handling both standard hardware remotes

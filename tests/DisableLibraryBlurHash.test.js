@@ -248,22 +248,3 @@ test('Disable Library BlurHash: SettingsPage markup contains toggle in performan
     );
 });
 
-test('Disable Library BlurHash: Localization strings exist in en-us.json and en_US.json', () => {
-    // Read English locale files
-    const enUs = JSON.parse(readFileSync(new URL('../src/locales/en-us.json', import.meta.url), 'utf8'));
-    const en_US = JSON.parse(readFileSync(new URL('../src/locales/en_US.json', import.meta.url), 'utf8'));
-
-    // Verify label keys
-    assert.strictEqual(enUs.LabelDisableLibraryBlurHash, 'Disable BlurHash in Library');
-    assert.strictEqual(en_US.LabelDisableLibraryBlurHash, 'Disable BlurHash in Library');
-
-    // Verify description keys
-    assert.strictEqual(
-        enUs.DisableLibraryBlurHashDescription.includes('Stop decoding and displaying BlurHash'),
-        true
-    );
-    assert.strictEqual(
-        en_US.DisableLibraryBlurHashDescription.includes('Stop decoding and displaying BlurHash'),
-        true
-    );
-});

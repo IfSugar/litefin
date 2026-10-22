@@ -21,6 +21,7 @@ function createSettings(storageData = {}) {
     let modal;
     const context = vm.createContext({
         Page: class {},
+        platformInfo: { isAndroid: false, isTizen: false, isWebOS: false, isDesktop: false, isWeb: true },
         availableLanguages: [],
         logger: { create: () => ({ warn() {}, debug() {}, info() {} }) },
         i18n: { t: (key) => key, ensureBiDi: (value) => value },
