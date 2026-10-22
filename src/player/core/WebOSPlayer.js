@@ -101,6 +101,29 @@ const SEEK_THRESHOLD_MS = 1000;
  */
 const WEBOS_SAFE_RATES = [0.5, 1, 2, 4];
 
+/** Polls (300 ms apart) of _applyRobustResume waiting for a seekable state. */
+const ROBUST_RESUME_MAX_POLLS = 40;
+
+// ============================================================================
+// Playback Errors
+// ============================================================================
+
+/**
+ * Rejects a pending play() when stop() or a newer play() ends its session
+ * before the load finished. Named 'AbortError' like a DOM abort, so callers
+ * treat it as a cancel and not as a playback failure.
+ */
+export class PlaybackAbortedError extends Error {
+    constructor() {
+        super('Playback load was superseded by a newer request');
+        this.name = 'AbortError';
+        // Marks a cancel by stop() / a newer play(), as opposed to a DOM AbortError
+        // (e.g. video.play() interrupted by pause()). JellyfinPlayer.play() resolves
+        // false for it, and its callers must not carry on with this request.
+        this.superseded = true;
+    }
+}
+
 // ============================================================================
 // WebOSPlayer Class
 // ============================================================================
@@ -175,7 +198,16 @@ export class WebOSPlayer {
         // ---- Robust resume state ----
         this._robustSeekTarget   = null;
         this._robustSeekPending  = false;
-        this._cancelRobustResume = false;
+        // Bumped to cancel every running resume/seek retry loop (seek, stop, new play)
+        this._resumeGeneration   = 0;
+
+        // ---- Playback session (one per play() call) ----
+        // One-shot listeners, timers and pending load promises of a session are
+        // registered through _listen() / _timer() / _sessionCleanups, so stop()
+        // and the next play() remove them. The <video> element is reused across
+        // items, so anything left behind would otherwise act on the next item.
+        this._sessionId = 0;
+        this._sessionCleanups = [];
 
         // ====================================================================
         // Audio Suppression State (Resume Playback):
@@ -330,6 +362,134 @@ export class WebOSPlayer {
     }
 
     // ========================================================================
+    // Playback Session Helpers
+    // ========================================================================
+
+    /**
+     * End the current session and start a new one.
+     * @private
+     * @returns {number} The new session id
+     */
+    _beginSession() {
+        this._endSession();
+        return this._sessionId;
+    }
+
+    /**
+     * Run and clear every cleanup registered by the current session: removes
+     * its one-shot listeners, clears its timers and rejects a pending load
+     * with PlaybackAbortedError. The session id then moves on, so code that
+     * resumes after an await of the ended session (e.g. a manifest poll)
+     * sees it is no longer current.
+     * @private
+     */
+    _endSession() {
+        const cleanups = this._sessionCleanups;
+        this._sessionCleanups = [];
+        for (let i = 0; i < cleanups.length; i++) {
+            try {
+                cleanups[i]();
+            } catch (e) {
+                log.warn('WebOSPlayer: session cleanup threw', e);
+            }
+        }
+        this._sessionId++;
+    }
+
+    /**
+     * @private
+     * @param {number} session
+     * @returns {boolean} True while `session` is the current session
+     */
+    _isSessionActive(session) {
+        return session === this._sessionId;
+    }
+
+    /**
+     * addEventListener that is undone when the current session ends.
+     * @private
+     * @returns {Function} Removes the listener early
+     */
+    _listen(target, type, handler, options) {
+        target.addEventListener(type, handler, options);
+        const remove = () => target.removeEventListener(type, handler, options);
+        this._sessionCleanups.push(remove);
+        return remove;
+    }
+
+    /**
+     * setTimeout that is cleared when the current session ends and never runs
+     * for a later session.
+     * @private
+     * @returns {number} Timer id (clearTimeout works as usual)
+     */
+    _timer(fn, ms) {
+        const session = this._sessionId;
+        const id = setTimeout(() => {
+            if (this._isSessionActive(session)) fn();
+        }, ms);
+        this._sessionCleanups.push(() => clearTimeout(id));
+        return id;
+    }
+
+    /**
+     * Promise settled once, and rejected with PlaybackAbortedError if the
+     * session ends first.
+     * @private
+     * @param {Function} executor - (resolve, reject) => void
+     * @returns {Promise<void>}
+     */
+    _sessionPromise(executor) {
+        return new Promise((resolve, reject) => {
+            let settled = false;
+            const resolveOnce = (value) => {
+                if (settled) return;
+                settled = true;
+                resolve(value);
+            };
+            const rejectOnce = (reason) => {
+                if (settled) return;
+                settled = true;
+                reject(reason);
+            };
+            this._sessionCleanups.push(() => rejectOnce(new PlaybackAbortedError()));
+            executor(resolveOnce, rejectOnce);
+        });
+    }
+
+    /**
+     * Cancel every running resume / seek retry loop. Loops capture
+     * _resumeGeneration when they start and stop once it changes.
+     * @private
+     */
+    _cancelResume() {
+        this._resumeGeneration++;
+        this._robustSeekPending = false;
+    }
+
+    /**
+     * Wait for the first 'canplay' of the load that was just started.
+     * @private
+     * @param {HTMLVideoElement} video
+     * @returns {Promise<void>} Rejects with the load error or PlaybackAbortedError
+     */
+    _waitForCanPlay(video) {
+        return this._sessionPromise((resolve, reject) => {
+            const removers = [];
+            const finish = (err) => {
+                removers.forEach((remove) => remove());
+                if (err) reject(err);
+                else resolve();
+            };
+            removers.push(this._listen(video, 'canplay', () => finish()));
+            removers.push(this._listen(video, 'error', () => {
+                const formatted = MediaHelper.formatMediaError(video.error);
+                finish(video.error || new Error(formatted.message));
+            }));
+        });
+    }
+
+    // ========================================================================
     // Playback Control
     // ========================================================================
 
@@ -361,6 +521,11 @@ export class WebOSPlayer {
         log.info('  - options.audioStreamIndex:', options.audioStreamIndex);
         log.info('  - options.audioTrackListIndex:', options.audioTrackListIndex);
 
+        // A new session: drops listeners, timers and the pending load of the
+        // previous one (its play() promise rejects with PlaybackAbortedError).
+        this._beginSession();
+        this._cancelResume();
+
         this._currentPlayOptions = options;
         this._started    = false;
         this._timeUpdated = false;
@@ -372,8 +537,6 @@ export class WebOSPlayer {
         // Do not attempt robust resume for live TV/streams.
         const isLive = options.item?.Type === 'TvChannel' || options.mediaSource?.LiveStreamId;
         this._robustSeekTarget = isLive ? null : (options.playerStartPositionTicks || 0) / 10000000;
-        this._robustSeekPending = false;
-        this._cancelRobustResume = false;
 
         const video = this._ensureVideoElement();
 
@@ -751,11 +914,14 @@ export class WebOSPlayer {
      * @private
      */
     async _playNativeHls(video, options) {
+        const session = this._sessionId;
+
         // Clear any stale source first
         video.removeAttribute('src');
 
         // Ensure HLS manifest exists before assigning source
         await MediaHelper.pollHlsManifest(options.url);
+        if (!this._isSessionActive(session)) throw new PlaybackAbortedError();
         // ====================================================================
         // MEDIA FRAGMENT RESUME:
         // Append `#t=seconds` to the url for HLS streaming to hint the native HLS demuxer
@@ -773,6 +939,7 @@ export class WebOSPlayer {
 
         // Ensure HLS manifest exists before assigning source
         await MediaHelper.pollHlsManifest(options.url);
+        if (!this._isSessionActive(session)) throw new PlaybackAbortedError();
 
         // Use a <source> element with the MIME type hint so WebOS picks the
         // right codec path — without it, some versions skip the native HLS path.
@@ -786,37 +953,28 @@ export class WebOSPlayer {
 
         video.load();
 
-        return new Promise((resolve, reject) => {
-            const onCanPlay = () => {
-                video.removeEventListener('canplay', onCanPlay);
-                video.removeEventListener('error', onLoadError);
+        try {
+            await this._waitForCanPlay(video);
+        } catch (err) {
+            // Checked by name: legacy (ES5) builds transpile Error subclasses
+            if (err?.name === 'AbortError') throw err;
+            log.error('WebOSPlayer: Native HLS source load error', err?.message || err);
 
-                // Attempt tracks after metadata is loaded
-                this._applyInitialTracks(options);
+            // If native HLS failed on this platform, fall back to Hls.js seamlessly
+            // only if the stream format and codecs are verified to be compatible with Hls.js MSE
+            if (this._canUseHlsJs(options) && !this._hlsFallbackAttempted) {
+                log.info('WebOSPlayer: Native HLS load failed — attempting seamless fallback to Hls.js MSE pipeline');
+                this._hlsFallbackAttempted = true;
+                return this._playWithHlsJs(video, options);
+            }
+            throw err;
+        }
 
-                this._resumeSeekThenPlay(video, options, resolve, reject);
-            };
+        // Attempt tracks after metadata is loaded
+        this._applyInitialTracks(options);
 
-            const onLoadError = () => {
-                video.removeEventListener('canplay', onCanPlay);
-                video.removeEventListener('error', onLoadError);
-                const formatted = MediaHelper.formatMediaError(video.error);
-                log.error('WebOSPlayer: Native HLS source load error', formatted.message);
-
-                // If native HLS failed on this platform, fall back to Hls.js seamlessly
-                // only if the stream format and codecs are verified to be compatible with Hls.js MSE
-                if (this._canUseHlsJs(options) && !this._hlsFallbackAttempted) {
-                    log.info('WebOSPlayer: Native HLS load failed — attempting seamless fallback to Hls.js MSE pipeline');
-                    this._hlsFallbackAttempted = true;
-                    this._playWithHlsJs(video, options).then(resolve).catch(reject);
-                    return;
-                }
-
-                reject(video.error || new Error(formatted.message));
-            };
-
-            video.addEventListener('canplay', onCanPlay);
-            video.addEventListener('error', onLoadError);
+        return this._sessionPromise((resolve, reject) => {
+            this._resumeSeekThenPlay(video, options, resolve, reject);
         });
     }
 
@@ -930,26 +1088,15 @@ export class WebOSPlayer {
 
         video.load();
 
-        return new Promise((resolve, reject) => {
-            const onCanPlay = () => {
-                video.removeEventListener('canplay', onCanPlay);
-                video.removeEventListener('error', onError);
+        await this._waitForCanPlay(video);
 
-                // Apply audio/subtitle tracks at canplay — same timing as _playNativeHls.
-                // audioTracks is not reliably populated at loadedmetadata on WebOS native
-                // player, so doing it here (before play()) ensures the array is ready.
-                this._applyInitialTracks(options);
+        // Apply audio/subtitle tracks at canplay — same timing as _playNativeHls.
+        // audioTracks is not reliably populated at loadedmetadata on WebOS native
+        // player, so doing it here (before play()) ensures the array is ready.
+        this._applyInitialTracks(options);
 
-                this._resumeSeekThenPlay(video, options, resolve, reject);
-            };
-
-            const onError = () => {
-                video.removeEventListener('canplay', onCanPlay);
-                reject(video.error || new Error('Direct playback load failed'));
-            };
-
-            video.addEventListener('canplay', onCanPlay);
-            video.addEventListener('error', onError);
+        return this._sessionPromise((resolve, reject) => {
+            this._resumeSeekThenPlay(video, options, resolve, reject);
         });
     }
 
@@ -1012,6 +1159,9 @@ export class WebOSPlayer {
                 hls.off(Hls.Events.BUFFER_APPENDED, onBufferAppended);
                 reject(reason);
             };
+
+            // stop() or a newer play() abandons this start (clears the 3 s timer too)
+            this._sessionCleanups.push(() => rejectOnce(new PlaybackAbortedError()));
 
             // Calculate target resume position in seconds
             const resumeSeconds = (options.playerStartPositionTicks || 0) / 10000000;
@@ -1254,7 +1404,7 @@ export class WebOSPlayer {
                     // to guarantee the restart fires AFTER play() has fully resolved.
                     // A microtask still races with video.play()'s own promise within the
                     // same event loop tick and can trigger "AbortError: play() was interrupted".
-                    setTimeout(() => {
+                    this._timer(() => {
                         this.onEvent({ type: 'audiotrackswitchfailed', data: { listIndex: resolvedIndex } });
                     }, 0);
                 } else {
@@ -1270,16 +1420,17 @@ export class WebOSPlayer {
                         let lastTime = video.currentTime;
                         let played = 0;
                         this._resumeTrackSwitchPending = true;
+                        let removeListener = null;
                         const onTimeUpdate = () => {
                             if (this._currentPlayOptions !== options) {
-                                video.removeEventListener('timeupdate', onTimeUpdate);
+                                removeListener();
                                 return;
                             }
                             const step = video.currentTime - lastTime;
                             lastTime = video.currentTime;
                             if (step > 0 && step < 1) played += step;
                             if (played < 0.3) return;
-                            video.removeEventListener('timeupdate', onTimeUpdate);
+                            removeListener();
                             this._resumeTrackSwitchPending = false;
                             this.setAudioStreamIndex(outputIndex);
                             if (this._resumeAudioSuppressed) {
@@ -1287,7 +1438,7 @@ export class WebOSPlayer {
                                 this.setMuted(false);
                             }
                         };
-                        video.addEventListener('timeupdate', onTimeUpdate);
+                        removeListener = this._listen(video, 'timeupdate', onTimeUpdate);
                     } else {
                         this.setAudioStreamIndex(outputIndex);
                     }
@@ -1314,13 +1465,16 @@ export class WebOSPlayer {
      * @private
      */
     _handleAutoplayError(err, video, options, resolve, reject) {
+        const session = this._sessionId;
         if (err.name === 'NotAllowedError') {
             log.warn('WebOSPlayer: Autoplay blocked — retrying muted (remote launch)');
             video.muted = true;
             video.play()
                 .then(() => {
-                    this._applyRobustResume(video, options.playerStartPositionTicks);
-                    this._scheduleUnmuteOnInteraction(video);
+                    if (this._isSessionActive(session)) {
+                        this._applyRobustResume(video, options.playerStartPositionTicks);
+                        this._scheduleUnmuteOnInteraction(video);
+                    }
                     resolve();
                 })
                 .catch(reject);
@@ -1365,8 +1519,10 @@ export class WebOSPlayer {
             return;
         }
 
+        const generation = this._resumeGeneration;
+        let polls = 0;
         const tryApply = () => {
-            if (this._cancelRobustResume || this._robustSeekTarget === null) return;
+            if (generation !== this._resumeGeneration || this._robustSeekTarget === null) return;
 
             // Only apply proactively if we're actually resuming from significantly past 0
             if (resumeSeconds >= 5) {
@@ -1378,8 +1534,10 @@ export class WebOSPlayer {
                     } else {
                         log.debug('WebOSPlayer: Robust resume already pending from _onPlaying, skipping');
                     }
+                } else if (++polls < ROBUST_RESUME_MAX_POLLS) {
+                    this._timer(tryApply, 300);
                 } else {
-                    setTimeout(tryApply, 300);
+                    log.warn('WebOSPlayer: Media never became seekable for the resume seek — giving up the robust resume');
                 }
             }
         };
@@ -1400,6 +1558,8 @@ export class WebOSPlayer {
             return;
         }
         this._robustSeekPending = true;
+        // A user seek, stop() or a new play() bumps the generation and ends this loop
+        const generation = this._resumeGeneration;
         let tries = 0;
         const video = this._videoElement;
 
@@ -1419,9 +1579,8 @@ export class WebOSPlayer {
         }
 
         const attempt = () => {
-            if (this._cancelRobustResume) {
-                this._robustSeekPending = false;
-                this._robustSeekTarget = null;
+            if (generation !== this._resumeGeneration) {
+                // The canceller (seek / stop / play) owns the resume state now
                 log.info('WebOSPlayer: Robust resume cancelled by manual seek or stop');
                 return;
             }
@@ -1441,8 +1600,8 @@ export class WebOSPlayer {
             //
             // Guard against false positives at 0:00 when target is small (< 15s).
             // ----------------------------------------------------------------
-            setTimeout(() => {
-                if (this._cancelRobustResume) return;
+            this._timer(() => {
+                if (generation !== this._resumeGeneration) return;
 
                 // Measure how far currentTime landed from our requested target.
                 const currentPos = video.currentTime || 0;
@@ -1558,9 +1717,10 @@ export class WebOSPlayer {
 
              let seekCompleted = false;
              let seekTimeout = null;
+             let removeSeeked = null;
 
              const onSeeked = () => {
-                 video.removeEventListener('seeked', onSeeked);
+                 removeSeeked();
                  if (seekTimeout) clearTimeout(seekTimeout);
                  seekCompleted = true;
                  log.debug('WebOSPlayer: Explicit seek completed');
@@ -1570,7 +1730,7 @@ export class WebOSPlayer {
                  this._doPlayWithResume(video, options, resolve, reject);
              };
 
-             video.addEventListener('seeked', onSeeked);
+             removeSeeked = this._listen(video, 'seeked', onSeeked);
 
              try {
                  video.currentTime = resumeSeconds;
@@ -1581,8 +1741,8 @@ export class WebOSPlayer {
 
              // Shorter safety net: 3.5s is sufficient on most devices and avoids
              // long UI freezes when the media fragment already worked.
-             seekTimeout = setTimeout(() => {
-                 video.removeEventListener('seeked', onSeeked);
+             seekTimeout = this._timer(() => {
+                 removeSeeked();
                  if (!seekCompleted) {
                      log.warn('WebOSPlayer: Explicit seek timed out (3.5s) — starting playback from current position');
                      this._doPlayWithResume(video, options, resolve, reject);
@@ -1601,14 +1761,21 @@ export class WebOSPlayer {
      * @private
      */
     _doPlayWithResume(video, options, resolve, reject) {
+        const session = this._sessionId;
         const playPromise = video.play();
         if (playPromise !== undefined && typeof playPromise.then === 'function') {
             playPromise
                 .then(() => {
-                    this._applyRobustResume(video, options.playerStartPositionTicks);
+                    if (this._isSessionActive(session)) {
+                        this._applyRobustResume(video, options.playerStartPositionTicks);
+                    }
                     resolve();
                 })
-                .catch(err => this._handleAutoplayError(err, video, options, resolve, reject));
+                .catch((err) => {
+                    // Rejected because stop() / a new load interrupted it: nothing left to do
+                    if (!this._isSessionActive(session)) return;
+                    this._handleAutoplayError(err, video, options, resolve, reject);
+                });
         } else {
             this._applyRobustResume(video, options.playerStartPositionTicks);
             resolve();
@@ -1630,8 +1797,9 @@ export class WebOSPlayer {
             document.removeEventListener('keydown', unmute, true);
             document.removeEventListener('click',   unmute, true);
         };
-        document.addEventListener('keydown', unmute, { capture: true, once: true });
-        document.addEventListener('click',   unmute, { capture: true, once: true });
+        // Session-scoped: must not unmute a later item the user muted
+        this._listen(document, 'keydown', unmute, { capture: true, once: true });
+        this._listen(document, 'click',   unmute, { capture: true, once: true });
         log.info('WebOSPlayer: Unmute scheduled on next user interaction');
     }
 
@@ -1729,10 +1897,11 @@ export class WebOSPlayer {
      * @returns {Promise<void>}
      */
     async stop() {
+        // Drop the session's listeners/timers; a pending play() rejects with PlaybackAbortedError
+        this._endSession();
+        this._cancelResume();
         this._pendingPlayAfterSeek = false;
-        this._cancelRobustResume = true;
         this._robustSeekTarget   = null;
-        this._robustSeekPending  = false;
         if (this._directSeekVerifyTimeout) {
             clearTimeout(this._directSeekVerifyTimeout);
             this._directSeekVerifyTimeout = null;
@@ -1820,9 +1989,10 @@ export class WebOSPlayer {
         const video = this._videoElement;
         if (!video) return;
 
-        // Cancel any pending retry loops from previous seeks
-        this._cancelRobustResume = true;
-        this._robustSeekPending = false;
+        // Cancel any pending retry loops (startup resume or earlier seeks): they
+        // must not pull the playhead back after the user moved it
+        this._cancelResume();
+        const generation = this._resumeGeneration;
 
         let seconds = positionTicks / 10000000;
 
@@ -1837,9 +2007,6 @@ export class WebOSPlayer {
         // the startup _seekWithRetry loop (which could falsely trigger resumeseekfailed on keyframe landing).
         const isLive = this._currentPlayOptions?.item?.Type === 'TvChannel' || this._currentPlayOptions?.mediaSource?.LiveStreamId;
         this._robustSeekTarget = (!this._started && !isLive) ? seconds : null;
-
-        // Re-enable robust check for the new seek
-        this._cancelRobustResume = false;
 
         // Skip tiny seeks — avoids decoder stutter on redundant calls
         if (Math.abs(video.currentTime - seconds) > SEEK_THRESHOLD_MS / 1000) {
@@ -1873,8 +2040,9 @@ export class WebOSPlayer {
             if (this._directSeekVerifyTimeout) {
                 clearTimeout(this._directSeekVerifyTimeout);
             }
-            this._directSeekVerifyTimeout = setTimeout(() => {
-                if (this._cancelRobustResume || !this._videoElement) return;
+            this._directSeekVerifyTimeout = this._timer(() => {
+                this._directSeekVerifyTimeout = null;
+                if (generation !== this._resumeGeneration || !this._videoElement) return;
                 const cur = this.getCurrentTime();
                 const drift = Math.abs(cur - seconds);
                 const isNear = drift < 15 || cur >= (seconds - 15);

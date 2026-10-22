@@ -381,6 +381,12 @@ for (const backend of ['WebOSPlayer', 'HtmlVideoPlayer']) {
                 _currentPlayOptions: { transcodingOffsetTicks: 20 * 10000000 },
                 onEvent() {},
                 getCurrentTime: () => time,
+                // WebOSPlayer session/resume helpers used by its seek()
+                _resumeGeneration: 0,
+                _cancelResume() {
+                    this._resumeGeneration++;
+                },
+                _timer: (fn, ms) => timerApi.setTimeout(fn, ms),
                 seek: loadSeekMethod(backend, 'seek(positionTicks) {', timerApi)
             };
             const player = {
