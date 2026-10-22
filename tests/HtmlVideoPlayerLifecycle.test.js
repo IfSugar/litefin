@@ -660,3 +660,36 @@ test('HtmlVideoPlayer: switching subtitle tracks and back does not double the cu
     await player.stop();
 });
 
+test('HtmlVideoPlayer: native subtitle tracks are disabled when unselected, not left loading', async () => {
+    // Instantiate player and initialize media session
+    const { player } = createPlayer();
+    await playAndStart(player, { url: 'http://srv/Videos/a/stream.mp4', mediaSource });
+    const video = player._videoElement;
+
+    // Attach mock text tracks initially set to showing
+    const tracks = [
+        { mode: 'showing', cues: [] },
+        { mode: 'showing', cues: [] }
+    ];
+    video.textTracks = tracks;
+
+    // Disabling all native tracks (e.g. SubtitleManager taking over rendering or subtitle turned off)
+    player.setSubtitleStreamIndex(-1);
+    assert.deepStrictEqual(
+        tracks.map((t) => t.mode),
+        ['disabled', 'disabled'],
+        'all tracks must be disabled to halt background fetching and parsing'
+    );
+
+    // Activating track 1 must set track 1 to showing and track 0 to disabled
+    player.setSubtitleStreamIndex(1);
+    assert.deepStrictEqual(
+        tracks.map((t) => t.mode),
+        ['disabled', 'showing'],
+        'selected track must be showing while unselected track remains disabled'
+    );
+
+    await player.stop();
+});
+
+

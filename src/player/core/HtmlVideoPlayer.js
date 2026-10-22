@@ -1957,11 +1957,15 @@ export class HtmlVideoPlayer {
 
         this._currentSubtitleIndex = index;
 
-        // Handle native text tracks (HLS-embedded VTT, etc.)
+        // Handle native text tracks (HLS-embedded VTT, etc.).
+        // Unselected tracks must be set to 'disabled' rather than 'hidden'.
+        // Under the HTML5 specification, a 'hidden' track remains active, continuing
+        // to download media fragments, parse cues, and fire cue events in the background.
+        // Marking unselected tracks 'disabled' stops background parsing and network usage.
         const textTracks = video.textTracks;
         if (textTracks) {
             for (let i = 0; i < textTracks.length; i++) {
-                textTracks[i].mode = i === index ? 'showing' : 'hidden';
+                textTracks[i].mode = (i === index) ? 'showing' : 'disabled';
             }
         }
 
