@@ -32,6 +32,14 @@ import { AUDIO_FALLBACK_STORAGE_KEYS } from '../../utils/AudioFallbackConfig.js'
 
 const log = logger.create('JellyfinPlayer');
 
+/**
+ * PlaybackInfo request timeout. Matches ApiClient's request timeout; it stays
+ * generous because the server may open a live stream (AutoOpenLiveStream)
+ * before answering. Without one, a stalled server kept the loading spinner
+ * up until the TV's TCP timeout.
+ */
+const PLAYBACK_INFO_TIMEOUT_MS = 30000;
+
 // ────────────────────────────────────────────────────────────────────────────
 // Audio Capability Detection Helpers
 // ────────────────────────────────────────────────────────────────────────────
@@ -5440,21 +5448,39 @@ export class JellyfinPlayer extends EventEmitter {
             headers['Authorization'] = api.getAuthHeader(this.authToken);
         }
 
-        const response = await fetch(url, {
-            method: 'POST',
-            headers,
-            body: JSON.stringify(requestBody)
-        });
-
-        if (!response.ok) {
-            let errorText = '';
-            try {
-                errorText = await response.text();
-            } catch (e) {}
-            throw new Error(`Failed to get playback info: ${response.status} - ${errorText}`);
+        let result;
+        try {
+            result = await MediaHelper.fetchWithTimeout(
+                url,
+                {
+                    method: 'POST',
+                    headers,
+                    body: JSON.stringify(requestBody)
+                },
+                PLAYBACK_INFO_TIMEOUT_MS,
+                async (response) => {
+                    if (!response.ok) {
+                        let errorText = '';
+                        try {
+                            errorText = await response.text();
+                        } catch (e) {}
+                        return { response, errorText };
+                    }
+                    return { response, body: await response.json() };
+                }
+            );
+        } catch (err) {
+            if (err?.name === 'TimeoutError') {
+                throw new Error(`Failed to get playback info: the server did not answer within ${PLAYBACK_INFO_TIMEOUT_MS / 1000} s`);
+            }
+            throw err;
         }
 
-        return await response.json();
+        if (!result.response.ok) {
+            throw new Error(`Failed to get playback info: ${result.response.status} - ${result.errorText}`);
+        }
+
+        return result.body;
     }
 
     // ========================================================================

@@ -23,6 +23,11 @@ const MAX_LRU_ENTRIES = 50;
 // Storage key indexing all tracked entities in Least-Recently-Used order
 const LRU_INDEX_KEY = 'track:lru_index';
 
+// HLS manifest polling: total budget (wall clock) and per-request timeout
+const MANIFEST_POLL_BUDGET_MS = 15000;
+const MANIFEST_POLL_INTERVAL_MS = 500;
+const MANIFEST_REQUEST_TIMEOUT_MS = 5000;
+
 export const MediaHelper = {
     /**
      * Build stream URL for playback
@@ -595,10 +600,59 @@ export const MediaHelper = {
     },
 
     /**
+     * fetch() that gives up after timeoutMs.
+     *
+     * A server that accepts the connection and then stalls (busy NAS, tunnel
+     * hiccup) otherwise holds the request until the TV's TCP timeout. On
+     * timeout the returned promise rejects with an Error named 'TimeoutError'
+     * (not 'AbortError', which callers treat as a cancel) and the request is
+     * aborted where AbortController is native. The timeout also covers `read`,
+     * which consumes the response (e.g. response => response.json()), so a body
+     * that stops streaming is caught too.
+     *
+     * @param {string} url
+     * @param {Object} [init] - fetch() options
+     * @param {number} timeoutMs - 0 for no timeout
+     * @param {Function} [read] - (response) => value or promise; defaults to the response
+     * @returns {Promise<*>} What `read` returns
+     */
+    async fetchWithTimeout(url, init = {}, timeoutMs = 0, read = (response) => response) {
+        const request = (signal) => fetch(url, signal ? Object.assign({}, init, { signal }) : init).then(read);
+        if (!timeoutMs) return request(null);
+
+        const controller = typeof AbortController === 'function' ? new AbortController() : null;
+        let timer = null;
+        const timeout = new Promise((resolve, reject) => {
+            timer = setTimeout(() => {
+                const error = new Error(`Request timed out after ${timeoutMs} ms`);
+                error.name = 'TimeoutError';
+                // Reject first so the timeout, not the abort, settles the race
+                reject(error);
+                if (controller) {
+                    try {
+                        controller.abort();
+                    } catch (e) {
+                        // polyfilled controller without abort support
+                    }
+                }
+            }, timeoutMs);
+        });
+
+        try {
+            return await Promise.race([request(controller && controller.signal), timeout]);
+        } finally {
+            clearTimeout(timer);
+        }
+    },
+
+    /**
      * Poll an HLS manifest URL until the server writes #EXTM3U.
      * Prevents backends from opening/loading a URL that the transcoder
      * hasn't started writing yet, which causes unrecoverable decoder errors
      * on some Smart TV platforms.
+     *
+     * Polls every 500 ms for at most 15 s of wall-clock time; each request
+     * times out after 5 s, so a stalled server cannot stretch the budget.
      *
      * @param {string} url - HLS playlist URL
      * @param {Function} [shouldAbort] - Optional callback; return true to stop polling
@@ -607,34 +661,35 @@ export const MediaHelper = {
     async pollHlsManifest(url, shouldAbort) {
         if (!url || !url.includes('.m3u8')) return;
 
-        const maxRetries = 30;
-        const delayMs = 500;
+        const startedAt = Date.now();
+        const deadline = startedAt + MANIFEST_POLL_BUDGET_MS;
 
         log.info(`Polling HLS manifest: ${url}`);
 
-        for (let i = 0; i < maxRetries; i++) {
+        while (Date.now() < deadline) {
             if (typeof shouldAbort === 'function' && shouldAbort()) {
                 log.info('HLS polling aborted');
                 return;
             }
 
             try {
-                const response = await fetch(url, { method: 'GET' });
-                if (response.ok) {
-                    const text = await response.text();
-                    if (text && text.includes('#EXTM3U')) {
-                        log.info(`HLS manifest ready after ${i * delayMs}ms`);
-                        return;
-                    }
+                const requestTimeout = Math.max(1, Math.min(MANIFEST_REQUEST_TIMEOUT_MS, deadline - Date.now()));
+                const text = await MediaHelper.fetchWithTimeout(url, { method: 'GET' }, requestTimeout, (response) =>
+                    response.ok ? response.text() : ''
+                );
+                if (text && text.includes('#EXTM3U')) {
+                    log.info(`HLS manifest ready after ${Date.now() - startedAt}ms`);
+                    return;
                 }
             } catch (e) {
-                // Server may still be starting up — retry
+                // Server may still be starting up (or the request timed out) — retry
             }
 
-            await new Promise(resolve => setTimeout(resolve, delayMs));
+            if (Date.now() >= deadline) break;
+            await new Promise(resolve => setTimeout(resolve, MANIFEST_POLL_INTERVAL_MS));
         }
 
-        log.warn(`HLS manifest polling timed out after ${maxRetries * delayMs}ms — proceeding`);
+        log.warn(`HLS manifest polling timed out after ${Date.now() - startedAt}ms — proceeding`);
     },
 
     // ========================================================================
