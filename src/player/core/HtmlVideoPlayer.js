@@ -51,6 +51,20 @@ const isDtsSupported = () => {
 
 const SEEK_THRESHOLD_MS = 1000; // Minimum seek difference to trigger seek
 
+/**
+ * Rejection for a load abandoned by stop() or a newer play(). Named
+ * 'AbortError' like a DOM abort, so JellyfinPlayer treats it as a cancel.
+ * @returns {Error}
+ */
+function createAbortError() {
+    const error = new Error('Playback load was superseded by a newer request');
+    error.name = 'AbortError';
+    // A cancel by stop() / a newer play(): JellyfinPlayer.play() resolves false for it,
+    // and its callers stop there (unlike a DOM AbortError from an interrupted play())
+    error.superseded = true;
+    return error;
+}
+
 // ============================================================================
 // HtmlVideoPlayer Class
 // ============================================================================
@@ -114,6 +128,37 @@ export class HtmlVideoPlayer {
 
         // Aspect ratio mode ('auto' | 'zoom' | 'stretch')
         this._aspectRatio = 'auto';
+
+        // ---- Load / seek lifecycle ----
+        // True for HLS sources (read by seek()'s direct-play verification)
+        this._isHls = false;
+        // Bumped by every play() and stop(); async callbacks of an older load check it
+        this._loadToken = 0;
+        // Undoes the listeners/timers of a load that has not started yet and rejects it
+        this._abortPendingLoad = null;
+        // Direct-play seek verification and the post-play resume follow-up check
+        this._directSeekVerifyTimeout = null;
+        this._resumeFollowUpTimeout = null;
+    }
+
+    /**
+     * Abandon the load in progress (if any) and every timer of the current
+     * playback, so nothing of it acts on the next item. The <video> element
+     * is reused across items.
+     * @private
+     */
+    _endPlaybackSession() {
+        this._loadToken++;
+        if (this._abortPendingLoad) {
+            const abort = this._abortPendingLoad;
+            this._abortPendingLoad = null;
+            abort();
+        }
+        clearTimeout(this._directSeekVerifyTimeout);
+        this._directSeekVerifyTimeout = null;
+        clearTimeout(this._resumeFollowUpTimeout);
+        this._resumeFollowUpTimeout = null;
+        this._clearStallCheck();
     }
 
     // ========================================================================
@@ -217,6 +262,10 @@ export class HtmlVideoPlayer {
      */
     async play(options) {
         log.info('Starting playback');
+
+        // Drop whatever the previous load left behind (its play() rejects with AbortError)
+        this._endPlaybackSession();
+        this._isHls = Boolean(options.isHls || (options.url && options.url.includes('.m3u8')));
 
         this._currentPlayOptions = options;
         this._started = false;
@@ -453,6 +502,9 @@ export class HtmlVideoPlayer {
                 reject(reason);
             };
 
+            // stop() / a newer play() abandons this start (also clears the 3 s timer)
+            this._abortPendingLoad = () => rejectOnce(createAbortError());
+
             const startPlayback = () => {
                 // Restore visual presentation once Hls.js is ready to render playback
                 this._restoreVideoAfterResume(video);
@@ -682,9 +734,12 @@ export class HtmlVideoPlayer {
     async _playNative(video, options) {
         log.info('Using native playback');
 
+        const loadToken = this._loadToken;
+
         // Ensure HLS manifest exists before assigning source
         if (options.url && options.url.includes('.m3u8')) {
-            await MediaHelper.pollHlsManifest(options.url);
+            await MediaHelper.pollHlsManifest(options.url, () => loadToken !== this._loadToken);
+            if (loadToken !== this._loadToken) throw createAbortError();
         }
 
         // Set cross-origin if needed
@@ -724,12 +779,40 @@ export class HtmlVideoPlayer {
             let seekCompleted = false;
             let seekResolved = false;
             let seekTimeout = null;
+            let onSeeked = null;
+
+            // Remove this load's one-shot listeners (they would otherwise run for the next item)
+            const removeListeners = () => {
+                video.removeEventListener('loadedmetadata', onLoadedMetadata);
+                video.removeEventListener('canplay', onCanPlay);
+                video.removeEventListener('error', onError);
+                if (onSeeked) video.removeEventListener('seeked', onSeeked);
+                clearTimeout(seekTimeout);
+            };
 
             const resolveOnce = (value) => {
                 if (!seekResolved) {
                     seekResolved = true;
                     resolve(value);
                 }
+            };
+
+            const rejectOnce = (reason) => {
+                if (!seekResolved) {
+                    seekResolved = true;
+                    reject(reason);
+                }
+            };
+
+            // stop() / a newer play() abandons this load
+            this._abortPendingLoad = () => {
+                removeListeners();
+                rejectOnce(createAbortError());
+            };
+
+            // The resume follow-up belongs to this load only
+            const applyResume = () => {
+                if (loadToken === this._loadToken) this._applyPlaybackResume(video, options);
             };
 
             const startPlayback = () => {
@@ -744,7 +827,7 @@ export class HtmlVideoPlayer {
                 if (playPromise !== undefined && typeof playPromise.then === 'function') {
                     playPromise
                         .then(() => {
-                            this._applyPlaybackResume(video, options);
+                            applyResume();
                             resolveOnce();
                         })
                         .catch((err) => {
@@ -756,21 +839,21 @@ export class HtmlVideoPlayer {
                                     retryPromise
                                         .then(() => {
                                             this._scheduleUnmuteOnInteraction(video);
-                                            this._applyPlaybackResume(video, options);
+                                            applyResume();
                                             resolveOnce();
                                         })
-                                        .catch(reject);
+                                        .catch(rejectOnce);
                                 } else {
                                     this._scheduleUnmuteOnInteraction(video);
-                                    this._applyPlaybackResume(video, options);
+                                    applyResume();
                                     resolveOnce();
                                 }
                             } else {
-                                reject(err);
+                                rejectOnce(err);
                             }
                         });
                 } else {
-                    this._applyPlaybackResume(video, options);
+                    applyResume();
                     resolveOnce();
                 }
             };
@@ -818,7 +901,7 @@ export class HtmlVideoPlayer {
                 if (resumeSeconds > 0 && !seekCompleted) {
                     log.info('HtmlVideoPlayer: Seeking to resume position', resumeSeconds, 's at canplay');
 
-                    const onSeeked = () => {
+                    onSeeked = () => {
                         video.removeEventListener('seeked', onSeeked);
                         if (seekTimeout) clearTimeout(seekTimeout);
                         seekCompleted = true;
@@ -859,9 +942,8 @@ export class HtmlVideoPlayer {
                 const err = video.error;
                 log.error('Native video error:', err);
                 this._restoreVideoAfterResume(video);
-                video.removeEventListener('canplay', onCanPlay);
-                video.removeEventListener('loadedmetadata', onLoadedMetadata);
-                reject(err);
+                removeListeners();
+                rejectOnce(err);
             };
 
             video.addEventListener('loadedmetadata', onLoadedMetadata);
@@ -925,6 +1007,8 @@ export class HtmlVideoPlayer {
      * Stop playback
      */
     async stop() {
+        // Pending load, seek verification, resume follow-up and stall timers
+        this._endPlaybackSession();
         this._clearHlsStartTimeout();
         this._destroyHlsPlayer();
 
@@ -1053,6 +1137,7 @@ export class HtmlVideoPlayer {
                 clearTimeout(this._directSeekVerifyTimeout);
             }
             this._directSeekVerifyTimeout = setTimeout(() => {
+                this._directSeekVerifyTimeout = null;
                 if (!this._videoElement) return;
                 const cur = this.getCurrentTime();
                 const drift = Math.abs(cur - targetSeconds);
@@ -1246,8 +1331,10 @@ export class HtmlVideoPlayer {
         video.currentTime = targetSec;
 
         // Give it one more chance after a 2-second delay in case the first
-        // assignment was too early (buffer not yet ready).
-        setTimeout(() => {
+        // assignment was too early (buffer not yet ready). Cleared by stop()/play().
+        clearTimeout(this._resumeFollowUpTimeout);
+        this._resumeFollowUpTimeout = setTimeout(() => {
+            this._resumeFollowUpTimeout = null;
             const retryPos = video.currentTime || 0;
             const retryDrift = Math.abs(retryPos - targetSec);
             const retryNear = retryDrift < 15 || retryPos >= (targetSec - 15);
