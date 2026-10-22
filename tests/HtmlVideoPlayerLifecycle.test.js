@@ -405,3 +405,109 @@ test('HtmlVideoPlayer: a slow transcode start is not reported as a failed resume
     player._onHlsStartTimeout({ ...resume, playMethod: 'Remux' }, 600, 0);
     assert.strictEqual(events.filter((e) => e === 'resumeseekfailed').length, 2);
 });
+
+// ----------------------------------------------------------------------------
+// Resume start time
+// ----------------------------------------------------------------------------
+
+const resumeAt = (seconds) => ({
+    url: 'http://srv/Videos/a/stream.mkv',
+    mediaSource,
+    item: { Type: 'Episode' },
+    playerStartPositionTicks: Math.round(seconds * 10000000)
+});
+
+test('HtmlVideoPlayer: a resume the media fragment already landed starts without waiting for a seek', async (t) => {
+    // webOS applies #t= after 'loadedmetadata'; seeking to the same spot fires no 'seeked'
+    t.mock.timers.enable({ apis: ['setTimeout', 'setInterval', 'Date'] });
+    const { player } = createPlayer();
+    const playing = player.play(resumeAt(486.65));
+    await flush();
+    await flush();
+    const video = player._videoElement;
+    video.fire('loadedmetadata'); // playhead still at 0
+    video.currentTime = 486.65; // fragment lands
+    video.fire('canplay');
+    await flush();
+
+    let started = false;
+    playing.then(() => (started = true));
+    await flush();
+    assert.ok(started, 'resume waited for a seeked event that never comes');
+    assert.strictEqual(video.playCalls, 1);
+});
+
+test('HtmlVideoPlayer: a resume seek still pending while paused does not hold playback back', async (t) => {
+    // webOS carries out the seek only once playback starts: 'seeked' never comes while paused
+    t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+    const { player } = createPlayer();
+    const playing = player.play(resumeAt(486.65));
+    await flush();
+    await flush();
+    const video = player._videoElement;
+    video.fire('loadedmetadata');
+    video.fire('canplay'); // explicit seek to 486.65 …
+    video.seeking = true; // … which the pipeline leaves pending
+    let started = false;
+    playing.then(() => (started = true));
+
+    t.mock.timers.tick(1000);
+    await flush();
+    assert.ok(started, 'resume waited the full 10 s failsafe for a seek that needs playback');
+    assert.strictEqual(video.playCalls, 1);
+    assert.strictEqual(player._resumeVideoSuppressed, true, 'picture shown before the seek landed');
+
+    video.seeking = false;
+    video.fire('seeked');
+    assert.strictEqual(player._resumeVideoSuppressed, false);
+    assert.strictEqual(video.playCalls, 1, 'playback started twice');
+});
+
+test('HtmlVideoPlayer: a resume keeps the old frame and sound hidden when playing overtakes the seek', async (t) => {
+    // webOS fires 'playing' about a second before the resume seek lands
+    t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+    const { player } = createPlayer();
+    const playing = player.play(resumeAt(864.95));
+    await flush();
+    await flush();
+    const video = player._videoElement;
+    // The webOS resume mute (set in play() on webOS only)
+    video.muted = true;
+    player._resumeAudioSuppressed = true;
+    const seekedListeners = video.listenerCount('seeked');
+    video.fire('loadedmetadata');
+    video.fire('canplay');
+    video.seeking = true;
+    t.mock.timers.tick(1000);
+    await playing;
+
+    video.fire('playing');
+    assert.strictEqual(player._resumeVideoSuppressed, true, 'pre-seek frame shown before the resume seek landed');
+    assert.strictEqual(video.muted, true, 'pre-seek sound played before the resume seek landed');
+
+    video.seeking = false;
+    video.fire('seeked');
+    assert.strictEqual(player._resumeVideoSuppressed, false);
+    assert.strictEqual(video.muted, false);
+    assert.strictEqual(video.listenerCount('seeked'), seekedListeners, 'one-shot seeked listener left behind');
+});
+
+test('HtmlVideoPlayer: a resume seek overtaken by playing that never lands still shows the picture', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+    const { player } = createPlayer();
+    const playing = player.play(resumeAt(864.95));
+    await flush();
+    await flush();
+    const video = player._videoElement;
+    video.fire('loadedmetadata');
+    video.fire('canplay');
+    video.seeking = true;
+    t.mock.timers.tick(1000);
+    await playing;
+    video.fire('playing');
+    assert.strictEqual(player._resumeVideoSuppressed, true);
+
+    t.mock.timers.tick(10000);
+    assert.strictEqual(player._resumeVideoSuppressed, false, 'picture hidden for good');
+});
+

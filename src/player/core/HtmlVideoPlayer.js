@@ -51,6 +51,12 @@ const isDtsSupported = () => {
 
 const SEEK_THRESHOLD_MS = 1000; // Minimum seek difference to trigger seek
 
+/** How long a resume seek may hold playback back before it starts anyway (non-webOS). */
+const RESUME_SEEK_PLAY_GRACE_MS = 1000;
+
+/** How long the picture/sound stay hidden for a resume seek that 'playing' overtook. */
+const RESUME_REVEAL_FAILSAFE_MS = 10000;
+
 /** HLS.js fatal network errors retried (1 s, 2 s, 4 s apart) before giving up. */
 const HLS_MAX_NETWORK_RETRIES = 3;
 
@@ -127,6 +133,8 @@ export class HtmlVideoPlayer {
         // from flashing on screen before the resume seek to target completes.
         // ====================================================================
         this._resumeVideoSuppressed = false;
+        // Pending reveal for a resume seek that 'playing' overtook
+        this._resumeRevealOnSeeked = null;
 
         // Startup verification watchdog timer for HLS playback initiation
         this._hlsStartTimeout = null;
@@ -169,6 +177,7 @@ export class HtmlVideoPlayer {
         this._directSeekVerifyTimeout = null;
         clearTimeout(this._resumeFollowUpTimeout);
         this._resumeFollowUpTimeout = null;
+        this._cancelResumeRevealOnSeeked();
         this._clearStallCheck();
     }
 
@@ -973,6 +982,7 @@ export class HtmlVideoPlayer {
             let seekCompleted = false;
             let seekResolved = false;
             let seekTimeout = null;
+            let seekPlayTimer = null;
             let onSeeked = null;
 
             // Remove this load's one-shot listeners (they would otherwise run for the next item)
@@ -982,6 +992,7 @@ export class HtmlVideoPlayer {
                 video.removeEventListener('error', onError);
                 if (onSeeked) video.removeEventListener('seeked', onSeeked);
                 clearTimeout(seekTimeout);
+                clearTimeout(seekPlayTimer);
             };
 
             const resolveOnce = (value) => {
@@ -1090,22 +1101,40 @@ export class HtmlVideoPlayer {
                 video.removeEventListener('canplay', onCanPlay);
                 video.removeEventListener('error', onError);
 
+                // The media fragment (#t=) can land the playhead only after
+                // 'loadedmetadata' (webOS does). Seeking to where the playhead already
+                // is fires no 'seeked' there, so every resume waited the full 10 s
+                // failsafe below before it started playing.
+                const currentPos = video.currentTime || 0;
+                if (resumeSeconds > 0 && !seekCompleted && currentPos > 0.5 && Math.abs(currentPos - resumeSeconds) < 15) {
+                    log.info('HtmlVideoPlayer: Media fragment positioned the playhead by canplay — skipping explicit seek');
+                    seekCompleted = true;
+                }
+
                 // If we need to resume and haven't landed at the target yet,
                 // perform a seek-then-play: set currentTime and wait for seeked.
                 if (resumeSeconds > 0 && !seekCompleted) {
                     log.info('HtmlVideoPlayer: Seeking to resume position', resumeSeconds, 's at canplay');
 
+                    let playbackStarted = false;
+                    const startOnce = () => {
+                        if (playbackStarted) return;
+                        playbackStarted = true;
+                        clearTimeout(seekPlayTimer);
+                        startPlayback();
+                    };
+
                     onSeeked = () => {
                         video.removeEventListener('seeked', onSeeked);
-                        if (seekTimeout) clearTimeout(seekTimeout);
+                        clearTimeout(seekTimeout);
                         seekCompleted = true;
 
                         const drift = Math.abs(video.currentTime - resumeSeconds);
                         log.debug(`HtmlVideoPlayer: Seek completed (current: ${video.currentTime.toFixed(2)} s, target: ${resumeSeconds} s, drift: ${drift.toFixed(2)} s)`);
                         // The native seek completed and the actual target resume frame is decoded;
-                        // safely restore video element visibility before kicking playback.
-                        this._restoreVideoAfterResume(video);
-                        startPlayback();
+                        // safely restore sound and picture (and play, if not started yet).
+                        this._endResumeSuppression(video);
+                        startOnce();
                     };
 
                     video.addEventListener('seeked', onSeeked);
@@ -1113,16 +1142,31 @@ export class HtmlVideoPlayer {
                     // Initiate the seek
                     video.currentTime = resumeSeconds;
 
-                    // Failsafe: if seek never completes (e.g. server doesn't support
-                    // Range requests), proceed anyway after 10s
+                    // ---------------------------------------------------------
+                    // Some pipelines carry out a seek on a paused element only
+                    // once playback starts. On webOS 'seeking' stays true and no
+                    // 'seeked' comes while paused (LG C4, webOS 25: 'seeked'
+                    // arrived 1.2 s after play()), so every resume sat out the
+                    // 10 s failsafe below. Start playback right away there, and
+                    // elsewhere after a short grace period; the picture stays
+                    // hidden until 'seeked'.
+                    // ---------------------------------------------------------
+                    seekPlayTimer = setTimeout(() => {
+                        if (!seekCompleted) {
+                            log.info('HtmlVideoPlayer: Starting playback while the resume seek is pending');
+                        }
+                        startOnce();
+                    }, platformInfo.isWebOS ? 0 : RESUME_SEEK_PLAY_GRACE_MS);
+
+                    // Failsafe: if the seek never completes (e.g. server doesn't
+                    // support Range requests), show the picture anyway after 10 s
                     seekTimeout = setTimeout(() => {
                         video.removeEventListener('seeked', onSeeked);
                         if (!seekCompleted) {
-                            log.warn('HtmlVideoPlayer: Seek timed out after 10s — starting playback from current position');
+                            log.warn('HtmlVideoPlayer: Seek timed out after 10s — continuing from current position');
                             seekCompleted = true;
-                            // Ensure video visibility is restored even if seek timed out
-                            this._restoreVideoAfterResume(video);
-                            startPlayback();
+                            this._endResumeSuppression(video);
+                            startOnce();
                         }
                     }, 10000);
                 } else {
@@ -1472,6 +1516,44 @@ export class HtmlVideoPlayer {
             targetVideo.style.visibility = '';
             log.debug('HtmlVideoPlayer: Restored video visibility after resume landing');
         }
+    }
+
+    /**
+     * End the resume mute and hide: the playhead is at the resume point.
+     * @private
+     * @param {HTMLVideoElement} [video] - The HTML5 video element (defaults to _videoElement)
+     */
+    _endResumeSuppression(video) {
+        this._cancelResumeRevealOnSeeked();
+        if (this._resumeAudioSuppressed) {
+            this._resumeAudioSuppressed = false;
+            this.setMuted(false);
+        }
+        if (this._resumeVideoSuppressed) {
+            this._restoreVideoAfterResume(video || this._videoElement);
+        }
+    }
+
+    /**
+     * 'playing' arrived while the resume seek is still in flight: keep the
+     * pre-seek frame and sound hidden until 'seeked' (or a failsafe).
+     * @private
+     * @param {HTMLVideoElement} video - The HTML5 video element
+     */
+    _revealResumeOnSeeked(video) {
+        if (this._resumeRevealOnSeeked) return;
+        const reveal = () => this._endResumeSuppression(video);
+        this._resumeRevealOnSeeked = { video, reveal, timer: setTimeout(reveal, RESUME_REVEAL_FAILSAFE_MS) };
+        video.addEventListener('seeked', reveal);
+    }
+
+    /** @private */
+    _cancelResumeRevealOnSeeked() {
+        const pending = this._resumeRevealOnSeeked;
+        if (!pending) return;
+        this._resumeRevealOnSeeked = null;
+        clearTimeout(pending.timer);
+        pending.video.removeEventListener('seeked', pending.reveal);
     }
 
     /**
@@ -2329,16 +2411,17 @@ export class HtmlVideoPlayer {
         // ====================================================================
         // Unmute After Safe Resume:
         // Resume playback has transitioned to the active 'playing' state at the
-        // target timestamp. Restore unmuted audio if it was suppressed for resume.
+        // target timestamp: restore the sound and picture suppressed for resume.
+        // webOS carries out a resume seek on a paused element only once playback
+        // starts, and fires 'playing' about a second before 'seeked' (LG C4,
+        // webOS 25). Lifting the suppression then would show the frame and
+        // sound from before the resume point, so wait for 'seeked'.
         // ====================================================================
-        if (this._resumeAudioSuppressed) {
-            this._resumeAudioSuppressed = false;
-            this.setMuted(false);
-        }
-
-        // Resume is confirmed safe. Ensure video element presentation is fully restored.
-        if (this._resumeVideoSuppressed) {
-            this._restoreVideoAfterResume(this._videoElement);
+        const video = this._videoElement;
+        if ((this._resumeAudioSuppressed || this._resumeVideoSuppressed) && video && video.seeking) {
+            this._revealResumeOnSeeked(video);
+        } else {
+            this._endResumeSuppression(video);
         }
 
         if (!this._started) {
