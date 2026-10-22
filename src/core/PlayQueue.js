@@ -217,7 +217,9 @@ class PlayQueue {
         staging._shuffleMode = this._shuffleMode;
         staging._repeatMode = this._repeatMode;
 
-        const build = staging._build(item, contextType, contextId, boxsetSortBy).then(() => this._adoptQueue(generation, staging));
+        const build = staging
+            ._build(item, contextType, contextId, boxsetSortBy)
+            .then(() => this._adoptQueue(generation, staging));
 
         let waitTimer = null;
         const waited = await Promise.race([
@@ -229,7 +231,9 @@ class PlayQueue {
         clearTimeout(waitTimer);
 
         if (waited === 'timeout' && generation === this._queueGeneration && this._queue.length === 0) {
-            log.warn(`Queue for ${item?.Id} not loaded after ${QUEUE_START_WAIT_MS} ms — starting with the item alone, the rest follows when it arrives`);
+            log.warn(
+                `Queue for ${item?.Id} not loaded after ${QUEUE_START_WAIT_MS} ms — starting with the item alone, the rest follows when it arrives`
+            );
             _stampPlaylistItemId(item);
             this._queue = [item];
             this._currentIndex = 0;

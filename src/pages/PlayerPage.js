@@ -3452,9 +3452,11 @@ class PlayerPage extends Page {
         const durationTicks =
             this._player?.getDurationTicks?.() || mediaSource?.RunTimeTicks || this._item?.RunTimeTicks || 0;
         if (mediaSource?.PlaySessionId && this._item && !this._item.isIntro) {
-            const report = this._reportPlaybackStopped(mediaSource, positionTicks, false, durationTicks).catch((err) => {
-                log.warn('Failed to report playback stopped during restart:', err);
-            });
+            const report = this._reportPlaybackStopped(mediaSource, positionTicks, false, durationTicks).catch(
+                (err) => {
+                    log.warn('Failed to report playback stopped during restart:', err);
+                }
+            );
             this._pendingStopReport = report;
             report.then(() => {
                 if (this._pendingStopReport === report) this._pendingStopReport = null;
@@ -4703,7 +4705,9 @@ class PlayerPage extends Page {
         ]);
         clearTimeout(timer);
         if (!finished) {
-            log.warn(`Stop report not answered within ${STOP_REPORT_EXIT_WAIT_MS} ms — leaving the player, it continues in the background`);
+            log.warn(
+                `Stop report not answered within ${STOP_REPORT_EXIT_WAIT_MS} ms — leaving the player, it continues in the background`
+            );
         }
     }
 
