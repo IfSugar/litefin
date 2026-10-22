@@ -22,6 +22,7 @@ import { logger } from '../../utils/Logger.js';
 import { MediaHelper } from './MediaHelper.js';
 import { PlayerEvent } from './JellyfinPlayer.js';
 import { storage } from '../../utils/StorageService.js';
+import { PlayerSettings } from '../../utils/PlayerSettings.js';
 
 // Dedicated logger channels
 const log = logger.create('ExoVideoPlayer');
@@ -592,7 +593,7 @@ export class ExoVideoPlayer {
         this._armStartupWatchdog();
 
         // 1. Prepare ExoPlayer hardware pipeline with tunneling and audio offload preferences
-        const enableTunneling = (this.settings?.get?.('enableTunneling') ?? PlayerSettings.get('enableTunneling')) !== false;
+        const enableTunneling = (this.settings?.get?.('enableTunneling') ?? PlayerSettings.get('enableTunneling')) === true;
         const enableAudioOffload = (this.settings?.get?.('enableAudioOffload') ?? PlayerSettings.get('enableAudioOffload')) !== false;
 
         log.info(`ExoVideoPlayer.play: configuring hardware tunneling=${enableTunneling}, audioOffload=${enableAudioOffload}`);

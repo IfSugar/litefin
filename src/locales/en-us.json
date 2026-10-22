@@ -728,7 +728,7 @@
     "EnableTrickplay": "Thumbnail(Trickplay) Preview",
     "EnableTrickplayDescription": "Show video frame previews when scrubbing through the timeline",
     "EnableTunneling": "Tunneled Video Playback",
-    "EnableTunnelingDescription": "Enables hardware A/V clock tunneling in ExoPlayer for smoother 4K HDR playback and reduced CPU jitter.",
+    "EnableTunnelingDescription": "Enables hardware A/V clock tunneling in ExoPlayer for reduced CPU jitter on supported devices (e.g. Nvidia Shield). Keep disabled if experiencing a black screen or audio stuttering.",
     "EnableVP9": "VP9 Decode Force State",
     "EnterNewPin": "Enter a new 4-digit PIN",
     "EnterPassword": "Enter Password",

@@ -3924,7 +3924,7 @@ class SettingsPage extends Page {
                         <span class="setting-description" data-i18n="EnableTunnelingDescription">${i18n.t('EnableTunnelingDescription') || 'Enables hardware A/V clock tunneling in ExoPlayer for smoother 4K HDR playback and reduced CPU jitter.'}</span>
                     </div>
                     <div class="setting-control">
-                        <button class="toggle-switch ${PlayerSettings.get('enableTunneling') !== false ? 'active' : ''}" 
+                        <button class="toggle-switch ${PlayerSettings.get('enableTunneling') === true ? 'active' : ''}" 
                                 id="toggle-enable-tunneling" 
                                 data-setting="enableTunneling"
                                 tabindex="0">
@@ -13234,7 +13234,7 @@ class SettingsPage extends Page {
             const enableTunnelingToggle = this.$('#toggle-enable-tunneling');
             if (enableTunnelingToggle) {
                 enableTunnelingToggle.addEventListener('click', () => {
-                    const current = PlayerSettings.get('enableTunneling') !== false;
+                    const current = PlayerSettings.get('enableTunneling') === true;
                     const next = !current;
                     PlayerSettings.set('enableTunneling', next);
                     enableTunnelingToggle.classList.toggle('active', next);

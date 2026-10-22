@@ -113,11 +113,12 @@ const DEFAULTS = {
     // TUNNELED VIDEO PLAYBACK (Android ExoPlayer)
     // =========================================================================
     // Enables hardware audio/video synchronization tunneling in ExoPlayer.
-    // Offloads A/V sync clock timing directly to the hardware video decoder/SoC,
-    // reducing CPU load, eliminating dropped frames, and preventing stutter
-    // on 4K, HDR, and high-bitrate media.
+    // Offloads A/V sync clock timing directly to the hardware video decoder/SoC.
+    // Disabled by default to prevent black screens and audio hitching on devices
+    // with buggy vendor tunneling HAL implementations (e.g. Amlogic / Mi Box).
+    // Can be enabled on high-end hardware (e.g. Nvidia Shield TV).
     // =========================================================================
-    enableTunneling: true,
+    enableTunneling: false,
 
     // =========================================================================
     // AUDIO OFFLOAD PLAYBACK (Android ExoPlayer)

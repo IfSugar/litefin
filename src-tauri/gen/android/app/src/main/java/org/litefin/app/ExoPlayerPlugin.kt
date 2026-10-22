@@ -146,7 +146,7 @@ class ExoPlayerPlugin(private val activity: Activity) : Plugin(activity) {
   }
 
   @Volatile
-  private var isTunnelingEnabled: Boolean = true
+  private var isTunnelingEnabled: Boolean = false
 
   @Volatile
   private var isAudioOffloadEnabled: Boolean = true
