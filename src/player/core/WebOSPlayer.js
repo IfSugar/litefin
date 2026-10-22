@@ -112,6 +112,16 @@ const LOAD_WATCHDOG_DIRECT_MS = 30000;
 /** Polls (300 ms apart) of _applyRobustResume waiting for a seekable state. */
 const ROBUST_RESUME_MAX_POLLS = 40;
 
+/** Hls.js fatal network errors retried (1 s, 2 s, 4 s apart) before giving up. */
+const HLS_MAX_NETWORK_RETRIES = 3;
+
+/**
+ * Hls.js fatal media errors: a decoder reset, then a codec swap, are each
+ * allowed once per window — like jellyfin-web's handleHlsJsMediaError().
+ */
+const HLS_MEDIA_RECOVERY_WINDOW_MS = 3000;
+
+
 // ============================================================================
 // Playback Errors
 // ============================================================================
@@ -172,6 +182,9 @@ export class WebOSPlayer {
 
         /** @type {Hls|null} Hls.js instance — only created as fallback */
         this._hlsPlayer = null;
+
+        /** { hls, onError } — bounded recovery of the current Hls.js instance, for <video> errors */
+        this._hlsElementErrorHandler = null;
 
         /** Current stream URL */
         this._currentSrc = null;
@@ -1358,30 +1371,40 @@ export class WebOSPlayer {
                 });
             }
 
-            hls.on(Hls.Events.ERROR, (event, data) => {
-                if (data.details === 'bufferStalledError' && !data.fatal) {
-                    log.warn('WebOSPlayer: Hls.js non-fatal buffer stall');
+            // -----------------------------------------------------------------
+            // Unrecoverable Hls.js error: before playback started it rejects
+            // play(); afterwards it is reported as a backend 'error' event so
+            // JellyfinPlayer can escalate or show the error dialog.
+            // -----------------------------------------------------------------
+            const failHls = (reason) => {
+                log.error('WebOSPlayer: Hls.js could not recover —', reason.message);
+                if (this._hlsPlayer === hls) {
+                    this._hlsPlayer = null;
+                }
+                try {
+                    hls.destroy();
+                } catch (e) {
+                    log.warn('WebOSPlayer: Hls.js destroy threw', e);
+                }
+                if (!resolved) {
+                    rejectOnce(reason);
                     return;
                 }
-                log.error('WebOSPlayer: Hls.js error', data);
-
-                if (data.fatal) {
-                    switch (data.type) {
-                        case Hls.ErrorTypes.NETWORK_ERROR:
-                            log.info('WebOSPlayer: Attempting Hls.js network error recovery');
-                            hls.startLoad();
-                            break;
-                        case Hls.ErrorTypes.MEDIA_ERROR:
-                            log.info('WebOSPlayer: Attempting Hls.js media error recovery');
-                            hls.recoverMediaError();
-                            break;
-                        default:
-                            hls.destroy();
-                            rejectOnce(new Error('Hls.js fatal error'));
-                            break;
+                this.onEvent({
+                    type: 'error',
+                    data: {
+                        code: reason.code || 0,
+                        name: 'HLS_FATAL_ERROR',
+                        message: reason.message,
+                        isNetworkError: Boolean(reason.isNetworkError)
                     }
-                }
-            });
+                });
+            };
+
+            const errorHandling = this._createHlsErrorHandler(hls, failHls);
+            hls.on(Hls.Events.ERROR, errorHandling.onError);
+            hls.on(Hls.Events.FRAG_LOADED, errorHandling.onFragLoaded);
+            this._hlsElementErrorHandler = { hls, onError: errorHandling.onError };
 
             // Listen for the first segment buffered — triggers play()
             hls.on(Hls.Events.BUFFER_APPENDED, onBufferAppended);
@@ -1390,6 +1413,85 @@ export class WebOSPlayer {
             hls.attachMedia(video);
             this._hlsPlayer = hls;
         });
+    }
+
+    /**
+     * Bounded recovery for one Hls.js instance.
+     *
+     * - Fatal network errors: retried with backoff (1 s, 2 s, 4 s); an HTTP
+     *   4xx/5xx response or a fourth failure in a row gives up. A loaded
+     *   fragment resets the count.
+     * - Fatal media errors: recoverMediaError(), then swapAudioCodec() +
+     *   recoverMediaError(), each at most once per 3 s window; a third error
+     *   inside the window gives up (same policy as jellyfin-web).
+     * - Other fatal errors give up straight away.
+     *
+     * @private
+     * @param {Hls} hls
+     * @param {Function} fail - (error) => void, called when recovery is exhausted
+     * @returns {{onError: Function, onFragLoaded: Function}} Hls.js event handlers
+     */
+    _createHlsErrorHandler(hls, fail) {
+        let networkRetries = 0;
+        let lastDecoderReset = 0;
+        let lastCodecSwap = 0;
+
+        const onError = (event, data) => {
+            if (!data.fatal) {
+                if (data.details === 'bufferStalledError') {
+                    log.warn('WebOSPlayer: Hls.js non-fatal buffer stall');
+                } else {
+                    log.warn('WebOSPlayer: Hls.js non-fatal error', data.details);
+                }
+                return;
+            }
+            log.error('WebOSPlayer: Hls.js fatal error', data.type, data.details);
+
+            if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+                const status = data.response?.code || 0;
+                if (status >= 400 || networkRetries >= HLS_MAX_NETWORK_RETRIES) {
+                    const error = new Error(`Hls.js network error (${data.details}${status ? `, HTTP ${status}` : ''})`);
+                    error.code = 2;
+                    error.isNetworkError = true;
+                    fail(error);
+                    return;
+                }
+                const delay = 1000 * Math.pow(2, networkRetries);
+                networkRetries++;
+                log.info(`WebOSPlayer: Retrying Hls.js load in ${delay} ms (attempt ${networkRetries}/${HLS_MAX_NETWORK_RETRIES})`);
+                this._timer(() => {
+                    if (this._hlsPlayer === hls) hls.startLoad();
+                }, delay);
+                return;
+            }
+
+            if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+                const now = Date.now();
+                if (now - lastDecoderReset > HLS_MEDIA_RECOVERY_WINDOW_MS) {
+                    lastDecoderReset = now;
+                    log.info('WebOSPlayer: Attempting Hls.js media error recovery');
+                    hls.recoverMediaError();
+                } else if (now - lastCodecSwap > HLS_MEDIA_RECOVERY_WINDOW_MS) {
+                    lastCodecSwap = now;
+                    log.info('WebOSPlayer: Attempting Hls.js media error recovery with audio codec swap');
+                    hls.swapAudioCodec();
+                    hls.recoverMediaError();
+                } else {
+                    const error = new Error(`Hls.js media error (${data.details})`);
+                    error.code = 3;
+                    fail(error);
+                }
+                return;
+            }
+
+            fail(new Error(`Hls.js fatal error (${data.details})`));
+        };
+
+        const onFragLoaded = () => {
+            networkRetries = 0;
+        };
+
+        return { onError, onFragLoaded };
     }
 
     /**
@@ -1750,6 +1852,19 @@ export class WebOSPlayer {
                         this._destroyHlsPlayer();
                         this._playWithHlsJs(video, this._currentPlayOptions).catch(err => {
                             log.error('WebOSPlayer: Hls.js fallback failed', err);
+                            // Report it unless stop() / a newer play() cancelled it: the
+                            // native pipeline is gone, so playback has nowhere to go
+                            if (!err?.superseded) {
+                                this.onEvent({
+                                    type: 'error',
+                                    data: {
+                                        code: err?.code || 0,
+                                        name: 'HLS_FALLBACK_FAILED',
+                                        message: err?.message || 'Hls.js fallback failed',
+                                        isNetworkError: Boolean(err?.isNetworkError)
+                                    }
+                                });
+                            }
                         });
                         return;
                     }
@@ -3235,7 +3350,6 @@ export class WebOSPlayer {
 
         const currentTime  = this.getCurrentTime();
         const currentTicks = Math.floor(currentTime * 10000000);
-
         // Throttle to ~250 ms to avoid hammering the main thread on slow TVs
         if (Math.abs(currentTicks - this._lastTimeUpdateTicks) > 2500000) {
             this._lastTimeUpdateTicks = currentTicks;
@@ -3315,14 +3429,25 @@ export class WebOSPlayer {
         const formatted = MediaHelper.formatMediaError(video.error);
         log.error(`WebOSPlayer: Error ${formatted.code} (${formatted.name}): ${formatted.message}`);
 
-        // Attempt Hls.js media error recovery before giving up
-        if (formatted.code === 3 && this._hlsPlayer) {
-            log.info('WebOSPlayer: Attempting Hls.js media error recovery');
-            this._hlsPlayer.recoverMediaError();
+        const isNetworkError = formatted.code === 2 || /network|connection|pipeline_error_network/i.test(formatted.message);
+
+        // ---------------------------------------------------------------------
+        // Hls.js does not recover from errors of the <video> element itself (it
+        // only logs them), so they go through the same bounded recovery as its
+        // own fatal media errors: a decoder reset, then a codec swap, then a
+        // reported failure. Its 3 s window keeps an element error and an Hls.js
+        // error for the same fault from resetting the decoder twice.
+        // ---------------------------------------------------------------------
+        const hlsHandling = this._hlsElementErrorHandler;
+        if (this._hlsPlayer && hlsHandling && hlsHandling.hls === this._hlsPlayer) {
+            log.warn(`WebOSPlayer: Media element error ${formatted.code} during Hls.js playback — recovering`);
+            hlsHandling.onError(null, {
+                fatal: true,
+                type: Hls.ErrorTypes.MEDIA_ERROR,
+                details: `mediaElementError(${formatted.code})`
+            });
             return;
         }
-
-        const isNetworkError = formatted.code === 2 || /network|connection|pipeline_error_network/i.test(formatted.message);
 
         // If native HLS playback triggered a decode error (code 3) or not supported (code 4)
         // and Hls.js is available in this environment, attempt seamless fallback to Hls.js
@@ -3790,6 +3915,7 @@ export class WebOSPlayer {
             }
             this._hlsPlayer = null;
         }
+        this._hlsElementErrorHandler = null;
     }
 
     /**
