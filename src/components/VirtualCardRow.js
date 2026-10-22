@@ -478,19 +478,24 @@ export class VirtualCardRow {
             const finalScrollLeft = Math.max(0, Math.min(targetScroll, maxScroll));
 
             // =================================================================
-            // ANDROID SCROLL RESTORATION: Native scrollLeft owns position
+            // SCROLL RESTORATION: Check active horizontal scroll mode
             // =================================================================
-            // On Android, TouchHorizontalScroller turns row-items into a native
-            // overflow-x scroller. Restoring focus must write to parent scrollLeft
-            // instead of applying a CSS transform to prevent transform fights.
-            if (platformInfo.isAndroid) {
+            // In native mode (Android touch devices), native scrollLeft owns position.
+            // In GPU mode (Android TV, Smart TVs, desktop), hardware CSS translate3d owns position.
+            const horizontalScrollMode = storage.getItem('pref:horizontalScrollMode') ||
+                (platformInfo.isAndroid && !platformInfo.isAndroidTv ? 'native' : 'gpu');
+
+            if (horizontalScrollMode === 'native') {
                 requestAnimationFrame(() => {
                     if (this.track.parentElement) {
                         this.track.parentElement.scrollLeft = isRtl ? -finalScrollLeft : finalScrollLeft;
                     }
                 });
-                // Skip track transform restore below — native scroll owns geometry on Android
+                // Skip track transform restore below — native scroll owns geometry on touch scrollers
             } else {
+                if (this.track.parentElement && this.track.parentElement.scrollLeft !== 0) {
+                    this.track.parentElement.scrollLeft = 0;
+                }
                 this.track.style.transition = 'none';
                 this.track.style.webkitTransition = 'none';
 

@@ -1797,6 +1797,8 @@
     "VerticalPositionAss": "Vertical Position (ASS)",
     "VerticalPositionAssDescription": "Main track bottom offset",
     "VerticalPositionDescription": "Subtitle vertical position",
+    "HorizontalScrollMode": "Horizontal Scroll Animation",
+    "HorizontalScrollModeDescription": "Choose how horizontal media row scrolling is animated (GPU Accelerated, Smooth, or Instant).",
     "VerticalScrollMode": "Vertical Scroll Animation",
     "VerticalScrollModeDescription": "Choose how vertical page scrolling is animated (JS RAF, Native/Smooth, or GPU Accelerated).",
     "VerticalSpacingAss": "Vertical Spacing (ASS)",

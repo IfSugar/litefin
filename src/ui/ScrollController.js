@@ -140,6 +140,54 @@ class ScrollController {
 
         // Expose to window for lazy-load checking to bypass circular imports
         window.__scrollController = this;
+
+        // --------------------------------------------------------------------
+        // HORIZONTAL SCROLL MODE INITIALIZATION
+        // --------------------------------------------------------------------
+        // Stamps the initial data-horizontal-scroll attribute on <html>
+        // and subscribes to runtime preference changes from SettingsPage.
+        // --------------------------------------------------------------------
+        this._applyHorizontalScrollMode(this.getHorizontalScrollMode());
+        eventBus.on('pref:horizontalScrollMode', (mode) => {
+            this._applyHorizontalScrollMode(mode);
+        });
+    }
+
+    /**
+     * Resolves the configured horizontal media row scroll animation mode from stored preferences.
+     * Supported options:
+     * - 'gpu': Fast hardware-accelerated CSS translate3d transitions directly on .row-items-track.
+     * - 'native': Smooth animated scrolling via container.scrollLeft / smoothScrollTo.
+     * - 'instant': Immediate snap to focused card without animation.
+     *
+     * @returns {'gpu'|'native'|'instant'} Active horizontal scroll mode
+     */
+    getHorizontalScrollMode() {
+        // Retrieve explicit user preference from persistent local storage
+        const stored = storage.getItem('pref:horizontalScrollMode');
+        if (stored) {
+            return stored;
+        }
+
+        // On Android mobile touch devices, default to native touch overflow scroller.
+        // On Android TV, Smart TVs (Tizen, webOS), and Desktop, default to high-performance GPU mode.
+        if (platformInfo.isAndroid && !platformInfo.isAndroidTv) {
+            return 'native';
+        }
+        return 'gpu';
+    }
+
+    /**
+     * Stamped onto document.documentElement to control overflow behavior and
+     * hardware-compositing rules in layout.css / android-mobile.css.
+     *
+     * @param {'gpu'|'native'|'instant'} mode
+     * @private
+     */
+    _applyHorizontalScrollMode(mode) {
+        if (typeof document?.documentElement?.setAttribute === 'function') {
+            document.documentElement.setAttribute('data-horizontal-scroll', mode);
+        }
     }
 
     /**
@@ -334,17 +382,17 @@ class ScrollController {
         const animIdKey = isVertical ? '_verticalScrollAnimationId' : '_horizontalScrollAnimationId';
 
         // Resolve active scroll mode and duration preference from stored user preferences.
-        const scrollMode = isVertical ? storage.getItem('pref:verticalScrollMode') || 'native' : 'current';
+        const scrollMode = isVertical ? storage.getItem('pref:verticalScrollMode') || 'native' : this.getHorizontalScrollMode();
         const durationPref = storage.getItem('pref:scrollSmoothingDuration') || 'current';
 
         /* ====================================================================
          * 🚀 INSTANT SCROLL NAVIGATION OVERRIDE
          * ====================================================================
-         * Snaps content immediately without animation if verticalScrollMode or
-         * scrollSmoothingDuration is configured to 'instant'.
+         * Snaps content immediately without animation if verticalScrollMode,
+         * horizontalScrollMode, or scrollSmoothingDuration is configured to 'instant'.
          * ==================================================================== */
         let durationToUse = duration !== null ? (typeof duration === 'function' ? duration() : duration) : (isVertical ? this.getVerticalScrollDuration() : SCROLL_DURATION_HORIZONTAL);
-        if (isVertical && (scrollMode === 'instant' || durationPref === 'instant')) {
+        if (scrollMode === 'instant' || durationPref === 'instant') {
             durationToUse = 0;
         }
 
@@ -1164,18 +1212,27 @@ class ScrollController {
                     if (trackWidth > containerWidth) {
                         const finalScrollLeft = Math.max(0, Math.min(targetScroll, maxScroll));
 
-                        // =====================================================
-                        // ANDROID (Touch): Native horizontal scroller
-                        // =====================================================
-                        // On Android the media row is a real overflow-x scroller
-                        // managed by TouchHorizontalScroller. The WebView compositor
-                        // directly owns touch drag and fling inertia. Centering
-                        // writes to scrollLeft instead of CSS track transform so
-                        // D-pad spatial navigation and touch gestures share the
-                        // same coordinate system without fighting each other.
-                        if (platformInfo.isAndroid) {
+                        // -------------------------------------------------------------
+                        // RESOLVE ACTIVE HORIZONTAL SCROLL ANIMATION MODE
+                        // -------------------------------------------------------------
+                        // 'gpu': Fast hardware-accelerated CSS translate3d transforms on .row-items-track
+                        // 'native': Continuous animated scrolling via container.scrollLeft / smoothScrollTo
+                        // 'instant': Immediate position snapping without transition delay
+                        // -------------------------------------------------------------
+                        const horizontalMode = this.getHorizontalScrollMode();
+                        const durationPref = storage.getItem('pref:scrollSmoothingDuration') || 'current';
+                        const isInstant = options.instantScroll || horizontalMode === 'instant' || durationPref === 'instant';
+
+                        if (horizontalMode === 'native') {
+                            // =========================================================
+                            // NATIVE TOUCH / OVERFLOW-X SCROLLER MODE
+                            // =========================================================
+                            // Writes directly to rowItems.scrollLeft. Primarily used on
+                            // touch devices (Android mobile/tablets) so D-pad and touch
+                            // swipe inertia share the exact same coordinate system.
+                            // =========================================================
                             const signedLeft = isRtl ? -finalScrollLeft : finalScrollLeft;
-                            if (options.instantScroll) {
+                            if (isInstant) {
                                 rowItems.scrollLeft = signedLeft;
                             } else {
                                 this.smoothScrollTo(
@@ -1185,73 +1242,64 @@ class ScrollController {
                                     'horizontal'
                                 );
                             }
-                        } else if (options.instantScroll) {
-                            // Use completely hardware-accelerated CSS transform!
-                            // OPTIMIZATION: Parse the current transform to check if we're already
-                            // at the target position. This skips the forced-layout reflow path
-                            // entirely when navigating vertically (the card is already centered).
-                            // track.offsetHeight is a synchronous layout and is expensive on Tizen.
+                        } else if (isInstant) {
+                            // =========================================================
+                            // INSTANT GPU SNAPSHOT (0ms CSS TRANSFORM)
+                            // =========================================================
+                            // Reset scrollLeft if previously manipulated in native mode
+                            if (rowItems.scrollLeft !== 0) {
+                                rowItems.scrollLeft = 0;
+                            }
+
+                            // Bypass CSS transitions for instant snap without forced layout reflows
                             const currentTransform = track.style.transform || track.style.webkitTransform || '';
-                            // ================================================================
-                            // Robust horizontal parsing regex matching optional units (px/%)
-                            // ================================================================
                             const match = currentTransform.match(/translate3d\(\s*-?([\d.]+)(?:px|%)?/);
                             const currentTransformX = match ? parseFloat(match[1]) : 0;
                             const alreadyCentered =
                                 Math.abs(currentTransformX - finalScrollLeft) < SCROLL_SNAP_THRESHOLD;
 
                             if (!alreadyCentered) {
-                                // Bypass CSS transitions for instant snap.
-                                // IMPORTANT: We must NOT read track.offsetHeight here to force a reflow —
-                                // that is a synchronous layout flush that stalls the Tizen compositor on
-                                // every row entry. Instead, toggle transition off, write the transform,
-                                // and restore transition asynchronously on the next frame once the
-                                // browser has committed the no-transition paint.
                                 track.style.transition = 'none';
                                 track.style.webkitTransition = 'none';
-                                if (isRtl) {
-                                    track.style.webkitTransform = `translate3d(${finalScrollLeft}px, 0, 0)`;
-                                    track.style.transform = `translate3d(${finalScrollLeft}px, 0, 0)`;
-                                } else {
-                                    track.style.webkitTransform = `translate3d(-${finalScrollLeft}px, 0, 0)`;
-                                    track.style.transform = `translate3d(-${finalScrollLeft}px, 0, 0)`;
-                                }
-                                // Restore transition property on the next frame (after the browser
-                                // has committed the transform snap) — zero layout reads needed.
+                                const transformStr = isRtl
+                                    ? `translate3d(${finalScrollLeft}px, 0, 0)`
+                                    : `translate3d(-${finalScrollLeft}px, 0, 0)`;
+                                track.style.webkitTransform = transformStr;
+                                track.style.transform = transformStr;
+
                                 requestAnimationFrame(() => {
                                     track.style.webkitTransition = '';
                                     track.style.transition = '';
                                 });
                             }
                         } else {
-                            // Same position check for the smooth (CSS transition) path.
-                            // .row-items-track has a 150ms CSS transition on transform — writing
-                            // the same value triggers a useless animated "wobble" on every vertical
-                            // row-enter even though the horizontal position hasn't changed at all.
+                            // =========================================================
+                            // FAST (GPU ACCELERATED) COMPOSITED TRANSITIONS
+                            // =========================================================
+                            // Delegates horizontal sliding directly to the GPU compositor via
+                            // CSS transform. Bypasses main-thread scrollLeft layout recalculations,
+                            // delivering 60 FPS scrolling on Android TV and low-power hardware.
+                            // =========================================================
+                            if (rowItems.scrollLeft !== 0) {
+                                rowItems.scrollLeft = 0;
+                            }
+
                             const currentTransform = track.style.transform || track.style.webkitTransform || '';
-                            // ================================================================
-                            // Robust horizontal parsing regex matching optional units (px/%)
-                            // ================================================================
                             const match = currentTransform.match(/translate3d\(\s*-?([\d.]+)(?:px|%)?/);
                             const currentTransformX = match ? parseFloat(match[1]) : 0;
                             if (Math.abs(currentTransformX - finalScrollLeft) >= SCROLL_SNAP_THRESHOLD) {
-                                if (isRtl) {
-                                    // In RTL, moving track right reveals further elements on the left
-                                    track.style.webkitTransform = `translate3d(${finalScrollLeft}px, 0, 0)`;
-                                    track.style.transform = `translate3d(${finalScrollLeft}px, 0, 0)`;
-                                } else {
-                                    track.style.webkitTransform = `translate3d(-${finalScrollLeft}px, 0, 0)`;
-                                    track.style.transform = `translate3d(-${finalScrollLeft}px, 0, 0)`;
-                                }
+                                const transformStr = isRtl
+                                    ? `translate3d(${finalScrollLeft}px, 0, 0)`
+                                    : `translate3d(-${finalScrollLeft}px, 0, 0)`;
+                                track.style.webkitTransform = transformStr;
+                                track.style.transform = transformStr;
                             }
                         }
-                    } else if (platformInfo.isAndroid) {
-                        // Short rows on Android: reset the native scroller instead
-                        // of the unused track transform.
-                        rowItems.scrollLeft = 0;
                     } else {
-                        // For short rows, ensure the track is reset to 0 to prevent stale
-                        // offsets if items were removed or the window was resized.
+                        // Short rows: reset both native scroller and track transform
+                        if (rowItems.scrollLeft !== 0) {
+                            rowItems.scrollLeft = 0;
+                        }
                         track.style.webkitTransform = 'translate3d(0, 0, 0)';
                         track.style.transform = 'translate3d(0, 0, 0)';
                     }
@@ -1263,11 +1311,14 @@ class ScrollController {
 
                     const targetScroll = elementLeft - containerWidth / 2 + elementWidth / 2;
                     const finalScrollLeft = Math.max(0, targetScroll);
+                    const horizontalMode = this.getHorizontalScrollMode();
+                    const durationPref = storage.getItem('pref:scrollSmoothingDuration') || 'current';
+                    const isInstant = options.instantScroll || horizontalMode === 'instant' || durationPref === 'instant';
 
                     this.smoothScrollTo(
                         rowItems,
                         finalScrollLeft,
-                        options.instantScroll ? 0 : SCROLL_DURATION_HORIZONTAL,
+                        isInstant ? 0 : SCROLL_DURATION_HORIZONTAL,
                         'horizontal'
                     );
                 }

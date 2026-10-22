@@ -64,6 +64,29 @@ html[data-litefin-touch] *::after,
 }
 
 /* ============================================================================
+ * High-Performance GPU Accelerated & Instant Horizontal Scroll Overrides
+ * ============================================================================
+ * When GPU accelerated mode or instant snapping is selected, bypass native
+ * overflow-x scrolling and delegate row centering directly to CSS translate3d
+ * transforms on .row-items-track. This eliminates container.scrollLeft layout
+ * thrashing on Android TV and low-power smart TV hardware.
+ * ============================================================================ */
+html[data-horizontal-scroll="gpu"] [data-platform="android"] .row-items,
+html[data-horizontal-scroll="gpu"] .row-items,
+html[data-horizontal-scroll="instant"] [data-platform="android"] .row-items,
+html[data-horizontal-scroll="instant"] .row-items {
+    /* Disable overflow scroller to prevent scrollLeft fighting CSS transform */
+    overflow-x: hidden !important;
+    touch-action: pan-y;
+}
+
+html[data-horizontal-scroll="gpu"] [data-platform="android"] .row-items-track,
+html[data-horizontal-scroll="gpu"] .row-items-track {
+    /* Promote sliding track element to its own dedicated hardware compositor plane */
+    will-change: transform;
+}
+
+/* ============================================================================
  * Android Touch-Primary Tooltip & Sidebar Overhaul
  * ============================================================================
  * On touchscreens, hover tooltips do not make sense. Tooltips and item labels

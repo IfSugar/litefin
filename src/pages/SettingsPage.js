@@ -6027,6 +6027,43 @@ class SettingsPage extends Page {
                     </div>
                 </div>
 
+                <!-- =============================================================
+                     HORIZONTAL MEDIA ROW SCROLL ANIMATION CONFIGURATION
+                     =============================================================
+                     Enables hardware-accelerated CSS translate3d transitions for
+                     horizontal media card rows, bypassing expensive JS RAF loops
+                     and container.scrollLeft layout reflows on Android TV & Smart TVs.
+                     ============================================================= -->
+                <div class="setting-item">
+                    <div class="setting-label">
+                        <!-- Setting Title: Localized with fallback string -->
+                        <span class="setting-name" data-i18n="HorizontalScrollMode">${i18n.t('HorizontalScrollMode') || 'Horizontal Scroll Animation'}</span>
+                        <!-- Setting Description: Explains GPU, Smooth, and Instant behavior -->
+                        <span class="setting-description" data-i18n="HorizontalScrollModeDescription">${i18n.t('HorizontalScrollModeDescription') || 'Choose how horizontal media row scrolling is animated (GPU Accelerated, Smooth, or Instant).'}</span>
+                    </div>
+                    <div class="setting-control">
+                        ${this._renderDropdown(
+            'horizontal-scroll-mode-select',
+            [
+                /* -------------------------------------------------------------
+                 * Fast (GPU Accelerated): CSS translate3d transitions on track
+                 * ------------------------------------------------------------- */
+                { value: 'gpu', label: i18n.t('ScrollModeGpu') || 'Fast (GPU Accelerated)' },
+                /* -------------------------------------------------------------
+                 * Smooth (Native): Continuous animated scrolling via scrollLeft
+                 * ------------------------------------------------------------- */
+                { value: 'native', label: i18n.t('ScrollModeNative') || 'Smooth (Native)' },
+                /* -------------------------------------------------------------
+                 * Instant (No Animation): Snaps media rows with zero delay
+                 * ------------------------------------------------------------- */
+                { value: 'instant', label: i18n.t('ScrollModeInstant') || 'Instant (No Animation)' }
+            ],
+            /* Defaults to 'gpu' on TV/desktop and 'native' on touch-primary phones */
+            storage.getItem('pref:horizontalScrollMode') || (platformInfo.isAndroid && !platformInfo.isAndroidTv ? 'native' : 'gpu')
+        )}
+                    </div>
+                </div>
+
                 <div class="setting-item">
                     <div class="setting-label">
                         <span class="setting-name" data-i18n="ScrollSmoothingDuration">${i18n.t('ScrollSmoothingDuration') || 'Scroll Smoothing (Duration)'}</span>
@@ -12177,6 +12214,7 @@ class SettingsPage extends Page {
             'screensaver-type-select': { key: 'pref:screensaverType', type: 'local', triggerEvent: true },
             'backdrop-dimmer-select': { key: 'pref:backdropDimmer', type: 'local', triggerEvent: true },
             'vertical-scroll-mode-select': { key: 'pref:verticalScrollMode', type: 'local', triggerEvent: true },
+            'horizontal-scroll-mode-select': { key: 'pref:horizontalScrollMode', type: 'local', triggerEvent: true },
             'scroll-smoothing-duration-select': { key: 'pref:scrollSmoothingDuration', type: 'local', triggerEvent: true },
 
             // Centralized mappings for TV hardware remote control color buttons
