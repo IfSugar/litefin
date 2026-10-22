@@ -576,3 +576,42 @@ test('HtmlVideoPlayer: the stall recovery kick on webOS jumps far enough for its
     t.mock.timers.tick(3500);
     assert.strictEqual(video.currentTime, 600.5);
 });
+
+test('HtmlVideoPlayer: Play after a seek that never reports seeked still starts playback', async (t) => {
+    // webOS carries out a seek on a paused element only once playback starts
+    t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+    const { player } = createPlayer();
+    await playAndStart(player, { url: 'http://srv/Videos/a/stream.mp4', mediaSource });
+    const video = player._videoElement;
+    const plays = video.playCalls;
+
+    video.seeking = true;
+    player.unpause();
+    assert.strictEqual(video.playCalls, plays);
+    t.mock.timers.tick(500);
+    assert.strictEqual(video.playCalls, plays + 1, 'Play queued for a seeked event that never comes');
+
+    player.unpause();
+    player.unpause();
+    assert.strictEqual(video.playCalls, plays + 2, 'a second Play press waited as well');
+});
+
+test('HtmlVideoPlayer: a Pause that cancels a play queued behind a seek reports the pause', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+    const { player, events } = createPlayer();
+    await playAndStart(player, { url: 'http://srv/Videos/a/stream.mp4', mediaSource });
+    const video = player._videoElement;
+    video.paused = true;
+    video.seeking = true;
+    player.unpause();
+    events.length = 0;
+
+    player.pause();
+    assert.deepStrictEqual(events, ['pause']);
+    t.mock.timers.tick(1000);
+    assert.strictEqual(video.paused, true, 'the cancelled play started anyway');
+
+    events.length = 0;
+    player.pause();
+    assert.deepStrictEqual(events, [], 'reported a pause with nothing queued');
+});

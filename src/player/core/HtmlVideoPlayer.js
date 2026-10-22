@@ -66,6 +66,13 @@ const STALLED_HEALTHY_BUFFER_S = 3;
 /** Playhead movement (s) during the stall check that shows playback went on by itself. */
 const STALL_PROGRESS_S = 0.1;
 
+/**
+ * How long unpause() waits for a pending seek's 'seeked' before it starts
+ * playback anyway: webOS carries out a seek on a paused element only once
+ * playback starts (see the resume path), so that 'seeked' may never come.
+ */
+const SEEK_PLAY_FALLBACK_MS = 500;
+
 /** Stall recovery jump (s); webOS ignores sub-frame jumps (see WebOSPlayer). */
 const STALL_KICK_S = 0.01;
 const STALL_KICK_WEBOS_S = 0.5;
@@ -190,6 +197,8 @@ export class HtmlVideoPlayer {
         this._directSeekVerifyTimeout = null;
         clearTimeout(this._resumeFollowUpTimeout);
         this._resumeFollowUpTimeout = null;
+        clearTimeout(this._seekPlayFallbackTimer);
+        this._seekPlayFallbackTimer = null;
         this._cancelResumeRevealOnSeeked();
         this._clearStallCheck();
     }
@@ -1215,8 +1224,20 @@ export class HtmlVideoPlayer {
      * Pause playback
      */
     pause() {
+        // Disarm any queued post-seek unpause operations so an explicit pause halts playback
+        const cancelledPlay = this._pendingPlayAfterSeek;
         this._pendingPlayAfterSeek = false;
-        this._videoElement?.pause();
+        const video = this._videoElement;
+        if (!video) return;
+        if (video.paused) {
+            // A play queued behind a seek never started the element, so no 'pause'
+            // event will come. JellyfinPlayer already counts playback as resumed and
+            // took every later Play press for a pause (LG C4: Play did nothing until
+            // the user left the item), so report the pause here.
+            if (cancelledPlay) this.onEvent({ type: 'pause' });
+            return;
+        }
+        video.pause();
     }
 
     /**
@@ -1233,21 +1254,45 @@ export class HtmlVideoPlayer {
          * calling video.play() immediately unpauses playback of the stale pre-seek
          * buffer while the demuxer is still fetching the target keyframe.
          * Queue the play command to execute in _onSeeked once repositioning completes.
+         *
+         * webOS carries out a seek on a paused element only once playback starts,
+         * so 'seeked' may never come: start playback anyway SEEK_PLAY_FALLBACK_MS
+         * later, and at once when unpause() is asked again meanwhile.
          * ====================================================================
          */
         if (this._videoElement.seeking) {
+            if (this._pendingPlayAfterSeek) {
+                log.info('HtmlVideoPlayer: unpause() again while the seek is pending — starting playback now');
+                this._pendingPlayAfterSeek = false;
+                this._playVideo();
+                return;
+            }
             log.debug('HtmlVideoPlayer: seek in progress — queueing play on seeked');
             this._pendingPlayAfterSeek = true;
+            clearTimeout(this._seekPlayFallbackTimer);
+            this._seekPlayFallbackTimer = setTimeout(() => {
+                this._seekPlayFallbackTimer = null;
+                if (!this._pendingPlayAfterSeek) return;
+                this._pendingPlayAfterSeek = false;
+                log.info(`HtmlVideoPlayer: no 'seeked' ${SEEK_PLAY_FALLBACK_MS} ms after unpause() — starting playback, which completes the seek`);
+                this._playVideo();
+            }, SEEK_PLAY_FALLBACK_MS);
             return;
         }
 
         this._pendingPlayAfterSeek = false;
-        
-        this._videoElement.play().catch((err) => {
+        this._playVideo();
+    }
+
+    /** video.play() with the autoplay-policy retry. @private */
+    _playVideo() {
+        const video = this._videoElement;
+        if (!video) return;
+        video.play().catch((err) => {
             if (err.name === 'NotAllowedError') {
                 log.warn('unpause: Autoplay blocked — retrying muted.');
-                this._videoElement.muted = true;
-                this._videoElement.play().catch(e => log.error('unpause: Muted retry failed', e));
+                video.muted = true;
+                video.play().catch(e => log.error('unpause: Muted retry failed', e));
             } else {
                 log.error('unpause: Play failed', err);
             }
