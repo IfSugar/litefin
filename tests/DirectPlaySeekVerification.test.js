@@ -140,7 +140,9 @@ test('TizenAVPlayer: DirectPlay seek verification watchdog simulation', () => {
                 (Number(this._avplay?.getCurrentTime()) || 0) / 1000
             );
             const drift = Math.abs(curSec - targetSeconds);
-            const isNear = drift < 15 || curSec >= (targetSeconds - 15);
+            // Allow 15s keyframe drift tolerance based strictly on absolute drift distance.
+            // Avoid curSec >= (targetSeconds - 15) to prevent false positives on backward seeks.
+            const isNear = drift < 15;
 
             if (isNear) {
                 this._clearDirectSeekVerification();
@@ -217,4 +219,36 @@ test('TizenAVPlayer: DirectPlay seek verification watchdog simulation', () => {
     // Now it MUST fail and emit resumeseekfailed for Remux fallback
     assert.ok(failedEvent !== null, 'Must emit resumeseekfailed when position is confirmed stuck');
     assert.equal(failedEvent.data.targetPositionTicks, 1159650000);
+
+    // 5. Simulate backward seek failure: player is at 300s, seeks backwards to 60s
+    // If the hardware demuxer fails to seek and stays stuck at 300s, curSec (300) > (60 - 15)
+    // must NOT fool the watchdog into thinking the seek succeeded.
+    failedEvent = null;
+    fakePlayer._currentTimeSec = 300.0;
+    fakePlayer._avplay.getCurrentTime = () => 300000;
+    fakePlayer._verifyDirectPlaySeek(600000000); // 60s target
+    fakePlayer._seekInProgress = false;
+    fakePlayer._isNativeBuffering = false;
+    fakePlayer._directSeekStartTime = Date.now() - 4000;
+
+    const runTimer4 = activeTimers.get(fakePlayer._directSeekVerifyTimeout);
+    runTimer4();
+
+    assert.ok(failedEvent !== null, 'Must emit resumeseekfailed when backward seek fails to reposition playhead');
+    assert.equal(failedEvent.data.targetPositionTicks, 600000000);
+
+    // 6. Simulate successful backward seek landing near target (e.g., 58.5s for 60s target)
+    failedEvent = null;
+    fakePlayer._currentTimeSec = 58.5;
+    fakePlayer._avplay.getCurrentTime = () => 58500;
+    fakePlayer._verifyDirectPlaySeek(600000000); // 60s target
+    fakePlayer._seekInProgress = false;
+    fakePlayer._isNativeBuffering = false;
+    fakePlayer._directSeekStartTime = Date.now() - 4000;
+
+    const runTimer5 = activeTimers.get(fakePlayer._directSeekVerifyTimeout);
+    runTimer5();
+
+    assert.equal(failedEvent, null, 'Must disarm cleanly when backward seek lands near target');
+    assert.equal(fakePlayer._directSeekTargetSec, null, 'Guard must disarm after successful backward seek');
 });

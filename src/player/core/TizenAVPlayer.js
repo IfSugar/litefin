@@ -1313,10 +1313,17 @@ export class TizenAVPlayer {
                 // DirectPlay Seek Verification Disarm:
                 // If a DirectPlay seek verification guard is active, disarm it
                 // as soon as rendered display frames confirm arrival near the target.
+                // We evaluate absolute drift to verify the hardware demuxer landed
+                // within keyframe tolerance. We deliberately avoid checking
+                // currentTime >= (target - 15), because when seeking backwards from
+                // a later timestamp, an unexecuted or stuck seek would falsely report
+                // success and disarm the recovery watchdog prematurely.
                 // ─────────────────────────────────────────────────────────────
                 if (this._directSeekTargetSec !== null) {
+                    // Compute absolute distance between active presentation clock and seek target
                     const drift = Math.abs(currentTime - this._directSeekTargetSec);
-                    if (drift < 15 || currentTime >= (this._directSeekTargetSec - 15)) {
+                    // Disarm only when playhead position arrives within GOP keyframe tolerance
+                    if (drift < 15) {
                         log.debug(`[DirectSeekVerify] Display presentation confirmed at ${currentTime.toFixed(2)}s (target: ${this._directSeekTargetSec.toFixed(2)}s) — guard disarmed`);
                         this._clearDirectSeekVerification();
                     }
@@ -2084,9 +2091,13 @@ export class TizenAVPlayer {
             this.getCurrentTime(),
             (Number(this._avplay?.getCurrentTime()) || 0) / 1000
         );
+        // Measure drift between actual hardware decoder position and target
         const drift = Math.abs(curSec - targetSeconds);
-        // Allow 15s keyframe drift tolerance (typical max GOP length)
-        const isNear = drift < 15 || curSec >= (targetSeconds - 15);
+        // Allow 15s keyframe drift tolerance (typical max GOP interval for compressed streams).
+        // Must evaluate absolute drift exclusively: checking curSec >= (targetSeconds - 15)
+        // produces a false-positive whenever seeking backwards and the hardware decoder
+        // fails to seek, remaining stuck at a later presentation timestamp.
+        const isNear = drift < 15;
 
         // Success condition: Playhead reached target region
         if (isNear) {
