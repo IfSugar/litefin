@@ -51,6 +51,12 @@ const isDtsSupported = () => {
 
 const SEEK_THRESHOLD_MS = 1000; // Minimum seek difference to trigger seek
 
+/** HLS.js fatal network errors retried (1 s, 2 s, 4 s apart) before giving up. */
+const HLS_MAX_NETWORK_RETRIES = 3;
+
+/** HLS.js fatal media errors: a decoder reset, then a codec swap, once per window each. */
+const HLS_MEDIA_RECOVERY_WINDOW_MS = 3000;
+
 /**
  * Rejection for a load abandoned by stop() or a newer play(). Named
  * 'AbortError' like a DOM abort, so JellyfinPlayer treats it as a cancel.
@@ -125,6 +131,9 @@ export class HtmlVideoPlayer {
 
         // Media element error that HLS.js is recovering from (one recovery per HLS.js session)
         this._hlsRecoveringError = null;
+
+        // { hls, onError } — bounded recovery of the current HLS.js instance, for <video> errors
+        this._hlsElementErrorHandler = null;
 
         // Aspect ratio mode ('auto' | 'zoom' | 'stretch')
         this._aspectRatio = 'auto';
@@ -649,46 +658,40 @@ export class HtmlVideoPlayer {
                 }
             });
 
-            hls.on(Hls.Events.ERROR, (event, data) => {
-                if (data.details === 'bufferStalledError' && !data.fatal) {
-                    log.warn('HLS buffer low (non-fatal):', data.buffer);
+            // -----------------------------------------------------------------
+            // Unrecoverable HLS.js error: before playback started it rejects
+            // play(); afterwards it is reported as a backend 'error' event so
+            // JellyfinPlayer can escalate or show the error dialog.
+            // -----------------------------------------------------------------
+            const failHls = (reason) => {
+                log.error('Fatal HLS error, cannot recover:', reason.message);
+                if (this._hlsPlayer === hls) {
+                    this._hlsPlayer = null;
+                }
+                try {
+                    hls.destroy();
+                } catch (e) {
+                    log.warn('HLS.js destroy threw', e);
+                }
+                if (!resolved) {
+                    rejectOnce(reason);
                     return;
                 }
-
-                if (!data.fatal) {
-                    if (data.details === 'fragLoadError') {
-                        log.warn('[HLS] Non-fatal fragLoadError — waiting 2s for transcoder, then retrying');
-                        setTimeout(() => {
-                            if (this._hlsPlayer === hls) {
-                                hls.startLoad();
-                            }
-                        }, 2000);
-                        return;
+                this.onEvent({
+                    type: 'error',
+                    data: {
+                        code: reason.code || 0,
+                        name: 'HLS_FATAL_ERROR',
+                        message: reason.message,
+                        isNetworkError: Boolean(reason.isNetworkError)
                     }
-                    log.warn('HLS non-fatal error:', data);
-                    return;
-                }
+                });
+            };
 
-                log.error('HLS error:', data);
-
-                if (data.fatal) {
-                    switch (data.type) {
-                        case Hls.ErrorTypes.NETWORK_ERROR:
-                            log.info('Attempting to recover from network error');
-                            hls.startLoad();
-                            break;
-                        case Hls.ErrorTypes.MEDIA_ERROR:
-                            log.info('Attempting to recover from media error');
-                            hls.recoverMediaError();
-                            break;
-                        default:
-                            log.error('Fatal HLS error, cannot recover');
-                            hls.destroy();
-                            rejectOnce(new Error('HLS playback failed'));
-                            break;
-                    }
-                }
-            });
+            const errorHandling = this._createHlsErrorHandler(hls, failHls);
+            hls.on(Hls.Events.ERROR, errorHandling.onError);
+            hls.on(Hls.Events.FRAG_LOADED, errorHandling.onFragLoaded);
+            this._hlsElementErrorHandler = { hls, onError: errorHandling.onError };
 
             // Listen for the first segment buffered — triggers play()
             hls.on(Hls.Events.BUFFER_APPENDED, onBufferAppended);
@@ -725,6 +728,86 @@ export class HtmlVideoPlayer {
                 }
             }, 8000);
         });
+    }
+
+    /**
+     * Bounded recovery for one HLS.js instance (same policy as WebOSPlayer).
+     *
+     * - Non-fatal errors: HLS.js retries them itself; nothing to do here.
+     * - Fatal network errors: retried with backoff (1 s, 2 s, 4 s); an HTTP
+     *   4xx/5xx response or a fourth failure in a row gives up. A loaded
+     *   fragment resets the count.
+     * - Fatal media errors: recoverMediaError(), then swapAudioCodec() +
+     *   recoverMediaError(), each at most once per 3 s window (jellyfin-web's
+     *   policy); a third error inside the window gives up.
+     * - Other fatal errors give up straight away.
+     *
+     * @private
+     * @param {Hls} hls
+     * @param {Function} fail - (error) => void, called when recovery is exhausted
+     * @returns {{onError: Function, onFragLoaded: Function}} HLS.js event handlers
+     */
+    _createHlsErrorHandler(hls, fail) {
+        let networkRetries = 0;
+        let lastDecoderReset = 0;
+        let lastCodecSwap = 0;
+
+        const onError = (event, data) => {
+            if (!data.fatal) {
+                if (data.details === 'bufferStalledError') {
+                    log.warn('HLS buffer low (non-fatal):', data.buffer);
+                } else {
+                    log.warn('HLS non-fatal error:', data.details);
+                }
+                return;
+            }
+            log.error('HLS fatal error:', data.type, data.details);
+
+            if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+                const status = data.response?.code || 0;
+                if (status >= 400 || networkRetries >= HLS_MAX_NETWORK_RETRIES) {
+                    const error = new Error(`HLS network error (${data.details}${status ? `, HTTP ${status}` : ''})`);
+                    error.code = 2;
+                    error.isNetworkError = true;
+                    fail(error);
+                    return;
+                }
+                const delay = 1000 * Math.pow(2, networkRetries);
+                networkRetries++;
+                log.info(`Retrying HLS load in ${delay} ms (attempt ${networkRetries}/${HLS_MAX_NETWORK_RETRIES})`);
+                setTimeout(() => {
+                    if (this._hlsPlayer === hls) hls.startLoad();
+                }, delay);
+                return;
+            }
+
+            if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+                const now = Date.now();
+                if (now - lastDecoderReset > HLS_MEDIA_RECOVERY_WINDOW_MS) {
+                    lastDecoderReset = now;
+                    log.info('Attempting to recover from media error');
+                    hls.recoverMediaError();
+                } else if (now - lastCodecSwap > HLS_MEDIA_RECOVERY_WINDOW_MS) {
+                    lastCodecSwap = now;
+                    log.info('Attempting to recover from media error with audio codec swap');
+                    hls.swapAudioCodec();
+                    hls.recoverMediaError();
+                } else {
+                    const error = new Error(`HLS media error (${data.details})`);
+                    error.code = 3;
+                    fail(error);
+                }
+                return;
+            }
+
+            fail(new Error(`HLS playback failed (${data.details})`));
+        };
+
+        const onFragLoaded = () => {
+            networkRetries = 0;
+        };
+
+        return { onError, onFragLoaded };
     }
 
     /**
@@ -2088,13 +2171,6 @@ export class HtmlVideoPlayer {
         const formatted = MediaHelper.formatMediaError(video.error);
         log.error(`HtmlVideoPlayer: Error ${formatted.code} (${formatted.name}): ${formatted.message}`);
 
-        // Try HLS.js recovery for decode errors
-        if (formatted.code === 3 && this._hlsPlayer) {
-            log.info('Attempting HLS.js media error recovery');
-            this._hlsPlayer.recoverMediaError();
-            return;
-        }
-
         const isNetworkError = formatted.code === 2 || /network|connection|pipeline_error_network/i.test(formatted.message);
         const reportError = () => {
             this.onEvent({
@@ -2105,6 +2181,25 @@ export class HtmlVideoPlayer {
                 }
             });
         };
+
+        // ---------------------------------------------------------------------
+        // HLS.js does not recover from errors of the <video> element itself (it
+        // only logs them). A decode error goes through the same bounded recovery
+        // as HLS.js's own fatal media errors — a decoder reset, then a codec swap,
+        // then a reported failure — instead of an unlimited recoverMediaError().
+        // Its 3 s window keeps an element error and an HLS.js error for the same
+        // fault from resetting the decoder twice.
+        // ---------------------------------------------------------------------
+        const hlsHandling = this._hlsElementErrorHandler;
+        if (formatted.code === 3 && this._hlsPlayer && hlsHandling && hlsHandling.hls === this._hlsPlayer) {
+            log.warn('HtmlVideoPlayer: Decode error during HLS.js playback — recovering');
+            hlsHandling.onError(null, {
+                fatal: true,
+                type: Hls.ErrorTypes.MEDIA_ERROR,
+                details: 'mediaElementDecodeError'
+            });
+            return;
+        }
 
         if (this._leaveErrorToHls(video)) {
             // Report it after all if HLS.js has not reset the MediaSource within 10s
@@ -2318,6 +2413,7 @@ export class HtmlVideoPlayer {
             }
             this._hlsPlayer = null;
         }
+        this._hlsElementErrorHandler = null;
     }
 
     /**

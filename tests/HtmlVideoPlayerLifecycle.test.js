@@ -7,7 +7,8 @@ import test from 'node:test';
  * ============================================================================
  * The HTML5 backend (used on LG for "Retry with HTML5") reuses one <video>
  * across items. Timers and one-shot listeners of a playback must end with
- * stop() / the next play(), or they act on the next item.
+ * stop() / the next play(), or they act on the next item. HLS.js recovery
+ * is bounded and failures are reported instead of looping.
  * ============================================================================
  */
 
@@ -65,6 +66,7 @@ globalThis.document = createEventTarget({
 globalThis.fetch = async () => ({ ok: true, text: async () => '#EXTM3U\n' });
 
 const { HtmlVideoPlayer } = await import('../src/player/core/HtmlVideoPlayer.js');
+const { default: Hls } = await import('hls.js');
 
 const mediaSource = {
     MediaStreams: [
@@ -149,4 +151,109 @@ test('HtmlVideoPlayer: the resume follow-up check is cleared by stop()', async (
     t.mock.timers.tick(3000);
 
     assert.ok(!events.includes('resumeseekfailed'));
+});
+
+// ----------------------------------------------------------------------------
+// HLS.js recovery
+// ----------------------------------------------------------------------------
+
+function createFakeHls() {
+    const calls = [];
+    return {
+        calls,
+        startLoad: () => calls.push('startLoad'),
+        recoverMediaError: () => calls.push('recoverMediaError'),
+        swapAudioCodec: () => calls.push('swapAudioCodec')
+    };
+}
+
+const fatal = (type, details, extra = {}) => ({ fatal: true, type, details, ...extra });
+
+test('HtmlVideoPlayer: fatal HLS.js network errors are retried with backoff, then reported', (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const { player } = createPlayer();
+    const hls = createFakeHls();
+    player._hlsPlayer = hls;
+    const failures = [];
+    const { onError } = player._createHlsErrorHandler(hls, (err) => failures.push(err));
+    const networkError = fatal(Hls.ErrorTypes.NETWORK_ERROR, 'fragLoadError');
+
+    for (const delay of [1000, 2000, 4000]) {
+        onError('hlsError', networkError);
+        const before = hls.calls.length;
+        t.mock.timers.tick(delay - 1);
+        assert.strictEqual(hls.calls.length, before, `startLoad() before ${delay} ms`);
+        t.mock.timers.tick(1);
+        assert.strictEqual(hls.calls.length, before + 1, `no startLoad() after ${delay} ms`);
+    }
+    onError('hlsError', networkError);
+    assert.strictEqual(failures.length, 1, 'retried forever');
+    assert.strictEqual(failures[0].isNetworkError, true);
+});
+
+test('HtmlVideoPlayer: an HTTP error is not retried, and a loaded fragment resets the retry budget', () => {
+    const { player } = createPlayer();
+    const hls = createFakeHls();
+    const failures = [];
+    const handler = player._createHlsErrorHandler(hls, (err) => failures.push(err));
+    handler.onError('hlsError', fatal(Hls.ErrorTypes.NETWORK_ERROR, 'manifestLoadError', { response: { code: 500 } }));
+    assert.strictEqual(failures.length, 1);
+    assert.match(failures[0].message, /HTTP 500/);
+
+    const other = player._createHlsErrorHandler(hls, (err) => failures.push(err));
+    for (let i = 0; i < 3; i++) other.onError('hlsError', fatal(Hls.ErrorTypes.NETWORK_ERROR, 'fragLoadError'));
+    other.onFragLoaded();
+    other.onError('hlsError', fatal(Hls.ErrorTypes.NETWORK_ERROR, 'fragLoadError'));
+    assert.strictEqual(failures.length, 1);
+});
+
+test('HtmlVideoPlayer: fatal HLS.js media errors get a decoder reset, then a codec swap, then are reported', (t) => {
+    t.mock.timers.enable({ apis: ['Date'] });
+    const { player } = createPlayer();
+    const hls = createFakeHls();
+    const failures = [];
+    const { onError } = player._createHlsErrorHandler(hls, (err) => failures.push(err));
+    const mediaError = fatal(Hls.ErrorTypes.MEDIA_ERROR, 'bufferAppendError');
+
+    t.mock.timers.tick(10000);
+    onError('hlsError', mediaError);
+    onError('hlsError', mediaError);
+    assert.deepStrictEqual(hls.calls, ['recoverMediaError', 'swapAudioCodec', 'recoverMediaError']);
+    onError('hlsError', mediaError);
+    assert.strictEqual(failures.length, 1);
+    assert.strictEqual(failures[0].code, 3);
+});
+
+test('HtmlVideoPlayer: non-fatal HLS.js errors add no extra loads on top of HLS.js retries', (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const { player } = createPlayer();
+    const hls = createFakeHls();
+    player._hlsPlayer = hls;
+    const { onError } = player._createHlsErrorHandler(hls, () => {});
+    onError('hlsError', { fatal: false, type: Hls.ErrorTypes.NETWORK_ERROR, details: 'fragLoadError' });
+    t.mock.timers.tick(5000);
+    assert.deepStrictEqual(hls.calls, [], 'duplicate segment request to the transcoder');
+});
+
+test('HtmlVideoPlayer: a decode error during HLS.js playback gets the same bounded recovery', (t) => {
+    // HLS.js only logs <video> errors, so the player must recover them itself
+    t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+    t.mock.timers.tick(10000);
+    const { player, events } = createPlayer();
+    const video = player._ensureVideoElement();
+    const hls = createFakeHls();
+    const failures = [];
+    player._hlsPlayer = hls;
+    const handling = player._createHlsErrorHandler(hls, (err) => failures.push(err));
+    player._hlsElementErrorHandler = { hls, onError: handling.onError };
+    video.src = 'blob:hls';
+    video.error = { code: 3, message: 'PIPELINE_ERROR_DECODE' };
+
+    player._onError({ target: video });
+    assert.deepStrictEqual(hls.calls, ['recoverMediaError'], 'decode error not recovered in place');
+    player._onError({ target: video });
+    assert.deepStrictEqual(hls.calls, ['recoverMediaError', 'swapAudioCodec', 'recoverMediaError']);
+    player._onError({ target: video });
+    assert.strictEqual(failures.length, 1, 'a decoder that keeps failing must be reported');
+    assert.ok(!events.includes('error'), 'reported twice');
 });
