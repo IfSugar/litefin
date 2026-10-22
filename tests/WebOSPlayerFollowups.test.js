@@ -14,6 +14,7 @@ import test from 'node:test';
  *   - per-item state does not carry over to the next item (A9)
  *   - no temporary multi-line audio debug dumps (A9)
  *   - a 'stalled' download pause with a full buffer is not a stall (D2)
+ *   - Play after a seek that never reports 'seeked' still starts playback (D7)
  * ============================================================================
  */
 
@@ -471,5 +472,73 @@ test('WebOSPlayer: a stalled download with a full buffer is not reported as buff
     video.readyState = 2;
     video.fire('stalled');
     assert.ok(events.includes('waiting'));
+    await player.stop();
+});
+
+// ----------------------------------------------------------------------------
+// D7 — Play after a seek that never reports 'seeked'
+// ----------------------------------------------------------------------------
+
+test('WebOSPlayer: Play after a seek that never reports seeked still starts playback', async (t) => {
+    // LG C4, paused native-HLS remux: the seek completes only once playback starts
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const { player } = createPlayer();
+    const video = await directPlayStarted(player);
+    video.paused = true;
+    const plays = video.playCalls;
+
+    video.seeking = true;
+    player.unpause();
+    assert.strictEqual(video.playCalls, plays, 'played the stale pre-seek frames straight away');
+    t.mock.timers.tick(400);
+    assert.strictEqual(video.playCalls, plays, 'no time for a seek that lands');
+    t.mock.timers.tick(100);
+    assert.strictEqual(video.playCalls, plays + 1, 'Play queued for a seeked event that never comes');
+
+    // A seek that lands in time plays once, on 'seeked'
+    video.seeking = true;
+    player.unpause();
+    video.seeking = false;
+    video.fire('seeked');
+    t.mock.timers.tick(1000);
+    assert.strictEqual(video.playCalls, plays + 2);
+
+    // Pressing Play again while it is queued starts it at once
+    video.seeking = true;
+    player.unpause();
+    player.unpause();
+    assert.strictEqual(video.playCalls, plays + 3);
+    t.mock.timers.tick(1000);
+    assert.strictEqual(video.playCalls, plays + 3);
+
+    // An explicit pause cancels the queued play
+    player.unpause();
+    player.pause();
+    t.mock.timers.tick(1000);
+    assert.strictEqual(video.playCalls, plays + 3);
+    await player.stop();
+});
+
+test('WebOSPlayer: a Pause that cancels a play queued behind a seek reports the pause', async (t) => {
+    // LG C4: the OSD queued Play after a scrub; the user's next press (taken for a
+    // pause, as playback counted as resumed) cancelled it on the paused element.
+    // No 'pause' event came, so every later press was a pause as well.
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const { player, events } = createPlayer();
+    const video = await directPlayStarted(player);
+    video.paused = true;
+    video.seeking = true;
+    player.unpause();
+    events.length = 0;
+
+    player.pause();
+    assert.deepStrictEqual(events, ['pause']);
+    t.mock.timers.tick(1000);
+    assert.strictEqual(video.paused, true, 'the cancelled play started anyway');
+
+    // A pause of a paused element with nothing queued reports nothing (guard)
+    events.length = 0;
+    player.pause();
+    assert.deepStrictEqual(events, []);
     await player.stop();
 });

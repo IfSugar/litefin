@@ -145,6 +145,13 @@ function describeAudioTracks(tracks) {
     return parts.length ? parts.join(', ') : 'empty';
 }
 
+/**
+ * How long unpause() waits for a pending seek's 'seeked' before it starts
+ * playback anyway: webOS carries out a seek on a paused element only once
+ * playback starts, so for some pipelines that 'seeked' never comes.
+ */
+const SEEK_PLAY_FALLBACK_MS = 500;
+
 /** canPlayType answers by MIME type; they do not change while the app runs. */
 const canPlayTypeCache = Object.create(null);
 
@@ -2100,8 +2107,19 @@ export class WebOSPlayer {
      */
     pause() {
         // Disarm any queued post-seek unpause operations so an explicit pause halts playback
+        const cancelledPlay = this._pendingPlayAfterSeek;
         this._pendingPlayAfterSeek = false;
-        this._videoElement?.pause();
+        const video = this._videoElement;
+        if (!video) return;
+        if (video.paused) {
+            // A play queued behind a seek never started the element, so no 'pause'
+            // event will come. JellyfinPlayer already counts playback as resumed and
+            // took every later Play press for a pause (LG C4: Play did nothing until
+            // the user left the item), so report the pause here.
+            if (cancelledPlay) this.onEvent({ type: 'pause' });
+            return;
+        }
+        video.pause();
     }
 
     /**
@@ -2126,22 +2144,47 @@ export class WebOSPlayer {
          * calling video.play() immediately unpauses playback of the stale pre-seek
          * buffer while the demuxer is still fetching the target keyframe.
          * Queue the play command to execute in _onSeeked once repositioning completes.
+         *
+         * But webOS carries out a seek on a paused element only once playback
+         * starts. On an LG C4, a seek in a paused native-HLS remux never fired
+         * 'seeked': the queued play never ran, the picture stayed frozen at the
+         * new position and Play did nothing. So playback starts anyway when
+         * 'seeked' has not come SEEK_PLAY_FALLBACK_MS later, and at once when
+         * unpause() is asked again while a play is already queued.
          * ====================================================================
          */
         if (this._videoElement.seeking) {
+            if (this._pendingPlayAfterSeek) {
+                log.info('WebOSPlayer: unpause() again while the seek is pending — starting playback now');
+                this._pendingPlayAfterSeek = false;
+                this._playVideo();
+                return;
+            }
             log.debug('WebOSPlayer: seek in progress — queueing play on seeked');
             this._pendingPlayAfterSeek = true;
+            this._timer(() => {
+                if (!this._pendingPlayAfterSeek) return;
+                this._pendingPlayAfterSeek = false;
+                log.info(`WebOSPlayer: no 'seeked' ${SEEK_PLAY_FALLBACK_MS} ms after unpause() — starting playback, which completes the seek`);
+                this._playVideo();
+            }, SEEK_PLAY_FALLBACK_MS);
             return;
         }
 
         // Seek is not in flight — clear queued play flag
         this._pendingPlayAfterSeek = false;
+        this._playVideo();
+    }
 
-        this._videoElement.play().catch(err => {
+    /** video.play() with the autoplay-policy retry. @private */
+    _playVideo() {
+        const video = this._videoElement;
+        if (!video) return;
+        video.play().catch(err => {
             if (err.name === 'NotAllowedError') {
                 log.warn('WebOSPlayer: unpause blocked — retrying muted');
-                this._videoElement.muted = true;
-                this._videoElement.play().catch(e => log.error('WebOSPlayer: muted retry failed', e));
+                video.muted = true;
+                video.play().catch(e => log.error('WebOSPlayer: muted retry failed', e));
             } else {
                 log.error('WebOSPlayer: unpause failed', err);
             }
