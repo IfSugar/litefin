@@ -120,3 +120,58 @@ test('JellyfinPlayer: a failed quality change also clears the restarting state',
     await player.setMaxBitrate(8000000);
     assert.strictEqual(player._isRestarting, false);
 });
+
+// ----------------------------------------------------------------------------
+// C2 — resume failure ladder
+// ----------------------------------------------------------------------------
+
+function resumeFailed(player) {
+    player._handleBackendEvent({ type: 'resumeseekfailed', data: { targetPositionTicks: 6000000000 } });
+}
+
+test('JellyfinPlayer: a failed direct-play resume restarts as a remux and arms the watchdog', async () => {
+    const player = createPlayer(['_handleBackendEvent(event) {']);
+    resumeFailed(player);
+    await settle();
+    assert.strictEqual(player.playCalls[0].playbackMode, 'remux');
+    assert.deepStrictEqual(player.armedWatchdogs, [6000000000]);
+});
+
+test('JellyfinPlayer: a failed remux resume escalates to a transcode', async () => {
+    const player = createPlayer(['_handleBackendEvent(event) {']);
+    player._currentPlayMethod = 'Remux';
+    resumeFailed(player);
+    await settle();
+    assert.strictEqual(player.playCalls[0].playbackMode, 'transcode');
+    assert.deepStrictEqual(player.armedWatchdogs, []);
+});
+
+test('JellyfinPlayer: the one-retry limit of a transcoded resume does not leak into later restarts', async () => {
+    const player = createPlayer(['_handleBackendEvent(event) {']);
+    player._currentPlayMethod = 'Transcode';
+    resumeFailed(player);
+    await settle();
+    assert.strictEqual(player.playCalls.length, 1);
+
+    // A later restart of the item (e.g. a quality change) builds new options from the retried ones
+    player._currentPlayOptions = { ...player.playCalls[0], startPositionTicks: 9000000000 };
+    resumeFailed(player);
+    await settle();
+    assert.strictEqual(player.playCalls.length, 2, 'the retry limit blocked a later restart for good');
+});
+
+test('JellyfinPlayer: a failed transcode resume never restarts as a remux, and retries only once', async () => {
+    const player = createPlayer(['_handleBackendEvent(event) {']);
+    player._currentPlayMethod = 'Transcode';
+    resumeFailed(player);
+    await settle();
+    assert.strictEqual(player.playCalls.length, 1);
+    assert.strictEqual(player.playCalls[0].playbackMode, 'transcode');
+    assert.deepStrictEqual(player.armedWatchdogs, []);
+
+    // The retried transcode fails to land as well: keep playing, no loop
+    player._currentPlayOptions = player.playCalls[0];
+    resumeFailed(player);
+    await settle();
+    assert.strictEqual(player.playCalls.length, 1);
+});

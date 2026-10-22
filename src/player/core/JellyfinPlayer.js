@@ -1390,6 +1390,10 @@ export class JellyfinPlayer extends EventEmitter {
         this._remuxWatchdogTargetTicks = null;
         this._remuxWatchdogInitialTime = null;
 
+        // Play options of the one fresh transcode a failed transcoded resume gets
+        // (see the resumeseekfailed handler); any other restart creates new options
+        this._resumeRetryOptions = null;
+
         // ────────────────────────────────────────────────────────────────────
         // DirectPlay Failure Escalation Guard
         // ────────────────────────────────────────────────────────────────────
@@ -2010,8 +2014,23 @@ export class JellyfinPlayer extends EventEmitter {
                                    this._currentPlayMethod === 'DirectStream' ||
                                    this._currentPlayMethod === 'Remux';
 
+            // -----------------------------------------------------------------
+            // Never step down the ladder. A transcode exists because the TV
+            // cannot decode the original video; restarting it as a remux sent
+            // that video again (remux mode drops all CodecProfiles), which then
+            // stalled into the remux watchdog → transcode → resumeseekfailed
+            // loop. A transcode gets one fresh transcode at the target; if
+            // that fails to land too, playback continues where it is.
+            // -----------------------------------------------------------------
+            const isTranscoding = this._playbackMode === 'transcode' || this._currentPlayMethod === 'Transcode';
+            if (isTranscoding && this._resumeRetryOptions && this._currentPlayOptions === this._resumeRetryOptions) {
+                log.warn('resumeseekfailed: Transcoded resume already retried once — continuing from the current position');
+                return;
+            }
+            const restartMode = isAlreadyRemux || isTranscoding ? 'transcode' : 'remux';
+
             log.warn('resumeseekfailed: Resume failed at', (currentPosTicks / 10000000).toFixed(2),
-                `s (isAlreadyRemux: ${isAlreadyRemux}). Restarting with ${isAlreadyRemux ? 'Transcode' : 'Remux'} at target`,
+                `s (playMethod: ${this._currentPlayMethod}, mode: ${this._playbackMode}). Restarting with ${restartMode} at target`,
                 (effectiveTicks / 10000000).toFixed(2), 's');
 
             if (this._currentPlayOptions && !this._isRestarting) {
@@ -2022,13 +2041,12 @@ export class JellyfinPlayer extends EventEmitter {
                     subtitleStreamIndex: this._currentSubtitleStreamIndex,
                     secondarySubtitleStreamIndex: this._currentSecondarySubtitleStreamIndex,
                     startPositionTicks: effectiveTicks,
-                    playbackMode: 'remux'
+                    playbackMode: restartMode
                 };
-
-                // If already remuxing/direct streaming, escalate straight to full transcode
-                if (isAlreadyRemux) {
-                    restartOptions.playbackMode = 'transcode';
-                }
+                // Identity, not a flag on the options: a flag would be copied into
+                // every later restart of the item (quality, audio, burn-in) and
+                // block their resume fallback for good
+                this._resumeRetryOptions = isTranscoding ? restartOptions : null;
 
                 this._currentPlayOptions = restartOptions;
                 this._lastPlayOptions = restartOptions;
@@ -2048,7 +2066,7 @@ export class JellyfinPlayer extends EventEmitter {
                         // watchdog will detect lack of progress and escalate to transcode.
                         // Not when the user stopped playback while the restart loaded.
                         // -------------------------------------------------------------
-                        if (started !== false && !isAlreadyRemux) {
+                        if (started !== false && restartMode === 'remux') {
                             this._armRemuxStuckWatchdog(effectiveTicks);
                         }
                     } catch (e) {
