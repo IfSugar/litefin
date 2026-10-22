@@ -43,7 +43,7 @@ function createPlayer({ playResult }) {
         PlayerSettings: { get: () => undefined }
     });
     const methods = vm.runInContext(
-        `${playerEventSource}\n({\n${['_handleBackendEvent(event) {', 'async _playAfterRestartPause(options, pauseMs) {']
+        `${playerEventSource}\n({\n${['_handleBackendEvent(event) {', 'async _playAfterRestartPause(options, pauseMs) {', '_clearResumeAdvanceWait() {']
             .map(extractMethod)
             .join(',\n')}\n})`,
         context

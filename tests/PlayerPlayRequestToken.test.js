@@ -40,6 +40,7 @@ const METHODS = [
     'async stop() {',
     'async setMaxBitrate(bitrate) {',
     '_abandonSupersededPlay(stage) {',
+    '_clearResumeAdvanceWait() {',
     'async _playAfterRestartPause(options, pauseMs) {'
 ];
 

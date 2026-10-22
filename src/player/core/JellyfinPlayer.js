@@ -55,6 +55,14 @@ const REMUX_WATCHDOG_RECHECK_MS = 4000;
 const REMUX_WATCHDOG_MAX_MS = 30000;
 const REMUX_STUCK_BUFFER_AHEAD_S = 10;
 
+/**
+ * Longest the loading screen stays up after a resume landed while playback
+ * has not started advancing (see _isAwaitingResumeAdvance). Matches the
+ * remux watchdog's limit, after which a start that is still not moving is
+ * handed over to the escalation paths.
+ */
+const RESUME_ADVANCE_WAIT_MS = REMUX_WATCHDOG_MAX_MS;
+
 // ────────────────────────────────────────────────────────────────────────────
 // Audio Capability Detection Helpers
 // ────────────────────────────────────────────────────────────────────────────
@@ -1440,6 +1448,8 @@ export class JellyfinPlayer extends EventEmitter {
         
         this._transcodingOffsetTicks = 0; // Offset for transcoded streams that start at 0
         this._pendingStartPositionTicks = null; // Target position before first frame
+        this._resumeLastTime = null; // Last landed position while waiting for a resume to advance
+        this._resumeAdvanceTimer = null; // Limit on that wait
         this._isSeeking = false; // Track seeking state to suppress loading screens during seek
         this._seekFailsafeTimeout = null; // Failsafe timer to clear _isSeeking if seeked event is lost
 
@@ -1839,16 +1849,13 @@ export class JellyfinPlayer extends EventEmitter {
 
                 // Check if we have arrived near our target resume position (within 15s GOP keyframe tolerance)
                 if (Math.abs(effectiveCurrentTime - targetSec) < 15 || effectiveCurrentTime >= (targetSec - 15)) {
-                    this._pendingStartPositionTicks = null;
-                    log.info(`Resume verified at ${effectiveCurrentTime}s. Dismissing loading screen.`);
-
-                    // Synchronize logical paused state — playback has safely engaged at the target position
-                    this._isPaused = false;
-                    this._subtitleManager?.play();
-
-                    // Emit PLAY followed by PLAYING so OSD and higher layers reflect active playback immediately
-                    this.emit(PlayerEvent.PLAY);
-                    this.emit(PlayerEvent.PLAYING);
+                    // A media element reports the landed position as soon as the seek
+                    // completes, before a frame is decoded: keep the loading screen up
+                    // until time actually moves, instead of a black screen meanwhile
+                    if (this._isAwaitingResumeAdvance(effectiveCurrentTime)) {
+                        return;
+                    }
+                    this._finishResumeWait(`Resume verified at ${effectiveCurrentTime}s. Dismissing loading screen.`);
                     // allow timeupdate to proceed below
                 } else if (Date.now() - (this._resumeWaitStartTime || 0) > 3500 || 
                            (effectiveCurrentTime >= 2.0 && effectiveCurrentTime < (targetSec - 15))) {
@@ -1858,6 +1865,7 @@ export class JellyfinPlayer extends EventEmitter {
                     // Release the pending start lock immediately so the OSD seekbar, timeline,
                     // and SubtitleManager track the real decoder position instead of freezing for 15 seconds.
                     this._pendingStartPositionTicks = null;
+                    this._clearResumeAdvanceWait();
                     log.warn(`Resume fallback: decoder playing at ${effectiveCurrentTime}s but expected ${targetSec}s. Syncing UI to decoder.`);
 
                     // Restore active playing state even upon fallback
@@ -2055,6 +2063,7 @@ export class JellyfinPlayer extends EventEmitter {
         if (event.type === 'resumeseekfailed') {
             // Clear pending start position lock immediately so UI doesn't remain trapped
             this._pendingStartPositionTicks = null;
+            this._clearResumeAdvanceWait();
             const targetTicks = event.data?.targetPositionTicks;
             const currentPosTicks = this.getCurrentPositionTicks();
             const effectiveTicks = targetTicks || currentPosTicks;
@@ -2346,6 +2355,77 @@ export class JellyfinPlayer extends EventEmitter {
     // ========================================================================
     // Remux Stuck Watchdog & Transcode Escalation
     // ========================================================================
+
+    /**
+     * Whether a resume that landed near its target should keep the loading
+     * screen up because playback has not advanced yet.
+     *
+     * The <video> backends (webOS, HTML5) report the landed position as soon
+     * as the seek completes, before any frame is decoded. A high-bitrate
+     * remux took 8+ s from there to its first frame on an LG C4, all of it a
+     * black screen with the spinner already gone. So the first report only
+     * starts the wait; the next report that moves forward ends it. Native
+     * players (AVPlay, ExoPlayer, Movi) report time only while playing, and a
+     * paused start (autoPlay false) never advances, so neither waits.
+     *
+     * @private
+     * @param {number} time - Reported media position (seconds)
+     * @returns {boolean} True while the loading screen should stay up
+     */
+    _isAwaitingResumeAdvance(time) {
+        const reportsSeekLanding = this._backendType === 'webos' || this._backendType === 'html5';
+        if (!reportsSeekLanding || this._currentPlayOptions?.autoPlay === false) {
+            return false;
+        }
+
+        if (this._resumeLastTime === null || this._resumeLastTime === undefined) {
+            this._resumeLastTime = time;
+            log.info(`Resume landed at ${time}s. Keeping the loading screen until playback advances.`);
+
+            // Never hold the loading screen for good on a start that does not move
+            const request = this._playRequestId;
+            this._resumeAdvanceTimer = setTimeout(() => {
+                this._resumeAdvanceTimer = null;
+                if (request !== this._playRequestId || this._pendingStartPositionTicks === null) return;
+                this._finishResumeWait(
+                    `Resume landed at ${time}s but playback has not advanced for ${RESUME_ADVANCE_WAIT_MS / 1000}s. Dismissing loading screen.`
+                );
+            }, RESUME_ADVANCE_WAIT_MS);
+            return true;
+        }
+
+        const advanced = time > this._resumeLastTime + 0.05;
+        this._resumeLastTime = time;
+        return !advanced;
+    }
+
+    /**
+     * End the resume wait: the loading screen goes and playback state is synced.
+     * @private
+     * @param {string} message - Log line
+     */
+    _finishResumeWait(message) {
+        this._clearResumeAdvanceWait();
+        this._pendingStartPositionTicks = null;
+        log.info(message);
+
+        // Synchronize logical paused state — playback has safely engaged at the target position
+        this._isPaused = false;
+        this._subtitleManager?.play();
+
+        // Emit PLAY followed by PLAYING so OSD and higher layers reflect active playback immediately
+        this.emit(PlayerEvent.PLAY);
+        this.emit(PlayerEvent.PLAYING);
+    }
+
+    /** @private */
+    _clearResumeAdvanceWait() {
+        if (this._resumeAdvanceTimer) {
+            clearTimeout(this._resumeAdvanceTimer);
+            this._resumeAdvanceTimer = null;
+        }
+        this._resumeLastTime = null;
+    }
 
     /**
      * Arm the remux stuck-detection watchdog after falling back from DirectPlay seek failure.
@@ -3095,6 +3175,7 @@ export class JellyfinPlayer extends EventEmitter {
 
             // Save the intended start position for the UI before the backend initializes.
             this._pendingStartPositionTicks = originalStartPositionTicks > 0 ? originalStartPositionTicks : null;
+            this._clearResumeAdvanceWait();
 
             if (this._pendingStartPositionTicks) {
                 // For native client-side seeking, start the 15-second wall-clock timeout immediately
@@ -3569,6 +3650,7 @@ export class JellyfinPlayer extends EventEmitter {
     async stop() {
         // Ends any play() request still loading (see play())
         this._playRequestId = (this._playRequestId || 0) + 1;
+        this._clearResumeAdvanceWait();
 
         const item = this._currentItem;
         const positionTicks = this.getCurrentPositionTicks();
