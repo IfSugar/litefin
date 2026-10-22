@@ -254,6 +254,8 @@ export class WebOSPlayer {
 
         // ---- TV video window override for old webOS (see _applyOutputWindow) ----
         this._outputWindowState = 'unknown'; // 'unknown' | 'ok' | 'failed'
+        /** Items in a row on which the TV rejected the video window */
+        this._outputWindowFailedItems = 0;
         this._outputWindowActive = false;
         this._outputWindowFailures = 0;
         this._outputWindowRetryTimer = null;
@@ -2172,6 +2174,13 @@ export class WebOSPlayer {
         this._outputWindowActive = false;
         this._outputWindowFailures = 0;
         this._outputWindowRerun = false;
+        // One rejected item (a pipeline that never registered, a busy service) must not
+        // turn the output window off for the rest of the app session; two in a row do
+        if (this._outputWindowState === 'failed' && this._outputWindowFailedItems < 2) {
+            this._outputWindowState = 'unknown';
+        }
+        // A recovery kick on this item must not hold back stall recovery on the next one
+        this._lastRecoveryKickTime = 0;
 
         const video = this._videoElement;
 
@@ -3325,6 +3334,7 @@ export class WebOSPlayer {
                 log.info('WebOSPlayer: video output window accepted by the TV for mode', mode);
             }
             this._outputWindowState = 'ok';
+            this._outputWindowFailedItems = 0;
             this._outputWindowFailures = 0;
             this._outputWindowActive = mode !== 'auto';
 
@@ -3345,6 +3355,7 @@ export class WebOSPlayer {
 
         log.warn('WebOSPlayer: TV rejected the video output window, using layout geometry instead');
         this._outputWindowState = 'failed';
+        this._outputWindowFailedItems++;
         this._outputWindowActive = false;
         this._stopOutputWindowTimers();
         this._fitVideoBox();

@@ -11,6 +11,7 @@ import test from 'node:test';
  *   - canPlayType probes are not repeated on every play (A8)
  *   - a failed backward seek is detected (A9)
  *   - native subtitle tracks stay off and cue offsets never double (A9)
+ *   - per-item state does not carry over to the next item (A9)
  * ============================================================================
  */
 
@@ -381,4 +382,31 @@ test('WebOSPlayer: a Jellyfin subtitle index never selects an Hls.js subtitle re
     player._applyInitialTracks({ mediaSource, subtitleStreamIndex: 3 }, hls);
     assert.strictEqual(hls.subtitleTrack, -1);
     await player.stop();
+});
+
+test('WebOSPlayer: one rejected TV video window does not switch it off for later items', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
+    const luna = useLunaOutputWindow(t);
+    const { player } = createPlayer();
+    const rejectedItem = async () => {
+        await zoomedPlayback(player);
+        player._outputWindowFailures = 4; // the fifth rejection gives up on this item
+        player._fitVideoBox();
+        await luna.replyAll({ returnValue: false });
+        assert.strictEqual(player._outputWindowState, 'failed');
+        await player.stop();
+    };
+
+    await rejectedItem();
+    assert.ok(player._canUseOutputWindow(), 'one rejected item turned the TV video window off for the app session');
+    await rejectedItem();
+    assert.ok(!player._canUseOutputWindow(), 'tried again on every item although the TV keeps rejecting it');
+});
+
+test('WebOSPlayer: a stall recovery kick on one item does not hold back recovery on the next', async () => {
+    const { player } = createPlayer();
+    await directPlayStarted(player);
+    player._lastRecoveryKickTime = Date.now();
+    await player.stop();
+    assert.strictEqual(player._lastRecoveryKickTime, 0);
 });
