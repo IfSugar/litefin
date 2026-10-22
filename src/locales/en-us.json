@@ -209,6 +209,7 @@
     "LabelTextSize": "Text size",
     "LabelTextWeight": "Text weight",
     "LabelTrackGain": "Track Gain",
+    "LabelTranscodeReasons": "Transcode Reasons",
     "LabelTranscodingInfo": "Transcoding Info",
     "LabelUseBatchLatestPlugin": "Use Plugin for Home Libraries",
     "LabelUsername": "Username",

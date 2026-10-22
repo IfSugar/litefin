@@ -2888,8 +2888,8 @@ export class JellyfinPlayer extends EventEmitter {
             if (wasForcedRemux && playMethod === 'Transcode') {
                 playMethod = this._resolveForcedRemuxPlayMethod(mediaSource, playMethod);
                 if (playMethod !== 'Transcode') {
-                     // CRITICAL: Update the MediaSource object itself so that
-                     // MediaHelper.getPlayMethod() returns 'Remux' for the OSD/UI later.
+                     // MediaHelper.getPlayMethod() still reads this source as a
+                     // transcode; Playback Info uses getCurrentPlayMethod()
                      mediaSource.SupportsDirectStream = true;
                 }
             }
@@ -5254,6 +5254,17 @@ export class JellyfinPlayer extends EventEmitter {
      */
     getCurrentMediaSource() {
         return this._currentMediaSource;
+    }
+
+    /**
+     * Play method resolved for the current item: 'DirectPlay', 'Remux',
+     * 'DirectStream' or 'Transcode'. Unlike MediaHelper.getPlayMethod(), it
+     * includes the forced-remux correction (_resolveForcedRemuxPlayMethod)
+     * and the strict transcode mode.
+     * @returns {string|null} null before the first play
+     */
+    getCurrentPlayMethod() {
+        return this._currentPlayMethod || null;
     }
 
     /**
