@@ -67,6 +67,7 @@ globalThis.document = createEventTarget({
 globalThis.fetch = async () => ({ ok: true, text: async () => '#EXTM3U\n' });
 
 const { HtmlVideoPlayer } = await import('../src/player/core/HtmlVideoPlayer.js');
+const { platformInfo } = await import('../src/utils/PlatformInfo.js');
 const { default: Hls } = await import('hls.js');
 
 const mediaSource = {
@@ -555,4 +556,23 @@ test('HtmlVideoPlayer: a real stall still gets the recovery kick', async (t) => 
     assert.ok(events.includes('waiting'));
     t.mock.timers.tick(3500);
     assert.ok(video.currentTime > 600, 'no recovery kick');
+});
+
+test('HtmlVideoPlayer: the stall recovery kick on webOS jumps far enough for its media engine', async (t) => {
+    // WebOSPlayer: the webOS engine ignores a 10 ms jump inside the decoded frame
+    t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+    const platform = platformInfo._platform;
+    platformInfo._platform = 'webos';
+    t.after(() => (platformInfo._platform = platform));
+    const { player } = createPlayer();
+    await playAndStart(player, { url: 'http://srv/Videos/a/stream.mp4', mediaSource });
+    const video = player._videoElement;
+    video.fire('playing');
+    video.currentTime = 600;
+    video.readyState = 2;
+    bufferedAhead(video, 0);
+
+    video.fire('stalled');
+    t.mock.timers.tick(3500);
+    assert.strictEqual(video.currentTime, 600.5);
 });

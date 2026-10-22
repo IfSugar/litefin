@@ -66,6 +66,10 @@ const STALLED_HEALTHY_BUFFER_S = 3;
 /** Playhead movement (s) during the stall check that shows playback went on by itself. */
 const STALL_PROGRESS_S = 0.1;
 
+/** Stall recovery jump (s); webOS ignores sub-frame jumps (see WebOSPlayer). */
+const STALL_KICK_S = 0.01;
+const STALL_KICK_WEBOS_S = 0.5;
+
 /** HLS.js fatal network errors retried (1 s, 2 s, 4 s apart) before giving up. */
 const HLS_MAX_NETWORK_RETRIES = 3;
 
@@ -2579,8 +2583,10 @@ export class HtmlVideoPlayer {
                 }
 
                 try {
-                    // Small jump to trigger buffer re-evaluation
-                    this._videoElement.currentTime += 0.01;
+                    // Small jump to trigger buffer re-evaluation. The webOS media
+                    // engine ignores a jump inside the decoded frame, so it gets the
+                    // 0.5 s WebOSPlayer uses, enough to re-initialise the decoder.
+                    this._videoElement.currentTime += platformInfo.isWebOS ? STALL_KICK_WEBOS_S : STALL_KICK_S;
                 } catch (e) {
                     log.error('Stall recovery kick failed:', e);
                 }
