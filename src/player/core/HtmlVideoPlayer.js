@@ -127,7 +127,8 @@ export class HtmlVideoPlayer {
         // Subtitle state
         this._currentSubtitleIndex = -1;
         this._subtitleOffset = 0;
-        this._previousOffset = 0; // Tracks the last applied offset for delta calc
+        /** @type {WeakMap<TextTrack, number>} Offset the cues of each native track currently carry */
+        this._cueOffsets = new WeakMap();
 
         // Bound event handlers (for cleanup)
         this._boundHandlers = {};
@@ -315,7 +316,7 @@ export class HtmlVideoPlayer {
 
         // Reset subtitle offset for new playback session
         this._subtitleOffset = 0;
-        this._previousOffset = 0;
+        this._cueOffsets = new WeakMap();
 
         const video = this._ensureVideoElement();
 
@@ -1956,10 +1957,6 @@ export class HtmlVideoPlayer {
 
         this._currentSubtitleIndex = index;
 
-        // Reset offset state when switching tracks
-        this._subtitleOffset = 0;
-        this._previousOffset = 0;
-
         // Handle native text tracks (HLS-embedded VTT, etc.)
         const textTracks = video.textTracks;
         if (textTracks) {
@@ -1967,6 +1964,11 @@ export class HtmlVideoPlayer {
                 textTracks[i].mode = i === index ? 'showing' : 'hidden';
             }
         }
+
+        // A track switch resets the offset; cues of a track shown earlier are
+        // moved back by the offset they still carry
+        this._subtitleOffset = 0;
+        this._applySubtitleOffset();
 
         // Note: ASS/PGS rendering is planned for Phase 2/3 via SubtitleManager
     }
@@ -2230,40 +2232,49 @@ export class HtmlVideoPlayer {
 
     /**
      * Set subtitle offset by shifting VTT cue timing.
-     * Uses delta-based approach: calculates the difference between the new
-     * offset and the previously applied offset, then shifts all cue times.
      * Positive offset = subtitles display later, negative = earlier.
-     * @param {number} seconds - Offset in seconds
+     * @param {number} seconds - New absolute offset in seconds
      */
     setSubtitleOffset(seconds) {
         this._subtitleOffset = seconds;
+        this._applySubtitleOffset();
+    }
 
+    /**
+     * Bring the cues of every showing native track to _subtitleOffset. The
+     * offset each track's cues already carry is kept per track in _cueOffsets,
+     * so only the difference is added: switching tracks and back never doubles it.
+     * @private
+     */
+    _applySubtitleOffset() {
+        const seconds = this._subtitleOffset;
         const video = this._videoElement;
         if (!video || !video.textTracks) {
-            log.debug(`Subtitle offset stored: ${seconds}s (no video/tracks)`);
+            log.debug(`HtmlVideoPlayer: Subtitle offset stored: ${seconds}s (no video/tracks)`);
             return;
         }
 
-        // Calculate the relative delta from the last applied offset
-        const delta = seconds - this._previousOffset;
-        if (delta === 0) return; // No change needed
-
-        // Apply the delta to all 'showing' text tracks' cues
+        // Iterate through all native text tracks attached to the video element
         for (let i = 0; i < video.textTracks.length; i++) {
             const track = video.textTracks[i];
+            // Only apply offsets to actively rendered tracks with parsed cues
             if (track.mode !== 'showing' || !track.cues) continue;
 
-            // Shift every cue's start and end time by the delta
+            // Compute relative delta required to bring this track from its current offset to target
+            const delta = seconds - (this._cueOffsets.get(track) || 0);
+            if (delta === 0) continue;
+
+            // Shift every individual cue's start and end timestamps by the delta
             for (let j = 0; j < track.cues.length; j++) {
                 const cue = track.cues[j];
                 cue.startTime += delta;
                 cue.endTime += delta;
             }
-        }
 
-        // Update the tracked offset for next delta calculation
-        this._previousOffset = seconds;
-        log.debug(`Subtitle offset applied: ${seconds}s (delta: ${delta}s)`);
+            // Update tracked offset for this track instance
+            this._cueOffsets.set(track, seconds);
+            log.debug(`HtmlVideoPlayer: Subtitle offset applied: ${seconds}s (delta: ${delta}s)`);
+        }
     }
 
     // ========================================================================

@@ -615,3 +615,48 @@ test('HtmlVideoPlayer: a Pause that cancels a play queued behind a seek reports 
     player.pause();
     assert.deepStrictEqual(events, [], 'reported a pause with nothing queued');
 });
+
+test('HtmlVideoPlayer: switching subtitle tracks and back does not double the cue offset', async () => {
+    // Instantiate player and start playback
+    const { player } = createPlayer();
+    await playAndStart(player, { url: 'http://srv/Videos/a/stream.mp4', mediaSource });
+    const video = player._videoElement;
+
+    // Construct mock text tracks with initial timing cues
+    const tracks = [
+        {
+            mode: 'showing',
+            cues: [
+                { startTime: 10, endTime: 12, text: 'cue 1' },
+                { startTime: 20, endTime: 22, text: 'cue 2' }
+            ]
+        },
+        {
+            mode: 'showing',
+            cues: [
+                { startTime: 10, endTime: 12, text: 'cue un' }
+            ]
+        }
+    ];
+    video.textTracks = tracks;
+
+    // Select track 0 and shift its cue timestamps by +2 seconds
+    player.setSubtitleStreamIndex(0);
+    player.setSubtitleOffset(2);
+    assert.strictEqual(tracks[0].cues[0].startTime, 12, 'offset applied to track 0');
+
+    // Switch active stream to track 1, then switch back to track 0
+    player.setSubtitleStreamIndex(1);
+    player.setSubtitleStreamIndex(0);
+
+    // Track switch resets the stream offset to 0; cues must return to original baseline
+    assert.strictEqual(tracks[0].cues[0].startTime, 10, 'switching back must reset cues to baseline 0 offset');
+
+    // Re-applying +2s offset must compute delta against baseline and not double the offset
+    player.setSubtitleOffset(2);
+    assert.strictEqual(tracks[0].cues[0].startTime, 12, 're-applying offset must not double to 14');
+    assert.strictEqual(tracks[0].cues[0].endTime, 14);
+
+    await player.stop();
+});
+
