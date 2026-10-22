@@ -136,3 +136,23 @@ test('webOS profile: AV1 stays off on webOS 5 without a decoder, on webOS 6+ reg
     });
     assert.ok(!directPlayVideoCodecs(disabled.buildJellyfinProfile()).has('av1'));
 });
+
+function transcodingAudioChannels(profile) {
+    return new Set(profile.TranscodingProfiles.filter((p) => p.Type === 'Video' && p.MaxAudioChannels !== undefined).map((p) => Number(p.MaxAudioChannels)));
+}
+
+test('webOS profile: DTS passthrough does not raise the channel count of transcoded audio', async () => {
+    // LG C4: DTS:X 7.1.4 transcoded to 8-channel E-AC-3 in HLS played as hiss
+    const { buildJellyfinProfile } = await loadProfile({ webosVersion: 25, answer: answers({ dtsc: 'probably' }) });
+    const profile = buildJellyfinProfile();
+    assert.deepStrictEqual([...transcodingAudioChannels(profile)], [6]);
+    const sevenOne = profile.CodecProfiles.some((p) => (p.Conditions || []).some((c) => c.Property === 'AudioChannels' && c.Value === '8'));
+    assert.ok(sevenOne, 'a DTS 7.1 bitstream should still direct play');
+});
+
+test('webOS profile: explicit channel settings still decide the transcoded channel count (guard)', async () => {
+    const allowed = await loadProfile({ webosVersion: 25, answer: () => '', settings: { allowedAudioChannels: 8 } });
+    assert.deepStrictEqual([...transcodingAudioChannels(allowed.buildJellyfinProfile())], [8]);
+    const transcode = await loadProfile({ webosVersion: 25, answer: () => '', settings: { transcodeMaxAudioChannels: 2 } });
+    assert.deepStrictEqual([...transcodingAudioChannels(transcode.buildJellyfinProfile())], [2]);
+});

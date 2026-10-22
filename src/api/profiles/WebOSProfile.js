@@ -472,12 +472,18 @@ export function buildJellyfinProfile(options = {}) {
     // Transcode Maximum Audio Channels Resolution
     // -------------------------------------------------------------------------
     // Dictates the maximum audio channels emitted during server transcode.
-    // If not set explicitly (-1 / auto), falls back to Direct Play channel cap.
+    // If not set explicitly (-1 / auto), falls back to the user's channel
+    // setting, else to the TV's own channel count. The 8 channels allowed above
+    // for DTS/TrueHD are for passing those bitstreams through untouched; a
+    // transcode is decoded by the TV itself. On an LG C4 a DTS:X 7.1.4 track
+    // transcoded to 8-channel E-AC-3 in HLS played as hiss.
     // -------------------------------------------------------------------------
     const userTransChannels = PlayerSettings.get('transcodeMaxAudioChannels');
     const transMaxAudioChannels = (userTransChannels && userTransChannels > 0)
         ? userTransChannels
-        : maxAudioChannels;
+        : (userMaxChannels && userMaxChannels > 0)
+            ? userMaxChannels
+            : caps.maxAudioChannels;
 
     // -------------------------------------------------------------------------
     // fMP4 HLS preference resolution
