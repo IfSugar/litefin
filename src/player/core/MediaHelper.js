@@ -388,6 +388,20 @@ export const MediaHelper = {
     },
 
     /**
+     * Start position baked into a progressive (non-HLS) transcode URL. HLS
+     * playlists cover the whole timeline, so the server leaves the start out
+     * of their URL and their PlaybackInfo does not depend on it.
+     * @param {Object} mediaSource
+     * @returns {number|null} Ticks (0 when the URL names none), or null when
+     *   the source has no progressive transcoding URL
+     */
+    getProgressiveTranscodeStartTicks(mediaSource) {
+        if (!mediaSource?.TranscodingUrl || this.isHls(mediaSource)) return null;
+        const match = /[?&]StartTimeTicks=(\d+)/i.exec(mediaSource.TranscodingUrl);
+        return match ? Number(match[1]) : 0;
+    },
+
+    /**
      * Get subtitle track URL from the Jellyfin API.
      *
      * Mirrors jellyfin-web's getTextTrackUrl() — trust the server-provided

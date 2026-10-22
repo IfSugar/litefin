@@ -62,7 +62,6 @@ function createPlayer(signatures, { settings = {}, globals = {} } = {}) {
         _isRestarting: false,
         _audioRestartInProgress: false,
         _isSeeking: false,
-        _pendingTranscodeSeekTicks: null,
         _pendingStartPositionTicks: null,
         _remuxWatchdogActive: false,
         _directPlayEscalated: false,

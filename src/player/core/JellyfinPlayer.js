@@ -1424,7 +1424,6 @@ export class JellyfinPlayer extends EventEmitter {
         this._initialPlaybackMode = 'auto';
         
         this._transcodingOffsetTicks = 0; // Offset for transcoded streams that start at 0
-        this._pendingTranscodeSeekTicks = null; // Target position for initial transcode seek
         this._pendingStartPositionTicks = null; // Target position before first frame
         this._isSeeking = false; // Track seeking state to suppress loading screens during seek
         this._seekFailsafeTimeout = null; // Failsafe timer to clear _isSeeking if seeked event is lost
@@ -1795,32 +1794,6 @@ export class JellyfinPlayer extends EventEmitter {
         if (this._remuxWatchdogActive && event.type === PlayerEvent.PAUSE) {
             log.info('[JellyfinPlayer] Playback paused during remux evaluation; disarming stuck watchdog.');
             this._clearRemuxStuckWatchdog();
-        }
-
-        // Intercept events if we are waiting for the initial Transcode Seek
-        if (this._pendingTranscodeSeekTicks !== null) {
-            // If we receive a TIME_UPDATE with a valid time > 0, we know playback has really started
-            // and it's safe to perform our seek.
-            if (event.type === PlayerEvent.TIME_UPDATE && event.data?.time > 0) {
-                 const target = this._pendingTranscodeSeekTicks;
-                 this._pendingTranscodeSeekTicks = null; // Clear flag FIRST
-                 
-                 log.info('TranscodeSeek: Initial playback confirmed. Seeking to', target);
-                 this.seek(target);
-                 
-                 // Transfer responsibility to the native resume validation block
-                 // so the UI loading spinner stays up until the seek completes
-                 this._pendingStartPositionTicks = target;
-                 this._resumeWaitStartTime = Date.now();
-                 return;
-            }
-            
-            // Suppress PLAYING and TIME_UPDATE events while waiting to trigger the transcode seek
-            if (event.type === PlayerEvent.PLAY || 
-                event.type === PlayerEvent.PLAYING || 
-                event.type === PlayerEvent.TIME_UPDATE) {
-                return;
-            }
         }
 
         // Intercept events if we are waiting for a native client-side Resume Seek to complete
@@ -4945,7 +4918,10 @@ export class JellyfinPlayer extends EventEmitter {
      * @returns {number}
      */
     getCurrentPositionMs() {
-        return (this._backend?.getCurrentTime() ?? 0) * 1000;
+        // A progressive transcode started at an offset reports time from 0;
+        // seek() takes media positions, like getCurrentPositionTicks() returns
+        const backendMs = (this._backend?.getCurrentTime() ?? 0) * 1000;
+        return backendMs + (this._transcodingOffsetTicks || 0) / 10000;
     }
 
     /**
@@ -5162,10 +5138,19 @@ export class JellyfinPlayer extends EventEmitter {
      * @private
      */
     async _getPlaybackInfo(options, deviceProfile, manualBitrate = null) {
+        // Read max bitrate: priority to deviceProfile if passed (it contains the logic)
+        // Fallback to manualBitrate or 120Mbps
+        const maxBitrate = deviceProfile?.MaxStreamingBitrate || manualBitrate || 120000000;
+
         // ---------------------------------------------------------------------
         // Check for Zero-Latency Prewarmed PlaybackInfo
         // ---------------------------------------------------------------------
-        const prewarmedPromise = prewarmManager.consumePlaybackInfo(options.itemId, options);
+        // The prewarm is only reused when it was requested with the same
+        // bitrate limit (a quality change in the OSD lowers it)
+        const prewarmedPromise = prewarmManager.consumePlaybackInfo(options.itemId, {
+            ...options,
+            maxStreamingBitrate: maxBitrate
+        });
         if (prewarmedPromise) {
             log.info('[Prewarm] Zero-Latency Cache Hit! Awaiting pre-fetched PlaybackInfo for:', options.itemId);
             try {
@@ -5205,6 +5190,9 @@ export class JellyfinPlayer extends EventEmitter {
                         prewarmedContainer === 'matroska' ||
                         prewarmedContainer.includes('mkv');
 
+                    // Start position of a prewarmed progressive transcode (null for HLS and direct play)
+                    const prewarmedStartTicks = MediaHelper.getProgressiveTranscodeStartTicks(firstSource);
+
                     // Resolve whether the active audio track is actually playable natively on this backend
                     const activeAudioTrack = firstSource.MediaStreams?.find(
                         (s) => s.Type === 'Audio' && s.Index === Number(options.audioStreamIndex)
@@ -5228,6 +5216,12 @@ export class JellyfinPlayer extends EventEmitter {
                         log.info(
                             '[Prewarm] Prewarmed PlaybackInfo cached DirectPlay/DirectStream, but active mode requires Transcode. Discarding in favor of fresh transcode request.'
                         );
+                    } else if (prewarmedStartTicks !== null && prewarmedStartTicks !== (options.startPositionTicks || 0)) {
+                        // A progressive (non-HLS) transcode starts at the position in its URL;
+                        // HLS playlists always cover the whole timeline
+                        log.info(
+                            '[Prewarm] Prewarmed progressive transcode starts at another position (e.g. "start from beginning"). Discarding in favor of a fresh request.'
+                        );
                     } else {
                         return prewarmedData;
                     }
@@ -5238,10 +5232,6 @@ export class JellyfinPlayer extends EventEmitter {
         }
 
         const url = `${this.serverUrl}/Items/${options.itemId}/PlaybackInfo?UserId=${options.userId}`;
-
-        // Read max bitrate: priority to deviceProfile if passed (it contains the logic)
-        // Fallback to manualBitrate or 120Mbps
-        const maxBitrate = deviceProfile?.MaxStreamingBitrate || manualBitrate || 120000000;
 
         /*
          * Audio items (Music, Audiobooks) do NOT have subtitle streams.

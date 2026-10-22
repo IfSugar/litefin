@@ -53,7 +53,6 @@ function createPlayer({ playResult }) {
         armedWatchdogs: [],
         _isRestarting: false,
         _isSeeking: false,
-        _pendingTranscodeSeekTicks: null,
         _pendingStartPositionTicks: null,
         _remuxWatchdogActive: false,
         _backendType: 'webos',
