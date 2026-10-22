@@ -121,6 +121,21 @@ const HLS_MAX_NETWORK_RETRIES = 3;
  */
 const HLS_MEDIA_RECOVERY_WINDOW_MS = 3000;
 
+/**
+ * Minimum real-time spacing of forwarded timeupdate events. Chromium fires
+ * timeupdate about every 250 ms, and webOS's WebAppMgr raises that to about
+ * every 150 ms (--max-timeupdate-event-frequency=150; 156 ms measured on
+ * webOS 25). A gap below both keeps every one; only bursts are dropped.
+ */
+const TIMEUPDATE_MIN_INTERVAL_MS = 100;
+
+/**
+ * Monotonic milliseconds for interval throttling. Date.now() follows the TV's
+ * clock, which can step backwards on a time sync and stall the throttle.
+ * @returns {number}
+ */
+const monotonicNow = () =>
+    typeof performance !== 'undefined' && typeof performance.now === 'function' ? performance.now() : Date.now();
 
 // ============================================================================
 // Playback Errors
@@ -219,8 +234,9 @@ export class WebOSPlayer {
         /** @type {ResizeObserver|null} Refits the video box when the container resizes */
         this._containerObserver = null;
 
-        // ---- Timeupdate throttle —— only emit at ~250 ms intervals ----
+        // ---- Timeupdate throttle —— see _onTimeUpdate() ----
         this._lastTimeUpdateTicks = 0;
+        this._lastTimeUpdateAt = 0;
 
         // ---- Stall recovery timer ----
         this._stallTimer = null;
@@ -3347,9 +3363,19 @@ export class WebOSPlayer {
 
         const currentTime  = this.getCurrentTime();
         const currentTicks = Math.floor(currentTime * 10000000);
-        // Throttle to ~250 ms to avoid hammering the main thread on slow TVs
-        if (Math.abs(currentTicks - this._lastTimeUpdateTicks) > 2500000) {
+        const now = monotonicNow();
+
+        // ---------------------------------------------------------------------
+        // Throttle by elapsed time, not by media time. Chromium fires timeupdate
+        // about every 250 ms, so requiring the media time to move by MORE than
+        // 0.25 s dropped roughly every other event, and external subtitles
+        // (ticked only from these events) appeared / cleared up to ~0.5 s late.
+        // A jump of a second or more (seek, new stream) is forwarded at once.
+        // ---------------------------------------------------------------------
+        const jumped = Math.abs(currentTicks - this._lastTimeUpdateTicks) >= 10000000;
+        if (jumped || now - this._lastTimeUpdateAt >= TIMEUPDATE_MIN_INTERVAL_MS) {
             this._lastTimeUpdateTicks = currentTicks;
+            this._lastTimeUpdateAt = now;
             this.onEvent({ type: 'timeupdate', data: { time: currentTime } });
         }
     }
