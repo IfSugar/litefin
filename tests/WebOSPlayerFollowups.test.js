@@ -13,6 +13,7 @@ import test from 'node:test';
  *   - native subtitle tracks stay off and cue offsets never double (A9)
  *   - per-item state does not carry over to the next item (A9)
  *   - no temporary multi-line audio debug dumps (A9)
+ *   - a 'stalled' download pause with a full buffer is not a stall (D2)
  * ============================================================================
  */
 
@@ -442,4 +443,33 @@ test('WebOSPlayer: audio track diagnostics are one debug line per step, not mult
     const fragments = lines.filter((l) => /^\s+[-*] /.test(l.text));
     assert.deepStrictEqual(fragments.map((l) => l.text), [], 'one log line per track and field');
     assert.ok(!lines.some((l) => l.text.includes('[AudioDebug]')));
+});
+
+// ----------------------------------------------------------------------------
+// D2 — 'stalled' with a full buffer
+// ----------------------------------------------------------------------------
+
+function bufferedAhead(video, seconds) {
+    video.buffered = { length: 1, start: () => 0, end: () => video.currentTime + seconds };
+}
+
+test('WebOSPlayer: a stalled download with a full buffer is not reported as buffering', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const { player, events } = createPlayer();
+    const video = await directPlayStarted(player);
+    video.currentTime = 600;
+    video.readyState = 4;
+    bufferedAhead(video, 45);
+    events.length = 0;
+
+    // LG C4: 'stalled' every ~6 s with 45 s buffered while playback runs on
+    video.fire('stalled');
+    assert.ok(!events.includes('waiting'), 'buffering reported (PlayerPage pings the server 3.5 s later)');
+
+    // A real underrun still is
+    bufferedAhead(video, 0.4);
+    video.readyState = 2;
+    video.fire('stalled');
+    assert.ok(events.includes('waiting'));
+    await player.stop();
 });

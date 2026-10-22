@@ -167,6 +167,12 @@ function canPlayTypeCached(type) {
     return canPlayTypeCache[type];
 }
 
+/**
+ * Buffer ahead (s) above which a 'stalled' event is the download pausing,
+ * not playback running dry.
+ */
+const STALLED_HEALTHY_BUFFER_S = 3;
+
 /** Refresh of an accepted TV video window: every 3 s for the first five, then every 30 s. */
 const OUTPUT_WINDOW_REFRESH_MS = 3000;
 const OUTPUT_WINDOW_SLOW_REFRESH_MS = 30000;
@@ -3644,7 +3650,23 @@ export class WebOSPlayer {
 
     /** @private */
     _onStalled() {
-        log.warn('WebOSPlayer: Playback stalled');
+        // ----------------------------------------------------------------
+        // 'stalled' only says that no media data arrived for about 3 s. With
+        // a full buffer that is the pipeline pausing its download: on an LG
+        // C4 it fired every ~6 s with 45 s buffered, and each one became a
+        // 'waiting', so PlayerPage's watchdog pinged the server 3.5 s later
+        // although playback never stopped. A real underrun also fires
+        // 'waiting'. The local stall check still runs: it does nothing while
+        // the playhead keeps moving.
+        // ----------------------------------------------------------------
+        const video = this._videoElement;
+        const bufferAhead = this._getBufferAhead();
+        const downloadIdle = Boolean(video) && video.readyState >= 3 && bufferAhead >= STALLED_HEALTHY_BUFFER_S;
+        if (downloadIdle) {
+            log.debug('WebOSPlayer: stalled with', bufferAhead.toFixed(1), 's buffered — download paused, not an underrun');
+        } else {
+            log.warn('WebOSPlayer: Playback stalled');
+        }
 
         // Same guard as _onWaiting — a 'stalled' event immediately at load
         // time is the WebOS pipeline warming up, not a genuine underrun.
@@ -3652,7 +3674,7 @@ export class WebOSPlayer {
         // once we know the player is already producing frames.
         if (!this._started) return;
 
-        this.onEvent({ type: 'waiting' });
+        if (!downloadIdle) this.onEvent({ type: 'waiting' });
         this._startStallCheck();
     }
 
