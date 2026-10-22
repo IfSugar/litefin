@@ -57,6 +57,15 @@ const RESUME_SEEK_PLAY_GRACE_MS = 1000;
 /** How long the picture/sound stay hidden for a resume seek that 'playing' overtook. */
 const RESUME_REVEAL_FAILSAFE_MS = 10000;
 
+/**
+ * Buffer ahead (s) above which a 'stalled' event is the download pausing,
+ * not playback running dry.
+ */
+const STALLED_HEALTHY_BUFFER_S = 3;
+
+/** Playhead movement (s) during the stall check that shows playback went on by itself. */
+const STALL_PROGRESS_S = 0.1;
+
 /** HLS.js fatal network errors retried (1 s, 2 s, 4 s apart) before giving up. */
 const HLS_MAX_NETWORK_RETRIES = 3;
 
@@ -2442,9 +2451,40 @@ export class HtmlVideoPlayer {
 
     /** @private */
     _onStalled() {
-        log.warn('Playback stalled');
-        this.onEvent({ type: 'waiting' });
+        // 'stalled' only says that no media data arrived for about 3 s. With a
+        // full buffer that is the download pausing, not an underrun (a real one
+        // also fires 'waiting'): no spinner and no network-health ping for it.
+        // The stall check still runs and does nothing while the playhead moves.
+        const video = this._videoElement;
+        const bufferAhead = this._getBufferAhead();
+        if (video && video.readyState >= 3 && bufferAhead >= STALLED_HEALTHY_BUFFER_S) {
+            log.debug('Stalled with', bufferAhead.toFixed(1), 's buffered — download paused, not an underrun');
+        } else {
+            log.warn('Playback stalled');
+            this.onEvent({ type: 'waiting' });
+        }
         this._startStallCheck();
+    }
+
+    /**
+     * Seconds buffered ahead of the playhead in the range that contains it.
+     * @private
+     * @returns {number}
+     */
+    _getBufferAhead() {
+        const video = this._videoElement;
+        if (!video || !video.buffered) return 0;
+        const current = video.currentTime;
+        try {
+            for (let i = 0; i < video.buffered.length; i++) {
+                if (video.buffered.start(i) <= current && current < video.buffered.end(i)) {
+                    return Math.max(0, video.buffered.end(i) - current);
+                }
+            }
+        } catch (e) {
+            // buffered can be briefly unreadable while the source changes
+        }
+        return 0;
     }
 
     /** @private */
@@ -2513,8 +2553,16 @@ export class HtmlVideoPlayer {
         }
 
         // If we stay in waiting/stalled for too long on Tizen, try to kick it
+        const video = this._videoElement;
+        const timeAtStall = video ? video.currentTime : 0;
         this._stallTimer = setTimeout(() => {
+            this._stallTimer = null;
             if (this._videoElement && !this._videoElement.paused && this._started) {
+                // The playhead moved on: playback recovered by itself (or never stopped)
+                if (this._videoElement === video && Math.abs(video.currentTime - timeAtStall) >= STALL_PROGRESS_S) {
+                    log.debug('Playback moved on during the stall check — no recovery kick');
+                    return;
+                }
                 log.warn('Playback still stalled after 3.5s - attempting recovery kick');
                 
                 // If navigator turned offline during stall, fire network error immediately

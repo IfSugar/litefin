@@ -511,3 +511,48 @@ test('HtmlVideoPlayer: a resume seek overtaken by playing that never lands still
     assert.strictEqual(player._resumeVideoSuppressed, false, 'picture hidden for good');
 });
 
+
+// ----------------------------------------------------------------------------
+// 'stalled' with a full buffer
+// ----------------------------------------------------------------------------
+
+function bufferedAhead(video, seconds) {
+    video.buffered = { length: 1, start: () => 0, end: () => video.currentTime + seconds };
+}
+
+test('HtmlVideoPlayer: a stalled download with a full buffer is neither buffering nor kicked', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+    const { player, events } = createPlayer();
+    await playAndStart(player, { url: 'http://srv/Videos/a/stream.mp4', mediaSource });
+    const video = player._videoElement;
+    video.fire('playing');
+    video.currentTime = 600;
+    video.readyState = 4;
+    bufferedAhead(video, 45);
+    events.length = 0;
+
+    video.fire('stalled');
+    assert.ok(!events.includes('waiting'), 'buffering reported (PlayerPage pings the server 3.5 s later)');
+
+    // Playback runs on: no recovery seek
+    video.currentTime = 603.5;
+    t.mock.timers.tick(3500);
+    assert.strictEqual(video.currentTime, 603.5, 'recovery kick seeked a playing video');
+});
+
+test('HtmlVideoPlayer: a real stall still gets the recovery kick', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+    const { player, events } = createPlayer();
+    await playAndStart(player, { url: 'http://srv/Videos/a/stream.mp4', mediaSource });
+    const video = player._videoElement;
+    video.fire('playing');
+    video.currentTime = 600;
+    video.readyState = 2;
+    bufferedAhead(video, 0);
+    events.length = 0;
+
+    video.fire('stalled');
+    assert.ok(events.includes('waiting'));
+    t.mock.timers.tick(3500);
+    assert.ok(video.currentTime > 600, 'no recovery kick');
+});
