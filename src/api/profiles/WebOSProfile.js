@@ -85,10 +85,54 @@ function getProbedCodecs() {
             supportsCodec('video/mpeg') ||
             supportsCodec('video/mp2t; codecs="mp2v.20.2"'),
         mpegts: supportsCodec('video/mp2t'),
-        mp2: v.canPlayType('audio/mpeg; codecs="mp2"') !== '' || v.canPlayType('audio/mp4; codecs="mp2"') !== ''
+        mp2: v.canPlayType('audio/mpeg; codecs="mp2"') !== '' || v.canPlayType('audio/mp4; codecs="mp2"') !== '',
+        dts: probeDts(v)
     };
 
     return _codecCache;
+}
+
+/**
+ * The registered MP4 sample entries for DTS: core (dtsc), DTS-HD (dtsh), DTS-HD
+ * lossless (dtsl), DTS Express (dtse) and DTS:X (dtsx, dtsy). There are no codec
+ * strings for DTS in MKV or MPEG-TS, and a type without a codec can only ever
+ * answer 'maybe', so these are the only questions with a definite answer.
+ */
+const DTS_PROBE_TYPES = [
+    'audio/mp4; codecs="dtsc"',
+    'audio/mp4; codecs="dtsh"',
+    'audio/mp4; codecs="dtsl"',
+    'audio/mp4; codecs="dtse"',
+    'audio/mp4; codecs="dtsx"',
+    'audio/mp4; codecs="dtsy"'
+];
+
+/**
+ * Asks the TV's media pipeline whether it plays DTS.
+ *
+ * Only a definite 'probably' counts as support. An empty answer is treated as
+ * "unknown", not "no": LG's Chromium builds answer '' for codecs they still
+ * pass through over HDMI eARC (the same mis-reporting the enableEac3 setting
+ * exists for), so the probe can only turn DTS on, never off.
+ *
+ * @param {HTMLVideoElement} video - Element to call canPlayType on
+ * @returns {boolean|null} true when the pipeline confirms DTS, null when inconclusive
+ */
+function probeDts(video) {
+    const answers = {};
+    let confirmed = false;
+    for (const type of DTS_PROBE_TYPES) {
+        let answer = '';
+        try {
+            answer = video.canPlayType(type) || '';
+        } catch (e) {
+            answer = '';
+        }
+        answers[type] = answer;
+        if (answer === 'probably') confirmed = true;
+    }
+    log.info('WebOSProfile: DTS canPlayType probe:', JSON.stringify(answers));
+    return confirmed ? true : null;
 }
 
 function getWebOSVersion() {
@@ -223,18 +267,22 @@ export function getDeviceCapabilities() {
     // ────────────────────────────────────────────────────────────────────────
     // DTS Passthrough & Decode Evaluation
     // ────────────────────────────────────────────────────────────────────────
-    // LG disabled DTS decode support on WebOS 5.0 through 22, however, TVs can
-    // still pass-through DTS over eARC. Since the user settings return strings
-    // ('enable', 'disable', 'auto'), a strict comparison against boolean true
-    // would always evaluate to false, rendering auto-detection non-functional.
-    // We now evaluate this setting string correctly:
+    // The user setting is a string ('enable', 'disable', 'auto'):
     //   - 'enable' yields true
     //   - 'disable' yields false
-    //   - 'auto' falls back to true on older WebOS < 5.0 platforms which have
-    //     native DTS decoding capabilities.
+    //   - 'auto' is true when the media pipeline confirms DTS via canPlayType,
+    //     otherwise it falls back to the version table: webOS < 5 decodes DTS.
+    //
+    // The version table alone is wrong in both directions. LG dropped DTS for
+    // the 2020–2022 models (webOS 5 to 22) but brought it back on 2023 OLEDs
+    // and QNED85+, which report webOS 23+. And the version comes from the
+    // Chromium build, i.e. the software: a 2022 set upgraded through webOS
+    // Re:New reports 23/24 without the DTS hardware. The probe can only add
+    // DTS, see probeDts().
     // ────────────────────────────────────────────────────────────────────────
     const dtsSetting = PlayerSettings.get('enableDts');
-    const dts = dtsSetting === 'enable' ? true : dtsSetting === 'disable' ? false : webosVersion < 5;
+    const dts =
+        dtsSetting === 'enable' ? true : dtsSetting === 'disable' ? false : codecs.dts === true || webosVersion < 5;
 
     const manualRes = PlayerSettings.get('maxResolution');
     if (manualRes && manualRes !== 'auto') {
