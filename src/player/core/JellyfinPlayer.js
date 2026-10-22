@@ -5433,14 +5433,17 @@ export class JellyfinPlayer extends EventEmitter {
             await new Promise(resolve => setTimeout(resolve, 500));
 
             await this.play(playOptions);
-            
+
             // No manual seek needed - server starts transcode at correct offset
             // and MediaHelper handles the time reporting offset.
-
-            // _isRestarting is reset to false in play() success
         } catch (e) {
             log.error('Failed to restart with new bitrate:', e);
-            this._isRestarting = false; // Ensure reset on error
+        } finally {
+            // play() never clears this flag. Left set, it disabled every later
+            // recovery path (escalation, resume fallback, remux watchdog),
+            // silenced every later play() error, and stop() stopped emitting
+            // STOP events, for the rest of the session.
+            this._isRestarting = false;
         }
     }
 
