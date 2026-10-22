@@ -370,10 +370,47 @@ export const MediaHelper = {
             }
         }
 
+        // A bitrate limit (e.g. a lower quality picked in the OSD) re-encodes the
+        // video with only ContainerBitrateExceedsLimit as the reason, and with
+        // the source codec still in VideoCodec
+        if (isVideoDirect && this.isVideoOverTranscodeLimits(mediaSource)) {
+            isVideoDirect = false;
+        }
+
         return {
             isVideoDirect,
             isAudioDirect
         };
+    },
+
+    /**
+     * Whether the source video exceeds the limits its transcoding URL sets, so
+     * the server re-encodes it instead of copying it. The server copies video
+     * only when it fits them (EncodingHelper.CanStreamCopyVideo). Every
+     * transcoding URL carries a VideoBitrate (the bitrate limit minus the
+     * audio), remuxes included, so only a source above it counts. Unknown
+     * source values are not counted, so a remux is never labelled a transcode
+     * on a guess.
+     *
+     * @param {Object} mediaSource
+     * @returns {boolean}
+     */
+    isVideoOverTranscodeLimits(mediaSource) {
+        const url = mediaSource?.TranscodingUrl;
+        const video = mediaSource?.MediaStreams?.find((s) => s.Type === 'Video');
+        if (!url || !video) return false;
+
+        const limit = (name) => {
+            const match = new RegExp(`[?&]${name}=(\\d+)`, 'i').exec(url);
+            return match ? Number(match[1]) : null;
+        };
+        const exceeds = (value, max) => max !== null && value > 0 && value > max;
+
+        return (
+            exceeds(video.BitRate, limit('VideoBitrate')) ||
+            exceeds(video.Width, limit('MaxWidth')) ||
+            exceeds(video.Height, limit('MaxHeight'))
+        );
     },
 
 

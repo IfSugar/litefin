@@ -2282,6 +2282,8 @@ export class JellyfinPlayer extends EventEmitter {
      *   is added, yet the server still copies the video because no target
      *   codec is left. So the video is copied when the TranscodingUrl names
      *   no target video codec (or 'copy').
+     * - Either way, a source above the URL's VideoBitrate/MaxWidth/MaxHeight
+     *   is re-encoded (a quality limit below the source bitrate).
      *
      * @private
      * @param {Object} mediaSource
@@ -2289,6 +2291,11 @@ export class JellyfinPlayer extends EventEmitter {
      * @returns {string} 'Remux' or 'DirectStream' when the video is copied, else playMethod
      */
     _resolveForcedRemuxPlayMethod(mediaSource, playMethod) {
+        // A source above the URL's bitrate or size limits is re-encoded even in remux mode
+        if (MediaHelper.isVideoOverTranscodeLimits(mediaSource)) {
+            return playMethod;
+        }
+
         const url = mediaSource.TranscodingUrl || '';
         const reasons = mediaSource.TranscodingReasons;
         const hasOnlyDirectPlayError = reasons === 'DirectPlayError' ||

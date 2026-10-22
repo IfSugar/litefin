@@ -259,9 +259,13 @@ const mediaHelperSource = readFileSync(new URL('../src/player/core/MediaHelper.j
     /\r\n/g,
     '\n'
 );
-const transcodeStatusStart = mediaHelperSource.indexOf('\n    getTranscodeStatus(mediaSource) {');
+function extractHelperMethod(signature) {
+    const start = mediaHelperSource.indexOf(`\n    ${signature}`);
+    assert.ok(start !== -1, `method not found: ${signature}`);
+    return mediaHelperSource.slice(start + 1, mediaHelperSource.indexOf('\n    },\n', start) + 6);
+}
 const MediaHelper = vm.runInNewContext(
-    `({${mediaHelperSource.slice(transcodeStatusStart + 1, mediaHelperSource.indexOf('\n    },\n', transcodeStatusStart) + 6)}})`
+    `({${['getTranscodeStatus(mediaSource) {', 'isVideoOverTranscodeLimits(mediaSource) {'].map(extractHelperMethod).join(',\n')}})`
 );
 
 const hevcEac3 = [
