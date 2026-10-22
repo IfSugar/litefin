@@ -12,6 +12,7 @@ import test from 'node:test';
  *   - a failed backward seek is detected (A9)
  *   - native subtitle tracks stay off and cue offsets never double (A9)
  *   - per-item state does not carry over to the next item (A9)
+ *   - no temporary multi-line audio debug dumps (A9)
  * ============================================================================
  */
 
@@ -124,6 +125,8 @@ globalThis.fetch = async () => ({ ok: true, text: async () => '#EXTM3U\n' });
 
 const { WebOSPlayer } = await import('../src/player/core/WebOSPlayer.js');
 const { platformInfo } = await import('../src/utils/PlatformInfo.js');
+const { logger } = await import('../src/utils/Logger.js');
+const { eventBus } = await import('../src/core/EventBus.js');
 
 const mediaSource = {
     Container: 'mkv',
@@ -409,4 +412,34 @@ test('WebOSPlayer: a stall recovery kick on one item does not hold back recovery
     player._lastRecoveryKickTime = Date.now();
     await player.stop();
     assert.strictEqual(player._lastRecoveryKickTime, 0);
+});
+
+test('WebOSPlayer: audio track diagnostics are one debug line per step, not multi-line info dumps', async (t) => {
+    const lines = [];
+    const onLog = (entry) => {
+        if (entry.module === 'WebOSPlayer') lines.push({ level: entry.level, text: String(entry.args[0]) });
+    };
+    const consoleLog = console.log;
+    console.log = () => {};
+    logger.setEnabled(true);
+    eventBus.on('logger:log', onLog);
+    t.after(() => {
+        eventBus.off('logger:log', onLog);
+        logger.setEnabled(false);
+        console.log = consoleLog;
+    });
+
+    const { player } = createPlayer();
+    const video = await directPlayStarted(player);
+    video.audioTracks = [
+        { id: '1', language: 'eng', label: 'English', enabled: true },
+        { id: '2', language: 'bul', label: 'Bulgarian', enabled: false }
+    ];
+    player._applyInitialTracks({ mediaSource, audioStreamIndex: 1, audioTrackListIndex: 0 }, null);
+    player._resolveNativeAudioIndex(0);
+    await player.stop();
+
+    const fragments = lines.filter((l) => /^\s+[-*] /.test(l.text));
+    assert.deepStrictEqual(fragments.map((l) => l.text), [], 'one log line per track and field');
+    assert.ok(!lines.some((l) => l.text.includes('[AudioDebug]')));
 });

@@ -129,6 +129,22 @@ const HLS_MEDIA_RECOVERY_WINDOW_MS = 3000;
  */
 const TIMEUPDATE_MIN_INTERVAL_MS = 100;
 
+/**
+ * Compact description of an audioTracks list (native or Hls.js) for debug logs.
+ * @param {AudioTrackList|Array|null|undefined} tracks
+ * @returns {string}
+ */
+function describeAudioTracks(tracks) {
+    if (!tracks) return 'none';
+    const parts = [];
+    for (let i = 0; i < tracks.length; i++) {
+        const t = tracks[i];
+        const name = t.label || t.name || '';
+        parts.push(`[${i}] ${t.language || t.lang || '?'}${name ? ` "${name}"` : ''}${t.enabled ? ' (enabled)' : ''}`);
+    }
+    return parts.length ? parts.join(', ') : 'empty';
+}
+
 /** canPlayType answers by MIME type; they do not change while the app runs. */
 const canPlayTypeCache = Object.create(null);
 
@@ -668,13 +684,7 @@ export class WebOSPlayer {
     async play(options) {
         log.info('WebOSPlayer: Starting playback', options.url);
 
-        // ====================================================================
-        // Temporary OSD and Playback Audio Debugging Logs
-        // ====================================================================
-        log.info('[AudioDebug] WebOSPlayer.play:');
-        log.info('  - options.url:', options.url);
-        log.info('  - options.audioStreamIndex:', options.audioStreamIndex);
-        log.info('  - options.audioTrackListIndex:', options.audioTrackListIndex);
+        log.debug('WebOSPlayer: audio stream', options.audioStreamIndex, '/ list index', options.audioTrackListIndex);
 
         // A new session: drops listeners, timers and the pending load of the
         // previous one (its play() promise rejects with PlaybackAbortedError).
@@ -1549,30 +1559,10 @@ export class WebOSPlayer {
      * @private
      */
     _applyInitialTracks(options, hls) {
-        // ====================================================================
-        // Temporary OSD and Playback Audio Debugging Logs
-        // ====================================================================
-        log.info('[AudioDebug] WebOSPlayer._applyInitialTracks:');
-        log.info('  - hls active:', !!hls);
-        log.info('  - options.audioStreamIndex:', options.audioStreamIndex);
-        log.info('  - options.audioTrackListIndex:', options.audioTrackListIndex);
-
-        if (hls) {
-            log.info('  - Hls.js Audio Tracks:');
-            (hls.audioTracks || []).forEach((t, idx) => {
-                log.info(`    * [${idx}] id: ${t.id}, name: ${t.name}, lang: ${t.lang}`);
-            });
-        } else if (this._videoElement) {
-            const nativeTracks = this._videoElement.audioTracks;
-            log.info('  - Native audioTracks present:', !!nativeTracks);
-            if (nativeTracks) {
-                log.info('  - Native audioTracks length:', nativeTracks.length);
-                for (let i = 0; i < nativeTracks.length; i++) {
-                    const t = nativeTracks[i];
-                    log.info(`    * [${i}] id: ${t.id}, language: ${t.language}, label: ${t.label}, enabled: ${t.enabled}`);
-                }
-            }
-        }
+        log.debug('WebOSPlayer._applyInitialTracks: audio stream', options.audioStreamIndex, '/ list index',
+            options.audioTrackListIndex, hls
+                ? `— Hls.js tracks: ${describeAudioTracks(hls.audioTracks)}`
+                : `— native tracks: ${describeAudioTracks(this._videoElement && this._videoElement.audioTracks)}`);
 
         // ---- Audio track ----
         if (options.audioStreamIndex !== undefined && options.audioStreamIndex !== null) {
@@ -2392,10 +2382,7 @@ export class WebOSPlayer {
      * @param {number} listIndex - 0-based index into the audio track list
      */
     setAudioStreamIndex(listIndex) {
-        // ====================================================================
-        // Temporary OSD and Playback Audio Debugging Logs
-        // ====================================================================
-        log.info('[AudioDebug] WebOSPlayer.setAudioStreamIndex called with listIndex:', listIndex);
+        log.debug('WebOSPlayer.setAudioStreamIndex: list index', listIndex);
 
         // ---- Hls.js path ----
         if (this._hlsPlayer) {
@@ -2619,13 +2606,13 @@ export class WebOSPlayer {
     _resolveNativeAudioIndex(listIndex, nativeTracks) {
         // Guard: empty native track collection exposed by WebOS Chromium
         if (!nativeTracks || nativeTracks.length === 0) {
-            log.warn('[AudioDebug] WebOSPlayer._resolveNativeAudioIndex: nativeTracks is empty');
+            log.warn('WebOSPlayer._resolveNativeAudioIndex: nativeTracks is empty');
             return -1;
         }
 
         // Fast-path: single native track — no ambiguity possible
         if (nativeTracks.length === 1) {
-            log.info('[AudioDebug] WebOSPlayer._resolveNativeAudioIndex: single native track fast-path → 0');
+            log.debug('WebOSPlayer._resolveNativeAudioIndex: single native track fast-path → 0');
             return 0;
         }
 
@@ -2643,26 +2630,16 @@ export class WebOSPlayer {
             return true;
         });
 
-        // ====================================================================
-        // Diagnostic logging
-        // ====================================================================
-        log.info('[AudioDebug] WebOSPlayer._resolveNativeAudioIndex:');
-        log.info('  - listIndex:', listIndex);
-        log.info('  - Jellyfin Audio Streams count:', jellyfinAudioStreams.length);
-        jellyfinAudioStreams.forEach((s, idx) => {
-            log.info(`    * [${idx}] Index: ${s.Index}, Lang: ${s.Language}, Codec: ${s.Codec}, IsDefault: ${s.IsDefault}`);
-        });
-
-        log.info('  - Native audioTracks count:', nativeTracks.length);
-        for (let i = 0; i < nativeTracks.length; i++) {
-            const t = nativeTracks[i];
-            log.info(`    * [${i}] id: ${t.id}, language: ${t.language}, label: ${t.label}, enabled: ${t.enabled}`);
-        }
+        log.debug('WebOSPlayer._resolveNativeAudioIndex: list index', listIndex,
+            '— Jellyfin streams:', jellyfinAudioStreams
+                .map((st, idx) => `[${idx}] #${st.Index} ${st.Language || '?'} ${st.Codec}${st.IsDefault ? ' (default)' : ''}`)
+                .join(', '),
+            '— native tracks:', describeAudioTracks(nativeTracks));
 
         // Guard: ensure listIndex points to a valid Jellyfin audio stream
         const targetStream = jellyfinAudioStreams[listIndex];
         if (!targetStream) {
-            log.warn('[AudioDebug] WebOSPlayer: listIndex out of range, returning clamped fallback');
+            log.warn('WebOSPlayer: listIndex out of range, returning clamped fallback');
             return Math.min(Math.max(0, listIndex), nativeTracks.length - 1);
         }
 
@@ -2694,13 +2671,13 @@ export class WebOSPlayer {
                 const targetCodec = (targetStream.Codec || '').toLowerCase();
 
                 if (isUnsupportedCodec(targetCodec)) {
-                    log.info(`[AudioDebug] WebOSPlayer: Target codec "${targetCodec}" is unsupported by native player → returning -1`);
+                    log.debug(`WebOSPlayer: Target codec "${targetCodec}" is unsupported by native player → returning -1`);
                     return -1;
                 }
 
                 const nativeIdx = playableStreams.findIndex(s => s.Index === targetStream.Index);
                 if (nativeIdx >= 0) {
-                    log.info(`[AudioDebug] WebOSPlayer: Codec-aware mapping resolved listIndex ${listIndex} → native index ${nativeIdx}`);
+                    log.debug(`WebOSPlayer: Codec-aware mapping resolved listIndex ${listIndex} → native index ${nativeIdx}`);
                     return nativeIdx;
                 }
             }
@@ -2740,7 +2717,7 @@ export class WebOSPlayer {
             }
 
             if (nativeMatches.length === 1) {
-                log.info('[AudioDebug] WebOSPlayer: Resolved native audio index by unique language match', listIndex, '→', nativeMatches[0]);
+                log.debug('WebOSPlayer: Resolved native audio index by unique language match', listIndex, '→', nativeMatches[0]);
                 return nativeMatches[0];
             }
 
@@ -2748,7 +2725,7 @@ export class WebOSPlayer {
                 const sameLanguageStreams = jellyfinAudioStreams.filter(s => normalize(s.Language || '') === normTarget);
                 const posWithinLang = sameLanguageStreams.findIndex(s => s.Index === targetStream.Index);
                 if (posWithinLang >= 0 && posWithinLang < nativeMatches.length) {
-                    log.info('[AudioDebug] WebOSPlayer: Disambiguated same language match', listIndex, '→', nativeMatches[posWithinLang]);
+                    log.debug('WebOSPlayer: Disambiguated same language match', listIndex, '→', nativeMatches[posWithinLang]);
                     return nativeMatches[posWithinLang];
                 }
             }
@@ -2768,13 +2745,13 @@ export class WebOSPlayer {
 
             if (defaultListIndex !== -1) {
                 if (listIndex === defaultListIndex) {
-                    log.info('[AudioDebug] WebOSPlayer: Resolved via default reordering (target is default) → 0');
+                    log.debug('WebOSPlayer: Resolved via default reordering (target is default) → 0');
                     return 0;
                 }
 
                 const resolvedIndex = listIndex < defaultListIndex ? listIndex + 1 : listIndex;
                 if (resolvedIndex >= 0 && resolvedIndex < nativeTracks.length) {
-                    log.info('[AudioDebug] WebOSPlayer: Resolved via default reordering (non-default)', listIndex, '→', resolvedIndex);
+                    log.debug('WebOSPlayer: Resolved via default reordering (non-default)', listIndex, '→', resolvedIndex);
                     return resolvedIndex;
                 }
             }
@@ -2784,7 +2761,7 @@ export class WebOSPlayer {
         // Strategy 4: Positional Fallback — clamped to native track bounds
         // ====================================================================
         const fallbackIndex = Math.min(Math.max(0, listIndex), nativeTracks.length - 1);
-        log.info('[AudioDebug] WebOSPlayer: Clamped positional fallback used', listIndex, '→', fallbackIndex);
+        log.debug('WebOSPlayer: Clamped positional fallback used', listIndex, '→', fallbackIndex);
         return fallbackIndex;
     }
 
