@@ -336,3 +336,49 @@ test('WebOSPlayer: a direct-play seek backwards that does not land is retried', 
     assert.deepStrictEqual(retries, [100]);
     await player.stop();
 });
+
+function nativeTextTracks() {
+    const track = () => ({ mode: 'disabled', cues: [{ startTime: 10, endTime: 12 }] });
+    return [track(), track()];
+}
+
+test('WebOSPlayer: switching subtitle tracks and back does not double the cue offset', async () => {
+    const { player } = createPlayer();
+    const video = await directPlayStarted(player);
+    const tracks = nativeTextTracks();
+    video.textTracks = tracks;
+
+    player.setSubtitleStreamIndex(0);
+    player.setSubtitleOffset(2);
+    assert.strictEqual(tracks[0].cues[0].startTime, 12);
+
+    player.setSubtitleStreamIndex(1);
+    player.setSubtitleStreamIndex(0);
+    assert.strictEqual(tracks[0].cues[0].startTime, 10, 'the switch reset the offset but left the cues moved');
+    player.setSubtitleOffset(2);
+    assert.strictEqual(tracks[0].cues[0].startTime, 12, 'offset applied twice');
+    assert.strictEqual(tracks[0].cues[0].endTime, 14);
+    await player.stop();
+});
+
+test('WebOSPlayer: native subtitle tracks are turned off, not left loading', async () => {
+    const { player } = createPlayer();
+    const video = await directPlayStarted(player);
+    const tracks = nativeTextTracks();
+    tracks[0].mode = 'showing';
+    video.textTracks = tracks;
+
+    player.setSubtitleStreamIndex(-1); // SubtitleManager renders
+    assert.deepStrictEqual(tracks.map((t) => t.mode), ['disabled', 'disabled']);
+    await player.stop();
+});
+
+test('WebOSPlayer: a Jellyfin subtitle index never selects an Hls.js subtitle rendition', async () => {
+    const { player } = createPlayer();
+    await directPlayStarted(player);
+    const hls = { audioTracks: [], subtitleTracks: [{}, {}, {}, {}], subtitleTrack: -1 };
+    // Stream 3 is an external .srt that SubtitleManager renders; rendition 3 is something else
+    player._applyInitialTracks({ mediaSource, subtitleStreamIndex: 3 }, hls);
+    assert.strictEqual(hls.subtitleTrack, -1);
+    await player.stop();
+});

@@ -243,7 +243,8 @@ export class WebOSPlayer {
         // ---- Subtitle state ----
         this._currentSubtitleIndex = -1;
         this._subtitleOffset  = 0;
-        this._previousOffset  = 0;
+        /** @type {WeakMap<TextTrack, number>} Offset the cues of each native track currently carry */
+        this._cueOffsets = new WeakMap();
 
         // ---- Bound event handlers (stored so we can removeEventListener cleanly) ----
         this._boundHandlers = {};
@@ -682,7 +683,6 @@ export class WebOSPlayer {
         this._started    = false;
         this._timeUpdated = false;
         this._subtitleOffset = 0;
-        this._previousOffset = 0;
         this._hlsFallbackAttempted = false;
 
         // Initialize robust seek state immediately to avoid race conditions with early 'playing' events.
@@ -1696,15 +1696,13 @@ export class WebOSPlayer {
         }
 
         // ---- Subtitle track ----
-        // Native text track selection — SubtitleManager will override this
-        // for external/ASS/PGS tracks. We just handle embedded VTT here.
-        if (options.subtitleStreamIndex !== undefined) {
-            if (hls && options.subtitleStreamIndex >= 0) {
-                if (options.subtitleStreamIndex < hls.subtitleTracks.length) {
-                    hls.subtitleTrack = options.subtitleStreamIndex;
-                }
-            }
-            // For native, JellyfinPlayer handles this via SubtitleManager
+        // SubtitleManager renders every subtitle on webOS (text tracks are
+        // requested as External, which Jellyfin prefers over Hls). Keep any
+        // Hls.js subtitle rendition off: options.subtitleStreamIndex is a
+        // Jellyfin stream index, not a position in hls.subtitleTracks, so
+        // selecting by it could show a second, wrong track.
+        if (hls && hls.subtitleTrack !== -1) {
+            hls.subtitleTrack = -1;
         }
     }
 
@@ -2796,17 +2794,21 @@ export class WebOSPlayer {
 
         this._currentSubtitleIndex = index;
 
-        // Reset any previously applied offset state
-        this._subtitleOffset = 0;
-        this._previousOffset = 0;
-
-        // Toggle native text tracks
+        // Toggle native text tracks. 'disabled', not 'hidden': a hidden track
+        // still loads and fires cue events. JellyfinPlayer only ever passes -1
+        // on webOS (SubtitleManager renders), so a non-negative index is a
+        // textTracks position here.
         const textTracks = video.textTracks;
         if (textTracks) {
             for (let i = 0; i < textTracks.length; i++) {
-                textTracks[i].mode = (i === index) ? 'showing' : 'hidden';
+                textTracks[i].mode = (i === index) ? 'showing' : 'disabled';
             }
         }
+
+        // A track switch resets the offset; cues of a track shown earlier are
+        // moved back by the offset they still carry
+        this._subtitleOffset = 0;
+        this._applySubtitleOffset();
     }
 
     /**
@@ -2835,35 +2837,41 @@ export class WebOSPlayer {
 
     /**
      * Shift native VTT cue timing by a positive or negative offset (seconds).
-     * Uses a delta approach — only the difference from the last applied offset
-     * is added, preventing compound drift across multiple calls.
      *
      * @param {number} seconds - New absolute offset in seconds
      */
     setSubtitleOffset(seconds) {
         this._subtitleOffset = seconds;
+        this._applySubtitleOffset();
+    }
 
+    /**
+     * Bring the cues of every showing native track to _subtitleOffset. The
+     * offset each track's cues already carry is kept per track, so only the
+     * difference is added: switching tracks and back never doubles it.
+     * @private
+     */
+    _applySubtitleOffset() {
+        const seconds = this._subtitleOffset;
         const video = this._videoElement;
         if (!video || !video.textTracks) {
             log.debug('WebOSPlayer: Subtitle offset stored:', seconds, 's (no video/tracks)');
             return;
         }
 
-        const delta = seconds - this._previousOffset;
-        if (delta === 0) return;
-
         for (let i = 0; i < video.textTracks.length; i++) {
             const track = video.textTracks[i];
             if (track.mode !== 'showing' || !track.cues) continue;
+            const delta = seconds - (this._cueOffsets.get(track) || 0);
+            if (delta === 0) continue;
             for (let j = 0; j < track.cues.length; j++) {
                 const cue = track.cues[j];
                 cue.startTime += delta;
                 cue.endTime   += delta;
             }
+            this._cueOffsets.set(track, seconds);
+            log.debug('WebOSPlayer: Subtitle offset applied:', seconds, 's (delta:', delta, 's)');
         }
-
-        this._previousOffset = seconds;
-        log.debug('WebOSPlayer: Subtitle offset applied:', seconds, 's (delta:', delta, 's)');
     }
 
     // ========================================================================
