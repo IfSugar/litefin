@@ -410,7 +410,8 @@ export function buildJellyfinProfile(options = {}) {
 
     // Hybrid Dolby Vision: Default to hardware capability unless the user explicitly flipped the setting.
     const dolbyVisionSetting = PlayerSettings.get('enableDolbyVision');
-    const enableDolbyVision = dolbyVisionSetting === 'enable' ? true : dolbyVisionSetting === 'disable' ? false : caps.dolbyVision;
+    const enableDolbyVision =
+        dolbyVisionSetting === 'enable' ? true : dolbyVisionSetting === 'disable' ? false : caps.dolbyVision;
 
     // Raw Dolby Vision Profile 5 ('DOVI') has no HDR10/SDR base layer. The HTML5 backend plays
     // HLS through hls.js + MSE, which cannot hand the DV metadata to the display, so Profile 5
@@ -479,11 +480,12 @@ export function buildJellyfinProfile(options = {}) {
     // transcoded to 8-channel E-AC-3 in HLS played as hiss.
     // -------------------------------------------------------------------------
     const userTransChannels = PlayerSettings.get('transcodeMaxAudioChannels');
-    const transMaxAudioChannels = (userTransChannels && userTransChannels > 0)
-        ? userTransChannels
-        : (userMaxChannels && userMaxChannels > 0)
-            ? userMaxChannels
-            : caps.maxAudioChannels;
+    const transMaxAudioChannels =
+        userTransChannels && userTransChannels > 0
+            ? userTransChannels
+            : userMaxChannels && userMaxChannels > 0
+              ? userMaxChannels
+              : caps.maxAudioChannels;
 
     // -------------------------------------------------------------------------
     // fMP4 HLS preference resolution
@@ -754,9 +756,11 @@ export function buildJellyfinProfile(options = {}) {
     if (isHtml5) {
         const mseSupports = (type) => {
             try {
-                return typeof window.MediaSource !== 'undefined' &&
+                return (
+                    typeof window.MediaSource !== 'undefined' &&
                     typeof window.MediaSource.isTypeSupported === 'function' &&
-                    window.MediaSource.isTypeSupported(type);
+                    window.MediaSource.isTypeSupported(type)
+                );
             } catch (e) {
                 return false;
             }
@@ -772,8 +776,10 @@ export function buildJellyfinProfile(options = {}) {
         if (transAudioCodecsArr.length === 0) {
             transAudioCodecsArr.push('aac');
         }
-        hevcInHls = enableHEVC &&
-            (mseSupports('video/mp4; codecs="hvc1.1.6.L120.90"') || mseSupports('video/mp4; codecs="hev1.1.6.L120.90"'));
+        hevcInHls =
+            enableHEVC &&
+            (mseSupports('video/mp4; codecs="hvc1.1.6.L120.90"') ||
+                mseSupports('video/mp4; codecs="hev1.1.6.L120.90"'));
     }
 
     // NOTE: DTS and TrueHD are deliberately NOT added here (see comment above).

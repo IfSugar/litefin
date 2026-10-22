@@ -631,7 +631,10 @@ class WebOSAdapter {
                     }
                 });
             } else if (typeof window.PalmServiceBridge !== 'undefined') {
-                this._callPalmServiceBridge('luna://com.webos.service.tvpower/power/responseScreenSaverRequest', parameters);
+                this._callPalmServiceBridge(
+                    'luna://com.webos.service.tvpower/power/responseScreenSaverRequest',
+                    parameters
+                );
             }
         } catch (e) {
             log.warn('Exception sending screensaver response:', e);
