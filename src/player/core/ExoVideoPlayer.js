@@ -70,6 +70,12 @@ async function invokeNative(command, args = {}) {
                     res = bridge.setTunnelingEnabled(Boolean(args.enabled));
                 } else if (command === 'setAudioOffloadEnabled') {
                     res = bridge.setAudioOffloadEnabled(Boolean(args.enabled));
+                } else if (command === 'setRefreshRate') {
+                    res = bridge.setRefreshRate(args.frameRate || 0, args.width || 0, args.height || 0);
+                } else if (command === 'resetRefreshRate') {
+                    res = bridge.resetRefreshRate();
+                } else if (command === 'getSupportedDisplayModes') {
+                    res = bridge.getSupportedDisplayModes();
                 } else if (command === 'seek') {
                     res = bridge.seek(args.positionMs || 0);
                 } else if (command === 'setPlaybackSpeed') {
@@ -177,6 +183,64 @@ export class ExoVideoPlayer {
     }
 
     /**
+     * Matches the connected display panel refresh rate and resolution to video parameters.
+     *
+     * @param {number} frameRate Video stream frame rate (e.g. 23.976, 24.0, 50.0, 59.94, 60.0)
+     * @param {number} [width=0] Video width in pixels
+     * @param {number} [height=0] Video height in pixels
+     * @returns {Promise<boolean>} True if display mode was matched
+     */
+    static async setRefreshRate(frameRate, width = 0, height = 0) {
+        try {
+            if (typeof window !== 'undefined' && window.LitefinAndroid?.setRefreshRate) {
+                return Boolean(window.LitefinAndroid.setRefreshRate(frameRate, width, height));
+            }
+            const res = await invokeNative('setRefreshRate', { frameRate, width, height });
+            return Boolean(res?.matched);
+        } catch (err) {
+            log.warn('Failed to set display refresh rate:', err);
+            return false;
+        }
+    }
+
+    /**
+     * Reverts display refresh rate back to system default.
+     *
+     * @returns {Promise<boolean>}
+     */
+    static async resetRefreshRate() {
+        try {
+            if (typeof window !== 'undefined' && window.LitefinAndroid?.resetRefreshRate) {
+                return Boolean(window.LitefinAndroid.resetRefreshRate());
+            }
+            await invokeNative('resetRefreshRate');
+            return true;
+        } catch (err) {
+            log.warn('Failed to reset display refresh rate:', err);
+            return false;
+        }
+    }
+
+    /**
+     * Queries connected display panel supported resolution and refresh rate modes.
+     *
+     * @returns {Promise<Array>}
+     */
+    static async getSupportedDisplayModes() {
+        try {
+            if (typeof window !== 'undefined' && window.LitefinAndroid?.getSupportedDisplayModes) {
+                const raw = window.LitefinAndroid.getSupportedDisplayModes();
+                return JSON.parse(raw || '[]');
+            }
+            const res = await invokeNative('getSupportedDisplayModes');
+            return JSON.parse(res?.modes || '[]');
+        } catch (err) {
+            log.warn('Failed to get supported display modes:', err);
+            return [];
+        }
+    }
+
+    /**
      * @param {Object} options - Initialization options
      * @param {HTMLElement} options.container - DOM container hosting player overlays
      * @param {Object} options.settings - PlayerSettings configuration manager
@@ -186,6 +250,12 @@ export class ExoVideoPlayer {
         this.container = options.container;
         this.settings = options.settings;
         this.onEvent = options.onEvent || (() => { });
+
+        // Auto refresh rate matching state
+        this._refreshRateMatched = false;
+        this._targetFrameRate = 0;
+        this._targetWidth = 0;
+        this._targetHeight = 0;
 
         // Core playback state
         this._currentSrc = null;
@@ -375,6 +445,16 @@ export class ExoVideoPlayer {
             this._videoWidth = data.width || 0;
             this._videoHeight = data.height || 0;
             log.info(`ExoPlayer native video dimensions: ${data.width}x${data.height}`);
+
+            // If auto refresh rate matching is enabled and was pending resolution discovery, match now
+            if (!this._refreshRateMatched && this._targetFrameRate > 0 && data.width > 0 && data.height > 0) {
+                const enableAutoRefreshRate = (this.settings?.get?.('autoRefreshRate') ?? PlayerSettings.get('autoRefreshRate')) === true;
+                if (enableAutoRefreshRate) {
+                    this._refreshRateMatched = true;
+                    log.info(`ExoVideoPlayer: matching refresh rate on video size update: ${this._targetFrameRate}fps (${data.width}x${data.height})`);
+                    ExoVideoPlayer.setRefreshRate(this._targetFrameRate, data.width, data.height).catch(() => {});
+                }
+            }
         };
 
         // 5. Playback Errors
@@ -549,10 +629,27 @@ export class ExoVideoPlayer {
             await invokeNative('selectAudioTrack', { trackIndex: this._currentAudioIndex });
         }
 
-        // 4. Trigger playback
+        // 4. Evaluate Auto Refresh Rate Matching
+        const enableAutoRefreshRate = (this.settings?.get?.('autoRefreshRate') ?? PlayerSettings.get('autoRefreshRate')) === true;
+        const videoStream = options.mediaSource?.MediaStreams?.find((s) => s.Type === 'Video');
+        this._targetFrameRate = options.frameRate || videoStream?.RealFrameRate || videoStream?.AverageFrameRate || videoStream?.FrameRate || 0;
+        this._targetWidth = options.width || videoStream?.Width || 0;
+        this._targetHeight = options.height || videoStream?.Height || 0;
+
+        if (enableAutoRefreshRate && this._targetFrameRate > 0) {
+            log.info(`ExoVideoPlayer.play: matching display refresh rate to ${this._targetFrameRate}fps (${this._targetWidth}x${this._targetHeight})`);
+            ExoVideoPlayer.setRefreshRate(this._targetFrameRate, this._targetWidth, this._targetHeight).catch((err) => {
+                log.warn('Failed to match display refresh rate:', err);
+            });
+            this._refreshRateMatched = true;
+        } else {
+            this._refreshRateMatched = false;
+        }
+
+        // 5. Trigger playback
         await invokeNative('play');
 
-        // 5. Start active polling heartbeat as failsafe
+        // 6. Start active polling heartbeat as failsafe
         this._startPollingLoop();
     }
 
@@ -589,6 +686,11 @@ export class ExoVideoPlayer {
         this._stopPollingLoop();
         this._started = false;
         this._isPaused = true;
+
+        if (this._refreshRateMatched) {
+            this._refreshRateMatched = false;
+            ExoVideoPlayer.resetRefreshRate().catch(() => {});
+        }
 
         await invokeNative('stop');
         this.onEvent({ type: PlayerEvent.STOP });
@@ -766,6 +868,11 @@ export class ExoVideoPlayer {
         this._clearStartupWatchdog();
         this._stopPollingLoop();
         this._removeNativeListeners();
+
+        if (this._refreshRateMatched) {
+            this._refreshRateMatched = false;
+            ExoVideoPlayer.resetRefreshRate().catch(() => {});
+        }
 
         try {
             await invokeNative('destroy');

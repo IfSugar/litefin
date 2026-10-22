@@ -415,6 +415,7 @@ class ExoPlayerPlugin(private val activity: Activity) : Plugin(activity) {
           stopProgressHeartbeat()
           MainActivity.instance?.setKeepScreenOn(false)
           MainActivity.instance?.hideVideoSurface()
+          MainActivity.instance?.resetDisplayMode()
         }
       }
 
@@ -899,6 +900,7 @@ class ExoPlayerPlugin(private val activity: Activity) : Plugin(activity) {
         player?.stop()
         MainActivity.instance?.setKeepScreenOn(false)
         MainActivity.instance?.hideVideoSurface()
+        MainActivity.instance?.resetDisplayMode()
         invoke.resolve()
       } catch (e: Exception) {
         invoke.reject("Failed to stop player: ${e.message}")
@@ -923,9 +925,61 @@ class ExoPlayerPlugin(private val activity: Activity) : Plugin(activity) {
         MainActivity.instance?.setKeepScreenOn(false)
         MainActivity.instance?.hideVideoSurface()
         MainActivity.instance?.resetTextureView()
+        MainActivity.instance?.resetDisplayMode()
         invoke.resolve()
       } catch (e: Exception) {
         invoke.reject("Failed to destroy player: ${e.message}")
+      }
+    }
+  }
+
+  /**
+   * Adapts display refresh rate and resolution to video stream characteristics.
+   */
+  @Command
+  fun setRefreshRate(invoke: Invoke) {
+    val args = invoke.parseArgs(RefreshRateArgs::class.java)
+    activity.runOnUiThread {
+      try {
+        val frameRate = args.frameRate ?: 0f
+        val width = args.width ?: 0
+        val height = args.height ?: 0
+        val matched = MainActivity.instance?.matchDisplayMode(width, height, frameRate) ?: false
+        val ret = JSObject().apply { put("matched", matched) }
+        invoke.resolve(ret)
+      } catch (e: Exception) {
+        invoke.reject("Failed matching refresh rate: ${e.message}")
+      }
+    }
+  }
+
+  /**
+   * Resets display refresh rate and resolution back to system default.
+   */
+  @Command
+  fun resetRefreshRate(invoke: Invoke) {
+    activity.runOnUiThread {
+      try {
+        MainActivity.instance?.resetDisplayMode()
+        invoke.resolve()
+      } catch (e: Exception) {
+        invoke.reject("Failed resetting refresh rate: ${e.message}")
+      }
+    }
+  }
+
+  /**
+   * Queries connected display panel supported modes.
+   */
+  @Command
+  fun getSupportedDisplayModes(invoke: Invoke) {
+    activity.runOnUiThread {
+      try {
+        val modesJson = MainActivity.instance?.getSupportedDisplayModesJson() ?: "[]"
+        val ret = JSObject().apply { put("modes", modesJson) }
+        invoke.resolve(ret)
+      } catch (e: Exception) {
+        invoke.reject("Failed querying display modes: ${e.message}")
       }
     }
   }
@@ -1242,6 +1296,22 @@ class ExoPlayerPlugin(private val activity: Activity) : Plugin(activity) {
     fun isAudioOffloadEnabled(): Boolean {
       return isAudioOffloadEnabled
     }
+
+    @JavascriptInterface
+    fun setRefreshRate(frameRate: Float, width: Int, height: Int): Boolean {
+      return MainActivity.instance?.matchDisplayMode(width, height, frameRate) ?: false
+    }
+
+    @JavascriptInterface
+    fun resetRefreshRate(): Boolean {
+      MainActivity.instance?.resetDisplayMode()
+      return true
+    }
+
+    @JavascriptInterface
+    fun getSupportedDisplayModes(): String {
+      return MainActivity.instance?.getSupportedDisplayModesJson() ?: "[]"
+    }
   }
 
   // ===========================================================================
@@ -1277,5 +1347,11 @@ class ExoPlayerPlugin(private val activity: Activity) : Plugin(activity) {
 
   class AspectRatioArgs {
     var mode: String? = "auto"
+  }
+
+  class RefreshRateArgs {
+    var frameRate: Float? = null
+    var width: Int? = null
+    var height: Int? = null
   }
 }

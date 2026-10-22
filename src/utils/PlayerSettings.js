@@ -128,6 +128,15 @@ const DEFAULTS = {
     // =========================================================================
     enableAudioOffload: true,
 
+    // =========================================================================
+    // AUTO REFRESH RATE MATCHING (Android TV / ExoPlayer)
+    // =========================================================================
+    // Automatically matches television / external HDMI display refresh rates
+    // (e.g. 23.976Hz, 24Hz, 50Hz, 59.94Hz, 60Hz) to the active media frame rate.
+    // Eliminates 3:2 pulldown judder and micro-stutter for cinematic smoothness.
+    // =========================================================================
+    autoRefreshRate: false,
+
     // -------------------------------------------------------------------------
     // EAC3 (E-AC3 / Dolby Digital Plus) FORCE STATE
     // -------------------------------------------------------------------------

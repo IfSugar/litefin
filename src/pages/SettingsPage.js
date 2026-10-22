@@ -3946,6 +3946,21 @@ class SettingsPage extends Page {
                         </button>
                     </div>
                 </div>
+
+                <!-- Auto Refresh Rate Matching Toggle (ExoPlayer) -->
+                <div class="setting-item">
+                    <div class="setting-label">
+                        <span class="setting-name" data-i18n="AutoRefreshRate">${i18n.t('AutoRefreshRate') || 'Match Display Refresh Rate'}</span>
+                        <span class="setting-description" data-i18n="AutoRefreshRateDescription">${i18n.t('AutoRefreshRateDescription') || 'Automatically matches TV / HDMI display refresh rate (e.g. 24Hz, 50Hz, 60Hz) to video frame rate to eliminate judder.'}</span>
+                    </div>
+                    <div class="setting-control">
+                        <button class="toggle-switch ${PlayerSettings.get('autoRefreshRate') === true ? 'active' : ''}" 
+                                id="toggle-auto-refresh-rate" 
+                                data-setting="autoRefreshRate"
+                                tabindex="0">
+                        </button>
+                    </div>
+                </div>
                 `
                 : ''}
 
@@ -13214,28 +13229,42 @@ class SettingsPage extends Page {
             });
         }
 
-        // Toggle Switch for Tunneled Video Playback (ExoPlayer)
-        const enableTunnelingToggle = this.$('#toggle-enable-tunneling');
-        if (enableTunnelingToggle) {
-            enableTunnelingToggle.addEventListener('click', () => {
-                const current = PlayerSettings.get('enableTunneling') !== false;
-                const next = !current;
-                PlayerSettings.set('enableTunneling', next);
-                enableTunnelingToggle.classList.toggle('active', next);
-                log.info(`Tunneled Video Playback set to: ${next}`);
-            });
-        }
+        if (platformInfo.isAndroid) {
+            // Toggle Switch for Tunneled Video Playback (ExoPlayer)
+            const enableTunnelingToggle = this.$('#toggle-enable-tunneling');
+            if (enableTunnelingToggle) {
+                enableTunnelingToggle.addEventListener('click', () => {
+                    const current = PlayerSettings.get('enableTunneling') !== false;
+                    const next = !current;
+                    PlayerSettings.set('enableTunneling', next);
+                    enableTunnelingToggle.classList.toggle('active', next);
+                    log.info(`Tunneled Video Playback set to: ${next}`);
+                });
+            }
 
-        // Toggle Switch for Audio Offload (ExoPlayer)
-        const enableAudioOffloadToggle = this.$('#toggle-enable-audio-offload');
-        if (enableAudioOffloadToggle) {
-            enableAudioOffloadToggle.addEventListener('click', () => {
-                const current = PlayerSettings.get('enableAudioOffload') !== false;
-                const next = !current;
-                PlayerSettings.set('enableAudioOffload', next);
-                enableAudioOffloadToggle.classList.toggle('active', next);
-                log.info(`Audio Offload set to: ${next}`);
-            });
+            // Toggle Switch for Audio Offload (ExoPlayer)
+            const enableAudioOffloadToggle = this.$('#toggle-enable-audio-offload');
+            if (enableAudioOffloadToggle) {
+                enableAudioOffloadToggle.addEventListener('click', () => {
+                    const current = PlayerSettings.get('enableAudioOffload') !== false;
+                    const next = !current;
+                    PlayerSettings.set('enableAudioOffload', next);
+                    enableAudioOffloadToggle.classList.toggle('active', next);
+                    log.info(`Audio Offload set to: ${next}`);
+                });
+            }
+
+            // Toggle Switch for Auto Refresh Rate Matching (ExoPlayer)
+            const autoRefreshRateToggle = this.$('#toggle-auto-refresh-rate');
+            if (autoRefreshRateToggle) {
+                autoRefreshRateToggle.addEventListener('click', () => {
+                    const current = PlayerSettings.get('autoRefreshRate') === true;
+                    const next = !current;
+                    PlayerSettings.set('autoRefreshRate', next);
+                    autoRefreshRateToggle.classList.toggle('active', next);
+                    log.info(`Auto Refresh Rate set to: ${next}`);
+                });
+            }
         }
 
         // Toggle Switch for Confirm Exit Player
