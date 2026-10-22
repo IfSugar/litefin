@@ -1795,16 +1795,17 @@ class PlayerPage extends Page {
             if (err.name === 'NotAllowedError') {
                 log.warn('_startPlayback: Autoplay blocked. Forcing mute and retrying.');
                 this._player.setMuted(true);
-                superseded = (await this._player.play({
-                    item: item,
-                    itemId: item.Id,
-                    userId: api.userId,
-                    startPositionTicks: this._resumePosition,
-                    mediaSourceId: mediaSource?.Id,
-                    audioStreamIndex: savedAudioIndex,
-                    subtitleStreamIndex: savedSubtitleIndex,
-                    autoPlay: syncPlayManager.wantsAutoPlay()
-                })) === false;
+                superseded =
+                    (await this._player.play({
+                        item: item,
+                        itemId: item.Id,
+                        userId: api.userId,
+                        startPositionTicks: this._resumePosition,
+                        mediaSourceId: mediaSource?.Id,
+                        audioStreamIndex: savedAudioIndex,
+                        subtitleStreamIndex: savedSubtitleIndex,
+                        autoPlay: syncPlayManager.wantsAutoPlay()
+                    })) === false;
             } else {
                 /*
                  * -------------------------------------------------------------
