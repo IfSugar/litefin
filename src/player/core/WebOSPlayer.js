@@ -1022,8 +1022,9 @@ export class WebOSPlayer {
         // Clear any stale source first
         video.removeAttribute('src');
 
-        // Ensure HLS manifest exists before assigning source
-        await MediaHelper.pollHlsManifest(options.url);
+        // Ensure HLS manifest exists before assigning source. Polling stops as
+        // soon as stop() or a newer play() ends this session.
+        await MediaHelper.pollHlsManifest(options.url, () => !this._isSessionActive(session));
         if (!this._isSessionActive(session)) throw new PlaybackAbortedError();
         // ====================================================================
         // MEDIA FRAGMENT RESUME:
@@ -1039,10 +1040,6 @@ export class WebOSPlayer {
             log.info(`WebOSPlayer: Appending media fragment #t=${seconds} to native HLS URL`);
             url += `#t=${seconds}`;
         }
-
-        // Ensure HLS manifest exists before assigning source
-        await MediaHelper.pollHlsManifest(options.url);
-        if (!this._isSessionActive(session)) throw new PlaybackAbortedError();
 
         // Use a <source> element with the MIME type hint so WebOS picks the
         // right codec path — without it, some versions skip the native HLS path.

@@ -7,6 +7,7 @@ import test from 'node:test';
  * ============================================================================
  *   - Hls.js fatal errors: bounded retries, then a reported failure (A5)
  *   - a media element error during Hls.js playback gets the same recovery (A5)
+ *   - native HLS polls the manifest once and stops polling on stop() (A6)
  * ============================================================================
  */
 
@@ -194,4 +195,51 @@ test('WebOSPlayer: a media element error during Hls.js playback gets the same bo
     video.fire('error');
     assert.strictEqual(failures.length, 1, 'a decoder that keeps failing must be reported');
     assert.strictEqual(events.filter((e) => e.type === 'error').length, 0, 'reported twice');
+});
+
+// ----------------------------------------------------------------------------
+// A6 — manifest polling
+// ----------------------------------------------------------------------------
+
+// Native-only HLS (HEVC HDR + E-AC-3): Hls.js cannot take over
+const nativeOnlyHls = {
+    MediaStreams: [
+        { Index: 0, Type: 'Video', Codec: 'hevc', VideoRangeType: 'HDR10' },
+        { Index: 1, Type: 'Audio', Codec: 'eac3', IsDefault: true }
+    ]
+};
+const hlsOptions = { url: 'http://srv/videos/x/master.m3u8', isHls: true, mediaSource: nativeOnlyHls };
+
+test('WebOSPlayer: native HLS start fetches the manifest once', async () => {
+    manifestReady = true;
+    manifestFetches = 0;
+    const { player } = createPlayer();
+    const playing = player.play(hlsOptions);
+    playing.catch(() => {});
+    await flush();
+    await flush();
+    assert.strictEqual(manifestFetches, 1);
+    await player.stop();
+});
+
+test('WebOSPlayer: manifest polling stops when playback is stopped', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    manifestReady = false; // transcode not ready yet
+    manifestFetches = 0;
+    const { player } = createPlayer();
+    const playing = player.play(hlsOptions);
+    const outcome = playing.then(() => null, (err) => err);
+    await flush();
+    t.mock.timers.tick(500);
+    await flush();
+    assert.strictEqual(manifestFetches, 2);
+
+    await player.stop();
+    for (let i = 0; i < 10; i++) {
+        t.mock.timers.tick(500);
+        await flush();
+    }
+    assert.ok(manifestFetches <= 3, `kept polling after stop(): ${manifestFetches} fetches`);
+    assert.strictEqual((await outcome)?.name, 'AbortError');
+    manifestReady = true;
 });
