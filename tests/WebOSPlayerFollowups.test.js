@@ -9,6 +9,8 @@ import test from 'node:test';
  *   - the video box is written only when it changes (A8)
  *   - one TV video-window request at a time, with a slower refresh (A8)
  *   - canPlayType probes are not repeated on every play (A8)
+ *   - a failed backward seek is detected (A9)
+ *   - native subtitle tracks stay off and cue offsets never double (A9)
  * ============================================================================
  */
 
@@ -302,4 +304,35 @@ test('WebOSPlayer: canPlayType is asked once per MIME type, not on every play', 
     await player.stop();
     await playAndStart(player, { url: 'http://srv/Videos/c/stream.mp4', mediaSource: doviSource });
     assert.strictEqual(createdVideos.length, created, 'a throw-away <video> per play');
+});
+
+// ----------------------------------------------------------------------------
+// A9 — smaller correctness issues
+// ----------------------------------------------------------------------------
+
+async function directPlayStarted(player) {
+    await playAndStart(player, { url: 'http://srv/Videos/a/stream.mkv', mediaSource });
+    player._started = true;
+    return player._videoElement;
+}
+
+test('WebOSPlayer: a direct-play seek backwards that does not land is retried', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const { player } = createPlayer();
+    const video = await directPlayStarted(player);
+    const retries = [];
+    player._seekWithRetry = (time) => retries.push(time);
+
+    video.currentTime = 1200;
+    player.seek(100 * 10000000);
+    video.currentTime = 1202.5; // the demuxer stayed put and played on
+    t.mock.timers.tick(2500);
+    assert.deepStrictEqual(retries, [100], 'a position past the target was taken for a landed seek');
+
+    // A seek that landed and played on is left alone
+    player.seek(100 * 10000000);
+    video.currentTime = 102.5;
+    t.mock.timers.tick(2500);
+    assert.deepStrictEqual(retries, [100]);
+    await player.stop();
 });

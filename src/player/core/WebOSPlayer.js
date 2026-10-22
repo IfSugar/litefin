@@ -2307,8 +2307,8 @@ export class WebOSPlayer {
                 this._directSeekVerifyTimeout = null;
                 if (generation !== this._resumeGeneration || !this._videoElement) return;
                 const cur = this.getCurrentTime();
-                const drift = Math.abs(cur - seconds);
-                const isNear = drift < 15 || cur >= (seconds - 15);
+                // Distance either way: being past the target is no proof a backward seek worked
+                const isNear = Math.abs(cur - seconds) < 15;
                 if (!isNear) {
                     log.warn(`WebOSPlayer: DirectPlay seek to ${seconds}s failed (stuck at ${cur.toFixed(2)}s). Escalating to robust seek / Remux.`);
                     this._seekWithRetry(seconds, 2);
