@@ -36,7 +36,7 @@ import { desktopAdapter } from '../desktop/DesktopAdapter.js';
 import { webAdapter } from '../web/WebAdapter.js';
 import { platformInfo } from '../utils/PlatformInfo.js';
 import { storage } from '../utils/StorageService.js';
-import { buildJellyfinProfile } from './DeviceProfile.js';
+import { buildJellyfinProfile, clearCapabilitiesCache } from './DeviceProfile.js';
 import { focusManager } from '../ui/FocusManager.js';
 import { imageCache } from '../utils/ImageCache.js';
 import { seerr } from './seerrClient.js';
@@ -1244,26 +1244,35 @@ class AuthManager {
     }
 
     /**
-     * Dynamically update device name when WebOS hardware capability detection
-     * completes after initial startup. Fixes "LG WebOS TV" generic names.
+     * Update the device name and capabilities once webOS reports the hardware
+     * (it arrives asynchronously after startup). Fixes "LG WebOS TV" generic
+     * names, and a profile built from the startup fallbacks: until deviceInfo
+     * arrives a 4K panel looks like 1080p (40 Mbps, H.264 level 4.1) and Dolby
+     * Vision is off. The capability cache is dropped first, so the re-report
+     * carries the real profile instead of the cached fallback one; the
+     * PrewarmManager drops a PlaybackInfo prewarmed with it on the same event.
      * @param {Object} info - Device info from webOS adapter
      * @private
      */
     _onWebosDeviceInfo(info) {
-        if (!info || !info.modelName || !platformInfo.isWebOS) return;
+        if (!info || !platformInfo.isWebOS) return;
+
+        clearCapabilitiesCache();
 
         const deviceId = storage.getItem(STORAGE_KEYS.DEVICE_ID);
-        if (deviceId) {
+        if (!deviceId) return;
+
+        if (info.modelName) {
             log.info(`Updating API device name to WebOS model: ${info.modelName}`);
             api.setDevice(deviceId, info.modelName);
+        }
 
-            // Re-report capabilities so the dashboard shows the correct device name
-            if (this.isAuthenticated()) {
-                api.reportCapabilities({
-                    ...SUPPORTED_CAPABILITIES,
-                    DeviceProfile: buildJellyfinProfile()
-                }).catch((e) => log.warn('Failed to report capabilities for late device name update:', e));
-            }
+        // Re-report so the server and dashboard see the real device name and profile
+        if (this.isAuthenticated()) {
+            api.reportCapabilities({
+                ...SUPPORTED_CAPABILITIES,
+                DeviceProfile: buildJellyfinProfile()
+            }).catch((e) => log.warn('Failed to report capabilities after webOS device info:', e));
         }
     }
 
