@@ -29,29 +29,29 @@ test('PlaybackStopReporting: ApiClient reportPlaybackStopped structure and fallb
     );
 });
 
-test('PlaybackStopReporting: PlayerPage provides XHR fallback on async stop failures', () => {
+test('PlaybackStopReporting: PlayerPage retries failed async stop reports without blocking the UI', () => {
     // Read PlayerPage source code to verify stop reporting resilience
     const playerSource = readFileSync(
         new URL('../src/pages/PlayerPage.js', import.meta.url),
         'utf8'
     );
 
-    // Verify _reportPlaybackStopped catches async failure and falls back to synchronous XHR
+    // Verify _reportPlaybackStopped sends the async report with a timeout
     assert.ok(
-        playerSource.includes('await api.reportPlaybackStopped(data);'),
-        'PlayerPage must call api.reportPlaybackStopped in async path'
+        playerSource.includes('api.reportPlaybackStopped(data, { timeout: STOP_REPORT_TIMEOUT_MS })'),
+        'PlayerPage must call api.reportPlaybackStopped in async path with a timeout'
     );
 
-    // Ensure synchronous XHR fallback is present if async reporting fails
+    // Ensure a failed async report is retried (asynchronously, see PlayerPageStopReport.test.js)
     assert.ok(
-        playerSource.includes('Async stop report failed, executing synchronous XHR fallback:'),
-        'PlayerPage must log and trigger synchronous XHR fallback if async stop reporting fails'
+        playerSource.includes('Async stop report failed, retrying once in the background:'),
+        'PlayerPage must log and retry if async stop reporting fails'
     );
 
-    // Ensure fallback dispatches to Sessions/Playing/Stopped endpoint
+    // Ensure the synchronous app-exit report dispatches to Sessions/Playing/Stopped endpoint
     assert.ok(
         playerSource.includes('const url = `${api.serverUrl}/Sessions/Playing/Stopped`;'),
-        'PlayerPage must construct stop reporting URL for fallback'
+        'PlayerPage must construct stop reporting URL for the synchronous app-exit report'
     );
 });
 

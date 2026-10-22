@@ -43,12 +43,30 @@ import { imageService } from '../utils/ImageService.js';
 
 const log = logger.create('Player');
 
+/**
+ * Timeout for an asynchronous PlaybackStopped report.
+ */
+const STOP_REPORT_TIMEOUT_MS = 10000;
+
+/**
+ * How long Back from the player waits for the stop report before it leaves
+ * the player anyway; the report (and its retry) carries on in the background.
+ * On a LAN it takes ~0.1 s, so the details page still sees the new resume
+ * position. With a stalled server, waiting the full timeout held the spinner
+ * up for 10 s (LG C4).
+ */
+const STOP_REPORT_EXIT_WAIT_MS = 2500;
+
 class PlayerPage extends Page {
     constructor() {
         super();
 
         // Player instance
         this._player = null;
+
+        // In-flight PlaybackStopped report of a session replaced by a restart;
+        // the new session's PlaybackStart waits for it (see _onPlayerRestarting)
+        this._pendingStopReport = null;
 
         // Current item being played
         this._item = null;
@@ -1240,32 +1258,7 @@ class PlayerPage extends Page {
         // Hook buffering/stalled events for proactive network dropout watchdog
         this._player.on('waiting', () => this._onPlayerWaiting());
         this._player.on('stalled', () => this._onPlayerWaiting());
-        this._player.on('restarting', () => {
-            this._clearPlaybackStallWatchdog();
-            log.info('Player restarting (quality change), showing loading');
-            this._showLoading(true);
-
-            // Report playback stopped for the old session BEFORE the restart
-            // replaces it. Otherwise the server keeps the old ffmpeg/remux
-            // process running indefinitely — the restart suppresses STOP
-            // events from JellyfinPlayer.stop(), so no stop report is sent.
-            const mediaSource = this._player?.getCurrentMediaSource?.();
-            const positionTicks = this._player?.getCurrentPositionTicks?.() || 0;
-            const durationTicks =
-                this._player?.getDurationTicks?.() || mediaSource?.RunTimeTicks || this._item?.RunTimeTicks || 0;
-            if (mediaSource?.PlaySessionId && this._item && !this._item.isIntro) {
-                // Use sync XHR (isSync=true) to guarantee the stop signal
-                // reaches the server before the new session starts.
-                this._reportPlaybackStopped(mediaSource, positionTicks, true, durationTicks).catch((err) => {
-                    log.warn('Failed to report playback stopped during restart:', err);
-                });
-            }
-
-            // Reset start-report guard so the upcoming 'playing' event
-            // reports playbackStart for the new session and updates the
-            // cached media source / play method for accurate stop reporting.
-            this._hasReportedStart = false;
-        });
+        this._player.on('restarting', () => this._onPlayerRestarting());
 
         // Mirror jellyfin-web: listen for playbackstart emitted by JellyfinPlayer
         this._player.on('playbackstart', () => {
@@ -3446,6 +3439,49 @@ class PlayerPage extends Page {
         }
     }
 
+    /**
+     * A restart (quality change, track switch, resume fallback, escalation)
+     * replaces the playback session.
+     * @private
+     */
+    _onPlayerRestarting() {
+        this._clearPlaybackStallWatchdog();
+        log.info('Player restarting (quality change), showing loading');
+        this._showLoading(true);
+
+        // Report playback stopped for the old session BEFORE the restart
+        // replaces it. Otherwise the server keeps the old ffmpeg/remux
+        // process running indefinitely — the restart suppresses STOP
+        // events from JellyfinPlayer.stop(), so no stop report is sent.
+        //
+        // The report is asynchronous: a synchronous XHR here froze the TV's UI
+        // thread (and the loading spinner) for a full server round trip on
+        // every restart. Ordering is kept by _reportPlaybackStart(), which
+        // sends the new session's start only after this report has finished.
+        // The stop carries the old PlaySessionId, so it only ends the old
+        // session's transcode.
+        const mediaSource = this._player?.getCurrentMediaSource?.();
+        const positionTicks = this._player?.getCurrentPositionTicks?.() || 0;
+        const durationTicks =
+            this._player?.getDurationTicks?.() || mediaSource?.RunTimeTicks || this._item?.RunTimeTicks || 0;
+        if (mediaSource?.PlaySessionId && this._item && !this._item.isIntro) {
+            const report = this._reportPlaybackStopped(mediaSource, positionTicks, false, durationTicks).catch(
+                (err) => {
+                    log.warn('Failed to report playback stopped during restart:', err);
+                }
+            );
+            this._pendingStopReport = report;
+            report.then(() => {
+                if (this._pendingStopReport === report) this._pendingStopReport = null;
+            });
+        }
+
+        // Reset start-report guard so the upcoming 'playing' event
+        // reports playbackStart for the new session and updates the
+        // cached media source / play method for accurate stop reporting.
+        this._hasReportedStart = false;
+    }
+
     async _reportPlaybackStart() {
         if (!this._player || !this._item) return;
 
@@ -3491,6 +3527,11 @@ class PlayerPage extends Page {
                 // session inspector and respond to remote skip commands correctly.
                 NowPlayingQueue: this._buildNowPlayingQueue()
             };
+
+            // A restart's stop report for the previous session goes first
+            if (this._pendingStopReport) {
+                await this._pendingStopReport;
+            }
 
             await api.reportPlaybackStart(info);
         } catch (error) {
@@ -4655,10 +4696,41 @@ class PlayerPage extends Page {
     }
 
     /**
+     * Wait for a stop report before leaving the player, but at most
+     * STOP_REPORT_EXIT_WAIT_MS; the report carries on in the background.
+     * @private
+     * @param {Promise} report - The pending _reportPlaybackStopped() call
+     * @returns {Promise<void>}
+     */
+    async _awaitStopReportBeforeExit(report) {
+        let timer = null;
+        const finished = await Promise.race([
+            Promise.resolve(report).then(
+                () => true,
+                (err) => {
+                    log.warn('Background stop report failed:', err);
+                    return true;
+                }
+            ),
+            new Promise((resolve) => {
+                timer = setTimeout(() => resolve(false), STOP_REPORT_EXIT_WAIT_MS);
+            })
+        ]);
+        clearTimeout(timer);
+        if (!finished) {
+            log.warn(
+                `Stop report not answered within ${STOP_REPORT_EXIT_WAIT_MS} ms — leaving the player, it continues in the background`
+            );
+        }
+    }
+
+    /**
      * Report playback stopped to server
      * @param {Object} [capturedMediaSource] - Pre-captured media source
      * @param {number} [capturedPosition] - Pre-captured position ticks
-     * @param {boolean} [isSync=false] - Whether to use synchronous XHR
+     * @param {boolean} [isSync=false] - Send with a synchronous XHR. Blocks the UI
+     *   thread for a full server round trip, so only for app exit / page teardown,
+     *   where the page context may be gone before an asynchronous request is sent.
      */
     async _reportPlaybackStopped(
         capturedMediaSource = null,
@@ -4842,35 +4914,50 @@ class PlayerPage extends Page {
                 }
             } else {
                 log.info('Reporting playback stopped (async), position:', positionTicks);
+                // ApiClient aborts the request after the timeout where AbortController is
+                // native (Chromium 66+). Older TVs only have a polyfill that cannot abort
+                // fetch(), so also stop waiting here a moment later; that request may still
+                // complete, so it is not retried.
+                const send = () =>
+                    new Promise((resolve, reject) => {
+                        const timer = setTimeout(() => {
+                            const error = new Error('Stop report still pending after the timeout');
+                            error.name = 'TimeoutError';
+                            reject(error);
+                        }, STOP_REPORT_TIMEOUT_MS + 1000);
+                        api.reportPlaybackStopped(data, { timeout: STOP_REPORT_TIMEOUT_MS }).then(
+                            (result) => {
+                                clearTimeout(timer);
+                                resolve(result);
+                            },
+                            (err) => {
+                                clearTimeout(timer);
+                                reject(err);
+                            }
+                        );
+                    });
                 try {
                     // Send stop report through standard API client request
-                    await api.reportPlaybackStopped(data);
+                    await send();
                 } catch (asyncErr) {
                     /*
-                     * If async stop reporting fails for any reason (e.g. transient network
-                     * glitch or TV webview micro-timeout during track transition), execute
-                     * an immediate synchronous XHR fallback. This guarantees the Jellyfin
-                     * server receives PlaybackStopped, marking the item as played and firing
-                     * plugin webhooks (jellyfin-ani-sync, Trakt, etc.) without dropping the event.
+                     * If async stop reporting fails (e.g. transient network glitch or
+                     * TV webview micro-timeout during track transition), retry once so
+                     * the server still receives PlaybackStopped, marking the item as
+                     * played and firing plugin webhooks (jellyfin-ani-sync, Trakt, etc.).
+                     * The retry is asynchronous and not awaited: a synchronous XHR here
+                     * froze the UI until the TV's TCP timeout when the server was
+                     * unreachable, and the caller does not need to wait for it.
                      */
-                    log.warn('Async stop report failed, executing synchronous XHR fallback:', asyncErr);
-                    try {
-                        const url = `${api.serverUrl}/Sessions/Playing/Stopped`;
-                        const xhr = new XMLHttpRequest();
-                        xhr.open('POST', url, false);
-                        xhr.setRequestHeader('Content-Type', 'application/json');
-                        xhr.setRequestHeader('Authorization', api.getAuthHeader());
-
-                        // Include Emby token header if connected to an Emby server
-                        if (api.isEmby() && api.accessToken) {
-                            xhr.setRequestHeader('X-Emby-Token', api.accessToken);
-                        }
-
-                        xhr.send(JSON.stringify(data));
-                        log.info('Synchronous XHR fallback stop report completed with status:', xhr.status);
-                    } catch (xhrFallbackErr) {
-                        log.error('Synchronous XHR fallback stop report also failed:', xhrFallbackErr);
+                    if (asyncErr?.name === 'TimeoutError') {
+                        log.warn('Stop report still pending — not waiting longer or retrying, it may still arrive');
+                        return;
                     }
+                    log.warn('Async stop report failed, retrying once in the background:', asyncErr);
+                    send().then(
+                        () => log.info('Stop report retry succeeded'),
+                        (retryErr) => log.error('Stop report retry also failed:', retryErr)
+                    );
                 }
             }
         } catch (error) {
@@ -5183,20 +5270,17 @@ class PlayerPage extends Page {
             }
 
             // Report stopped with captured values.
-            // We use synchronous XHR (isSync=true) so the request completes BEFORE the
-            // page navigates and gets destroyed. fetch with keepalive:true is unreliable
-            // on webOS/Tizen where the page context may be torn down before the fetch
-            // finishes — causing the stop signal to never reach the server and transcoding
-            // to continue indefinitely.
-            // NOTE: We MUST await this call. The sync XHR path blocks the event loop
-            // so navigation cannot proceed until it finishes. If sync XHR throws and
-            // falls back to async fetch (keepalive), awaiting ensures the fetch has a
-            // chance to complete before the page context is destroyed.
-            try {
-                await this._reportPlaybackStopped(mediaSource, positionTicks, true, durationTicks);
-            } catch (err) {
-                log.warn('Background stop report failed:', err);
-            }
+            // NOTE: We MUST await this call so the report completes BEFORE we
+            // navigate away from the player (the next page reads the updated
+            // resume position, and the server ends the transcode). Navigation is
+            // in-app, so the JS context survives and an awaited asynchronous request
+            // is as reliable as a synchronous XHR — without freezing the UI thread
+            // (and the spinner) for the round trip. Back waits for it at most
+            // STOP_REPORT_EXIT_WAIT_MS, so a stalled server cannot hold the page.
+            // App exit (_handleAppExit) still uses a synchronous XHR.
+            await this._awaitStopReportBeforeExit(
+                this._reportPlaybackStopped(mediaSource, positionTicks, false, durationTicks)
+            );
         } catch (error) {
             log.warn('Error during stop:', error);
         }
