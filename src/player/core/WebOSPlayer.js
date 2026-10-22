@@ -101,6 +101,14 @@ const SEEK_THRESHOLD_MS = 1000;
  */
 const WEBOS_SAFE_RATES = [0.5, 1, 2, 4];
 
+/**
+ * Load watchdogs: longest wait from load() to 'canplay' while the media
+ * pipeline reports no progress at all. 'loadedmetadata' and 'progress' re-arm
+ * the timer, so slow but working servers are not cut off.
+ */
+const LOAD_WATCHDOG_HLS_MS = 60000;
+const LOAD_WATCHDOG_DIRECT_MS = 30000;
+
 /** Polls (300 ms apart) of _applyRobustResume waiting for a seekable state. */
 const ROBUST_RESUME_MAX_POLLS = 40;
 
@@ -121,6 +129,21 @@ export class PlaybackAbortedError extends Error {
         // (e.g. video.play() interrupted by pause()). JellyfinPlayer.play() resolves
         // false for it, and its callers must not carry on with this request.
         this.superseded = true;
+    }
+}
+
+/** Rejects play() when the media pipeline makes no progress within the load watchdog. */
+export class PlaybackLoadTimeoutError extends Error {
+    /**
+     * @param {number} timeoutMs
+     * @param {boolean} [noData] - Not a byte of media arrived: the server is not
+     *   delivering, so it is a network error (a transcode would not help either)
+     */
+    constructor(timeoutMs, noData = false) {
+        const seconds = Math.round(timeoutMs / 1000);
+        super(noData ? `No media data arrived from the server for ${seconds} s` : `Media load made no progress for ${seconds} s`);
+        this.name = 'PlaybackLoadTimeoutError';
+        this.isNetworkError = noData;
     }
 }
 
@@ -208,6 +231,8 @@ export class WebOSPlayer {
         // items, so anything left behind would otherwise act on the next item.
         this._sessionId = 0;
         this._sessionCleanups = [];
+        // True while play() waits for the first 'canplay' (the load waiter owns load errors)
+        this._loadPending = false;
 
         // ====================================================================
         // Audio Suppression State (Resume Playback):
@@ -384,6 +409,7 @@ export class WebOSPlayer {
      * @private
      */
     _endSession() {
+        this._loadPending = false;
         const cleanups = this._sessionCleanups;
         this._sessionCleanups = [];
         for (let i = 0; i < cleanups.length; i++) {
@@ -468,24 +494,88 @@ export class WebOSPlayer {
     }
 
     /**
-     * Wait for the first 'canplay' of the load that was just started.
+     * Drop the element's pending load: no request stays open and no late
+     * load error reaches the player.
      * @private
      * @param {HTMLVideoElement} video
-     * @returns {Promise<void>} Rejects with the load error or PlaybackAbortedError
+     * @param {HTMLSourceElement|null} source
      */
-    _waitForCanPlay(video) {
+    _abandonLoad(video, source) {
+        try {
+            if (source && source.parentNode === video) video.removeChild(source);
+            video.removeAttribute('src');
+            video.load();
+        } catch (e) {
+            log.debug('WebOSPlayer: abandoning the load failed:', e);
+        }
+    }
+
+    /**
+     * Wait for the first 'canplay' of the load that was just started.
+     *
+     * Errors are taken from the <video> and, when the stream was given as a
+     * <source> child, from that <source>: per the HTML resource selection
+     * algorithm a failing <source> fires 'error' on itself (it does not bubble)
+     * and leaves video.error null, so listening on the <video> alone misses it.
+     *
+     * @private
+     * @param {HTMLVideoElement} video
+     * @param {HTMLSourceElement|null} source
+     * @param {number} timeoutMs - Load watchdog, re-armed by 'loadedmetadata' / 'progress'
+     * @returns {Promise<void>} Rejects with the load error, PlaybackLoadTimeoutError
+     *   or PlaybackAbortedError
+     */
+    _waitForCanPlay(video, source, timeoutMs) {
         return this._sessionPromise((resolve, reject) => {
             const removers = [];
+            let watchdog = null;
+            let sawData = false;
+
             const finish = (err) => {
+                clearTimeout(watchdog);
                 removers.forEach((remove) => remove());
                 if (err) reject(err);
                 else resolve();
             };
+            const armWatchdog = () => {
+                clearTimeout(watchdog);
+                watchdog = setTimeout(() => {
+                    const noData = !sawData && !(video.readyState > 0);
+                    finish(new PlaybackLoadTimeoutError(timeoutMs, noData));
+                    // Abandon the request too. The pipeline keeps it open and reports its own
+                    // error once it gives up (MEDIA_ERR_SRC_NOT_SUPPORTED 10 s after the timeout
+                    // on an LG C4), which JellyfinPlayer took for a direct-play failure and
+                    // restarted as a transcode behind the error dialog.
+                    this._abandonLoad(video, source);
+                }, timeoutMs);
+            };
+            const onData = () => {
+                sawData = true;
+                armWatchdog();
+            };
+            const onError = () => {
+                // A failing <source> leaves video.error null
+                const mediaError = video.error || { code: 4, message: 'The media source failed to load' };
+                const formatted = MediaHelper.formatMediaError(mediaError);
+                finish(video.error || Object.assign(new Error(formatted.message), { code: formatted.code }));
+            };
+
             removers.push(this._listen(video, 'canplay', () => finish()));
-            removers.push(this._listen(video, 'error', () => {
-                const formatted = MediaHelper.formatMediaError(video.error);
-                finish(video.error || new Error(formatted.message));
-            }));
+            removers.push(this._listen(video, 'error', onError));
+            if (source) {
+                removers.push(this._listen(source, 'error', () => {
+                    // A <source> already taken out no longer decides the load: the
+                    // Dolby Vision path retries a rejected hint with a raw src (its
+                    // listener, added first, runs first), whose errors fire on the <video>
+                    if (source.parentNode !== video) return;
+                    onError();
+                }));
+            }
+            removers.push(this._listen(video, 'loadedmetadata', onData));
+            removers.push(this._listen(video, 'progress', onData));
+            // Also clear the watchdog if the session ends first
+            this._sessionCleanups.push(() => clearTimeout(watchdog));
+            armWatchdog();
         });
     }
 
@@ -953,8 +1043,9 @@ export class WebOSPlayer {
 
         video.load();
 
+        this._loadPending = true;
         try {
-            await this._waitForCanPlay(video);
+            await this._waitForCanPlay(video, source, LOAD_WATCHDOG_HLS_MS);
         } catch (err) {
             // Checked by name: legacy (ES5) builds transpile Error subclasses
             if (err?.name === 'AbortError') throw err;
@@ -968,6 +1059,8 @@ export class WebOSPlayer {
                 return this._playWithHlsJs(video, options);
             }
             throw err;
+        } finally {
+            if (this._isSessionActive(session)) this._loadPending = false;
         }
 
         // Attempt tracks after metadata is loaded
@@ -1044,6 +1137,9 @@ export class WebOSPlayer {
         const videoCodec = (videoStream?.Codec || '').toLowerCase();
         const isHevc = videoCodec === 'hevc' || videoCodec === 'h265';
 
+        // The <source> element of the DoVi hint path (its load errors fire on it)
+        let sourceElement = null;
+
         if (isDoVi && isHevc) {
             // The 'dvh1' codec string tells WebOS to activate the DV hardware
             // decoder pipeline. We use video/mp4 as the MIME wrapper because
@@ -1072,6 +1168,7 @@ export class WebOSPlayer {
                 };
                 source.addEventListener('error', onSourceError);
                 video.appendChild(source);
+                sourceElement = source;
             } else {
                 // canPlayType rejected the codec — fall back to raw src so
                 // the native pipeline still gets a chance to probe it.
@@ -1088,7 +1185,13 @@ export class WebOSPlayer {
 
         video.load();
 
-        await this._waitForCanPlay(video);
+        const session = this._sessionId;
+        this._loadPending = true;
+        try {
+            await this._waitForCanPlay(video, sourceElement, LOAD_WATCHDOG_DIRECT_MS);
+        } finally {
+            if (this._isSessionActive(session)) this._loadPending = false;
+        }
 
         // Apply audio/subtitle tracks at canplay — same timing as _playNativeHls.
         // audioTracks is not reliably populated at loadedmetadata on WebOS native
@@ -3199,6 +3302,13 @@ export class WebOSPlayer {
         // Ignore stale error events fired during stop/cleanup (no src set)
         if (!video.src && !this._hlsPlayer && (!video.firstChild || !video.firstChild.src)) {
             log.debug('WebOSPlayer: Ignoring error on empty source during cleanup');
+            return;
+        }
+
+        // While play() waits for 'canplay', the load waiter handles the error
+        // (including the Hls.js fallback); handling it here too would race it.
+        if (this._loadPending) {
+            log.debug('WebOSPlayer: Error during load is handled by the load waiter');
             return;
         }
 
