@@ -7,6 +7,7 @@ import test from 'node:test';
  * ============================================================================
  * Smaller fixes in the native webOS player:
  *   - the video box is written only when it changes (A8)
+ *   - one TV video-window request at a time, with a slower refresh (A8)
  * ============================================================================
  */
 
@@ -118,6 +119,7 @@ globalThis.document = Object.assign(documentTarget, {
 globalThis.fetch = async () => ({ ok: true, text: async () => '#EXTM3U\n' });
 
 const { WebOSPlayer } = await import('../src/player/core/WebOSPlayer.js');
+const { platformInfo } = await import('../src/utils/PlatformInfo.js');
 
 const mediaSource = {
     Container: 'mkv',
@@ -203,4 +205,81 @@ test('WebOSPlayer: the video box is written only when it changes', async () => {
     player._videoElement.fire('loadedmetadata');
     assert.strictEqual(player._videoElement.style.width, '960px');
     assert.strictEqual(player._videoElement.style.left, '160px');
+});
+
+/** Old webOS (Chromium < 79) with the Luna bridge: aspect modes go through the TV's video output service */
+function useLunaOutputWindow(t) {
+    const pending = [];
+    const sent = [];
+    globalThis.window.PalmServiceBridge = class {
+        call(uri, params) {
+            sent.push({ uri, params: JSON.parse(params) });
+            pending.push(this);
+        }
+        cancel() {}
+    };
+    const chromeVersion = platformInfo._chromeVersion;
+    platformInfo._chromeVersion = 68;
+    t.after(() => {
+        platformInfo._chromeVersion = chromeVersion;
+        delete globalThis.window.PalmServiceBridge;
+    });
+    return {
+        sent,
+        pending,
+        async replyAll(reply = { returnValue: true }) {
+            while (pending.length) pending.shift().onservicecallback(JSON.stringify(reply));
+            for (let i = 0; i < 4; i++) await flush();
+        }
+    };
+}
+
+async function zoomedPlayback(player) {
+    await playAndStart(player, { url: 'http://srv/Videos/a/stream.mkv', mediaSource });
+    const video = player._videoElement;
+    video.mediaId = 'pipeline-1';
+    video.videoWidth = 1920;
+    video.videoHeight = 800;
+    player._aspectMode = 'zoom';
+    return video;
+}
+
+test('WebOSPlayer: one TV video-window request at a time', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
+    const luna = useLunaOutputWindow(t);
+    const { player } = createPlayer();
+    const video = await zoomedPlayback(player);
+
+    // loadedmetadata, canplay and playing each refit while the first request is in flight
+    player._fitVideoBox();
+    video.fire('playing');
+    video.fire('resize');
+    assert.strictEqual(luna.sent.length, 1, 'concurrent setDisplayWindow requests');
+
+    await luna.replyAll();
+    assert.strictEqual(luna.sent.length, 2, 'the refits made meanwhile are sent once, afterwards');
+    await luna.replyAll();
+    assert.strictEqual(luna.sent.length, 2);
+    assert.strictEqual(luna.sent[1].uri, 'luna://com.webos.service.videooutput/display/setDisplayWindow');
+    await player.stop();
+});
+
+test('WebOSPlayer: an accepted TV video window is refreshed every 30 s once settled', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
+    const luna = useLunaOutputWindow(t);
+    const { player } = createPlayer();
+    await zoomedPlayback(player);
+    player._fitVideoBox();
+    await luna.replyAll();
+
+    let sentAfterOneMinute = 0;
+    for (let s = 1; s <= 120; s++) {
+        t.mock.timers.tick(1000);
+        await luna.replyAll();
+        if (s === 60) sentAfterOneMinute = luna.sent.length;
+    }
+    // Was every 3 s for the whole playback: 20 Luna calls a minute
+    assert.ok(luna.sent.length - sentAfterOneMinute <= 2, `${luna.sent.length - sentAfterOneMinute} refreshes in the second minute`);
+    assert.ok(luna.sent.length >= 6, 'the first refreshes still come every 3 s');
+    await player.stop();
 });

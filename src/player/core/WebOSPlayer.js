@@ -129,6 +129,11 @@ const HLS_MEDIA_RECOVERY_WINDOW_MS = 3000;
  */
 const TIMEUPDATE_MIN_INTERVAL_MS = 100;
 
+/** Refresh of an accepted TV video window: every 3 s for the first five, then every 30 s. */
+const OUTPUT_WINDOW_REFRESH_MS = 3000;
+const OUTPUT_WINDOW_SLOW_REFRESH_MS = 30000;
+const OUTPUT_WINDOW_FAST_REFRESHES = 5;
+
 /**
  * Monotonic milliseconds for interval throttling. Date.now() follows the TV's
  * clock, which can step backwards on a time sync and stall the throttle.
@@ -230,6 +235,9 @@ export class WebOSPlayer {
         this._outputWindowFailures = 0;
         this._outputWindowRetryTimer = null;
         this._outputWindowRefreshTimer = null;
+        this._outputWindowRefreshes = 0;
+        this._outputWindowInFlight = false;
+        this._outputWindowRerun = false;
 
         /** Last box written to the <video> style by _fitVideoBox */
         this._appliedVideoBox = null;
@@ -2145,6 +2153,7 @@ export class WebOSPlayer {
         this._stopOutputWindowTimers();
         this._outputWindowActive = false;
         this._outputWindowFailures = 0;
+        this._outputWindowRerun = false;
 
         const video = this._videoElement;
 
@@ -3220,8 +3229,30 @@ export class WebOSPlayer {
         };
     }
 
-    /** Send the aspect mode to the TV (once per load plus a slow refresh), else fall back to the box geometry. */
+    /**
+     * Send the aspect mode to the TV (once per load plus a slow refresh), else fall back to the box geometry.
+     * One request at a time: a Luna call can take up to 5 s, and _fitVideoBox asks again on every
+     * 'playing', resize and refresh tick. A request made meanwhile runs once the current one is done.
+     */
     async _applyOutputWindow() {
+        if (this._outputWindowInFlight) {
+            this._outputWindowRerun = true;
+            return;
+        }
+        this._outputWindowInFlight = true;
+        try {
+            await this._sendOutputWindow();
+        } finally {
+            this._outputWindowInFlight = false;
+        }
+        if (this._outputWindowRerun) {
+            this._outputWindowRerun = false;
+            await this._applyOutputWindow();
+        }
+    }
+
+    /** @private */
+    async _sendOutputWindow() {
         const video = this._videoElement;
         if (!video) return;
 
@@ -3271,8 +3302,8 @@ export class WebOSPlayer {
 
             if (mode === 'auto') {
                 this._stopOutputWindowTimers();
-            } else if (!this._outputWindowRefreshTimer) {
-                this._outputWindowRefreshTimer = setInterval(() => this._applyOutputWindow(), 3000);
+            } else {
+                this._scheduleOutputWindowRefresh();
             }
             return;
         }
@@ -3291,13 +3322,29 @@ export class WebOSPlayer {
         this._fitVideoBox();
     }
 
+    /**
+     * Re-send an accepted window now and then, in case the TV drops it. Every 3 s at first, then
+     * every 30 s: _fitVideoBox re-sends it anyway on load, 'playing' (each seek) and resize.
+     * @private
+     */
+    _scheduleOutputWindowRefresh() {
+        if (this._outputWindowRefreshTimer) return;
+        const delay = this._outputWindowRefreshes < OUTPUT_WINDOW_FAST_REFRESHES
+            ? OUTPUT_WINDOW_REFRESH_MS
+            : OUTPUT_WINDOW_SLOW_REFRESH_MS;
+        this._outputWindowRefreshTimer = setTimeout(() => {
+            this._outputWindowRefreshTimer = null;
+            this._outputWindowRefreshes++;
+            this._applyOutputWindow();
+        }, delay);
+    }
+
     _stopOutputWindowTimers() {
         clearTimeout(this._outputWindowRetryTimer);
         this._outputWindowRetryTimer = null;
-        if (this._outputWindowRefreshTimer) {
-            clearInterval(this._outputWindowRefreshTimer);
-            this._outputWindowRefreshTimer = null;
-        }
+        clearTimeout(this._outputWindowRefreshTimer);
+        this._outputWindowRefreshTimer = null;
+        this._outputWindowRefreshes = 0;
     }
 
     // ========================================================================
