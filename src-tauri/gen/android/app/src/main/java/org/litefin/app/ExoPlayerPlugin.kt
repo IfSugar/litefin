@@ -4,6 +4,7 @@ import android.app.Activity
 import android.app.ActivityManager
 import android.content.Context
 import android.net.Uri
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.webkit.JavascriptInterface
@@ -24,8 +25,12 @@ import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.Renderer
+import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
+import androidx.media3.exoplayer.video.MediaCodecVideoRenderer
+import androidx.media3.exoplayer.video.VideoRendererEventListener
 import androidx.media3.session.MediaSession
 import app.tauri.annotation.Command
 import app.tauri.annotation.TauriPlugin
@@ -183,17 +188,123 @@ class ExoPlayerPlugin(private val activity: Activity) : Plugin(activity) {
 
   /**
    * Builds an extractors factory tailored to the device memory capabilities.
-   * Expands MPEG-TS timestamp search buffer to 3x default (TsExtractor.DEFAULT_TIMESTAMP_SEARCH_BYTES * 3)
-   * on standard memory hardware, resolving live TV and recorded MPEG-TS sync and seek stutter.
+   * Enables Constant Bitrate (CBR) seeking for accurate seeking in streams without
+   * index tables, and expands MPEG-TS timestamp search buffer to 3x default
+   * (TsExtractor.DEFAULT_TIMESTAMP_SEARCH_BYTES * 3) on standard memory hardware.
    */
   private fun createExtractorsFactory(): DefaultExtractorsFactory {
     val activityManager = activity.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
     val isLowRamDevice = activityManager?.isLowRamDevice == true
     return DefaultExtractorsFactory().apply {
+      setConstantBitrateSeekingEnabled(true)
+      setConstantBitrateSeekingAlwaysEnabled(true)
       setTsExtractorTimestampSearchBytes(
         if (isLowRamDevice) TsExtractor.TS_PACKET_SIZE * 1800
         else TsExtractor.DEFAULT_TIMESTAMP_SEARCH_BYTES * 3
       )
+    }
+  }
+
+  /**
+   * ===========================================================================
+   * High-Performance Renderers Factory for Android TV and Touch Panels
+   * ===========================================================================
+   * Customizes Media3 renderer creation to resolve hardware decoder latency and
+   * stream startup issues on television chipsets and Android 14+ devices:
+   *
+   * 1. Late Frame Drop Threshold (C.TIME_UNSET):
+   *    Prevents MediaCodecVideoRenderer from discarding video frames when stream
+   *    startup or network buffering causes a momentary pipeline lag. By default,
+   *    ExoPlayer drops late decoder input buffers, which manifests as stutter or
+   *    dropped frames at the beginning of 4K UHD and HDR10 content. Setting this
+   *    threshold to C.TIME_UNSET forces decoders to process every frame cleanly.
+   *
+   * 2. Android 14 (API 34+) MediaCodec Decode-Only Flag Workaround:
+   *    Android 14 introduced an OS-level flag (BUFFER_FLAG_DECODE_ONLY) in MediaCodec.
+   *    Certain vendor hardware decoder implementations (e.g., Amlogic, Realtek, MediaTek)
+   *    mishandle this flag during seeks, causing output surface freezes or permanent
+   *    black screens. Explicitly disabling this flag stabilizes playback on Android 14.
+   *
+   * 3. AV1 Sample Dependency Bypass:
+   *    Skips sample dependency parsing for AV1 streams, reducing demuxing thread
+   *    overhead and speeding up keyframe acquisition.
+   *
+   * 4. Software Decoder Fallback (Libdav1dVideoRenderer):
+   *    Reflectively checks for and registers libdav1d software decoding if the native
+   *    platform lacks hardware AV1 decoders.
+   * ===========================================================================
+   */
+  @OptIn(UnstableApi::class)
+  private class LitefinRenderersFactory(
+    context: Context
+  ) : DefaultRenderersFactory(context) {
+
+    @OptIn(UnstableApi::class)
+    override fun buildVideoRenderers(
+      context: Context,
+      extensionRendererMode: Int,
+      mediaCodecSelector: MediaCodecSelector,
+      enableDecoderFallback: Boolean,
+      eventHandler: Handler,
+      eventListener: VideoRendererEventListener,
+      allowedVideoJoiningTimeMs: Long,
+      out: ArrayList<Renderer>
+    ) {
+      // -----------------------------------------------------------------------
+      // Primary Hardware Video Decoder Construction
+      // -----------------------------------------------------------------------
+      // Configures MediaCodecVideoRenderer with low-latency and jitter-tolerant
+      // settings for smooth 4K/60fps and HDR video streams.
+      var videoRendererBuilder = MediaCodecVideoRenderer.Builder(context)
+        .setMediaCodecSelector(mediaCodecSelector)
+        .setAllowedJoiningTimeMs(allowedVideoJoiningTimeMs)
+        .setEnableDecoderFallback(enableDecoderFallback)
+        .setEventHandler(eventHandler)
+        .setEventListener(eventListener)
+        .setMaxDroppedFramesToNotify(50)
+        // Skip redundant AV1 sample dependency parsing overhead
+        .experimentalSetParseAv1SampleDependencies(false)
+        // Never drop decoder input buffers due to late arrival during spin-up
+        .experimentalSetLateThresholdToDropDecoderInputUs(C.TIME_UNSET)
+
+      // -----------------------------------------------------------------------
+      // Android 14 (API 34+) Decode-Only Buffer Bug Workaround
+      // -----------------------------------------------------------------------
+      // Avoids black screen and frame freeze regressions on Android 14 TV boxes
+      if (Build.VERSION.SDK_INT >= 34) {
+        videoRendererBuilder = videoRendererBuilder
+          .experimentalSetEnableMediaCodecBufferDecodeOnlyFlag(false)
+      }
+
+      // Append primary hardware-accelerated renderer to the renderer chain
+      out.add(videoRendererBuilder.build())
+
+      // If software extensions are turned off, exit early without checking fallback decoders
+      if (extensionRendererMode == EXTENSION_RENDERER_MODE_OFF) {
+        return
+      }
+
+      var extensionRendererIndex = out.size
+      if (extensionRendererMode == EXTENSION_RENDERER_MODE_PREFER) {
+        extensionRendererIndex--
+      }
+
+      try {
+        val clazz = Class.forName("androidx.media3.decoder.av1.Libdav1dVideoRenderer")
+        val constructor = clazz.getConstructor(
+          Long::class.javaPrimitiveType,
+          Handler::class.java,
+          VideoRendererEventListener::class.java,
+          Int::class.javaPrimitiveType
+        )
+        val renderer = constructor.newInstance(
+          allowedVideoJoiningTimeMs,
+          eventHandler,
+          eventListener,
+          50
+        ) as Renderer
+        out.add(extensionRendererIndex++, renderer)
+      } catch (_: Exception) { }
     }
   }
 
@@ -215,7 +326,7 @@ class ExoPlayerPlugin(private val activity: Activity) : Plugin(activity) {
     applyTrackSelectorParameters(selector, isTunnelingEnabled, isAudioOffloadEnabled)
 
     // -------------------------------------------------------------------------
-    // Configure Media3 DefaultRenderersFactory with Extension Fallback
+    // Configure Media3 LitefinRenderersFactory with Extension Fallback
     // -------------------------------------------------------------------------
     // Configures the playback pipeline to prioritize native MediaCodec hardware
     // decoders for maximum energy efficiency, lower latency, and HDMI passthrough.
@@ -229,7 +340,7 @@ class ExoPlayerPlugin(private val activity: Activity) : Plugin(activity) {
     // initializes but faults during playback, ExoPlayer immediately falls back to
     // software rendering instead of dropping audio or failing playback.
     // -------------------------------------------------------------------------
-    val renderersFactory = DefaultRenderersFactory(activity)
+    val renderersFactory = LitefinRenderersFactory(activity)
       .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
       .setEnableDecoderFallback(true)
 
