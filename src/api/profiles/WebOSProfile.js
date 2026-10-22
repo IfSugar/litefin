@@ -359,10 +359,15 @@ export function buildJellyfinProfile(options = {}) {
     const hdrSetting = PlayerSettings.get('enableHDR');
     const enableHDR = hdrSetting === 'enable' ? true : hdrSetting === 'disable' ? false : caps.hdr10;
 
-    // Hybrid Dolby Vision: Default to hardware capability unless the user explicitly flipped the setting
+    // Hybrid Dolby Vision: Default to hardware capability unless the user explicitly flipped the setting.
     const dolbyVisionSetting = PlayerSettings.get('enableDolbyVision');
-    const enableDolbyVision =
-        dolbyVisionSetting === 'enable' ? true : dolbyVisionSetting === 'disable' ? false : caps.dolbyVision;
+    const enableDolbyVision = dolbyVisionSetting === 'enable' ? true : dolbyVisionSetting === 'disable' ? false : caps.dolbyVision;
+
+    // Raw Dolby Vision Profile 5 ('DOVI') has no HDR10/SDR base layer. The HTML5 backend plays
+    // HLS through hls.js + MSE, which cannot hand the DV metadata to the display, so Profile 5
+    // shows inverted colours there — it must be transcoded. DV with a base layer still plays as
+    // that base layer, and the DV-specific container rules (e.g. MKV on webOS < 25) still apply.
+    const allowDoviProfile5 = enableDolbyVision && !isHtml5;
 
     const dtsSetting = PlayerSettings.get('enableDts');
     const enableDts = dtsSetting === 'enable' ? true : dtsSetting === 'disable' ? false : caps.dts;
@@ -679,6 +684,43 @@ export function buildJellyfinProfile(options = {}) {
         transAudioCodecsArr.push('aac');
     }
 
+    // ---------------------------------------------------------------------------
+    // HTML5 backend: only what hls.js + MSE can play
+    // ---------------------------------------------------------------------------
+    // The HTML5 backend plays every HLS stream through hls.js and MSE, not the
+    // TV's native pipeline (HtmlVideoPlayer prefers native HLS only on Tizen):
+    //   - E-AC-3 in MPEG-TS: hls.js rejects it ("Unsupported EC-3 in M2TS found");
+    //     in fMP4 it is passed through when MSE accepts 'ec-3'.
+    //   - AC-3 and HEVC: only where MSE reports support.
+    // Without this, "Retry with HTML5" asked the server for HLS it could not play.
+    // Progressive direct play still uses the native pipeline and is unchanged.
+    // ---------------------------------------------------------------------------
+    let hevcInHls = enableHEVC;
+    if (isHtml5) {
+        const mseSupports = (type) => {
+            try {
+                return typeof window.MediaSource !== 'undefined' &&
+                    typeof window.MediaSource.isTypeSupported === 'function' &&
+                    window.MediaSource.isTypeSupported(type);
+            } catch (e) {
+                return false;
+            }
+        };
+        const keepEac3 = primaryHlsContainer === 'mp4' && mseSupports('audio/mp4; codecs="ec-3"');
+        const keepAc3 = mseSupports('audio/mp4; codecs="ac-3"');
+        for (let i = transAudioCodecsArr.length - 1; i >= 0; i--) {
+            const codec = transAudioCodecsArr[i];
+            if ((codec === 'eac3' && !keepEac3) || (codec === 'ac3' && !keepAc3)) {
+                transAudioCodecsArr.splice(i, 1);
+            }
+        }
+        if (transAudioCodecsArr.length === 0) {
+            transAudioCodecsArr.push('aac');
+        }
+        hevcInHls = enableHEVC &&
+            (mseSupports('video/mp4; codecs="hvc1.1.6.L120.90"') || mseSupports('video/mp4; codecs="hev1.1.6.L120.90"'));
+    }
+
     // NOTE: DTS and TrueHD are deliberately NOT added here (see comment above).
     // ---------------------------------------------------------------------------
     // DirectStream audio codec list (DirectStreamProfiles).
@@ -697,7 +739,7 @@ export function buildJellyfinProfile(options = {}) {
     if (enableTrueHd) directAudioCodecsArr.push('truehd');
     const directAudioCodecs = directAudioCodecsArr.join(',');
 
-    let transVideoCodecs = enableHEVC ? 'h264,hevc' : 'h264';
+    let transVideoCodecs = hevcInHls ? 'h264,hevc' : 'h264';
 
     if (playbackMode === 'remux') {
         // -----------------------------------------------------------------------
@@ -920,10 +962,10 @@ export function buildJellyfinProfile(options = {}) {
             'DOVIWithELHDR10Plus',
             'DOVIInvalid'
         );
-        if (enableDolbyVision) {
+        if (allowDoviProfile5) {
             allowedRangeTypesList.push('DOVI');
         }
-    } else if (enableDolbyVision) {
+    } else if (allowDoviProfile5) {
         allowedRangeTypesList.push('DOVI', 'DOVIWithSDR');
     } else {
         allowedRangeTypesList.push('DOVIWithSDR');
