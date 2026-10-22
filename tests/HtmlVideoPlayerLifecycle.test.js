@@ -8,7 +8,8 @@ import test from 'node:test';
  * The HTML5 backend (used on LG for "Retry with HTML5") reuses one <video>
  * across items. Timers and one-shot listeners of a playback must end with
  * stop() / the next play(), or they act on the next item. HLS.js recovery
- * is bounded and failures are reported instead of looping.
+ * is bounded and failures are reported instead of looping. Audio
+ * normalization keeps working across queued items.
  * ============================================================================
  */
 
@@ -81,13 +82,18 @@ function createPlayer() {
         clientWidth: 1920,
         clientHeight: 1080,
         style: {},
+        children: [],
         appendChild(child) {
             child.parentNode = this;
+            this.children.push(child);
         },
-        removeChild() {}
+        removeChild(child) {
+            child.parentNode = null;
+            this.children = this.children.filter((c) => c !== child);
+        }
     };
     const player = new HtmlVideoPlayer({ container, onEvent: (e) => events.push(e.type) });
-    return { player, events };
+    return { player, events, container };
 }
 
 const flush = () => new Promise((resolve) => setImmediate(resolve));
@@ -256,4 +262,126 @@ test('HtmlVideoPlayer: a decode error during HLS.js playback gets the same bound
     player._onError({ target: video });
     assert.strictEqual(failures.length, 1, 'a decoder that keeps failing must be reported');
     assert.ok(!events.includes('error'), 'reported twice');
+});
+
+// ----------------------------------------------------------------------------
+// Audio normalization across items
+// ----------------------------------------------------------------------------
+
+class StrictAudioContext {
+    static instances = [];
+    constructor() {
+        StrictAudioContext.instances.push(this);
+        this.state = 'running';
+        this.closed = false;
+        this.destination = {};
+    }
+    createMediaElementSource(element) {
+        if (element.webAudioSource) {
+            throw new Error('InvalidStateError: element already connected to a MediaElementSourceNode');
+        }
+        element.webAudioSource = true;
+        this.usedForMedia = true;
+        return { connect() {}, disconnect() {} };
+    }
+    createGain() {
+        return { gain: { value: 1 }, connect() {}, disconnect() {} };
+    }
+    close() {
+        this.closed = true;
+        return Promise.resolve();
+    }
+    suspend() {
+        this.state = 'suspended';
+        return Promise.resolve();
+    }
+    resume() {
+        this.state = 'running';
+        return Promise.resolve();
+    }
+}
+
+// Contexts of the normalization graph (the codec capability probe creates and closes its own)
+const mediaContexts = () => StrictAudioContext.instances.filter((c) => c.usedForMedia);
+
+const track = (gainDb) => ({
+    url: 'http://srv/Audio/1/stream.mp3',
+    item: { MediaType: 'Audio', NormalizationGain: gainDb },
+    mediaSource: {}
+});
+const movie = { url: 'http://srv/Videos/m/stream.mkv', item: { Type: 'Movie', MediaType: 'Video' }, mediaSource };
+
+test('HtmlVideoPlayer: normalization works for every queued track and the next movie keeps its audio path', async () => {
+    window.AudioContext = StrictAudioContext;
+    StrictAudioContext.instances = [];
+    const { player, container } = createPlayer();
+
+    await playAndStart(player, track(-6));
+    const firstElement = player._videoElement;
+    assert.ok(Math.abs(player._audioGraph.gain.gain.value - 0.501) < 0.001);
+    await player.stop();
+
+    // The captured element is released with its graph; the context is kept
+    assert.ok(!container.children.includes(firstElement));
+    assert.strictEqual(mediaContexts()[0].closed, false);
+
+    await playAndStart(player, track(-12));
+    assert.ok(Math.abs(player._audioGraph.gain.gain.value - 0.251) < 0.001, 'second track not normalized');
+    assert.notStrictEqual(player._videoElement, firstElement);
+    await player.stop();
+
+    await playAndStart(player, track(-3));
+    await player.stop();
+
+    // One context for the whole queue: Chromium 38 cannot close() contexts and
+    // Chromium caps how many can exist
+    assert.strictEqual(mediaContexts().length, 1, 'an AudioContext per track runs out on old TVs');
+    assert.strictEqual(mediaContexts()[0].closed, false);
+
+    await playAndStart(player, movie);
+    assert.strictEqual(player._audioGraph, null);
+    assert.ok(!player._videoElement.webAudioSource, 'movie element is routed into a closed AudioContext');
+    delete window.AudioContext;
+});
+
+test('HtmlVideoPlayer: play() without stop() reuses the graph and plays a movie at unity gain', async () => {
+    window.AudioContext = StrictAudioContext;
+    StrictAudioContext.instances = [];
+    const { player } = createPlayer();
+
+    await playAndStart(player, track(-6));
+    await playAndStart(player, movie);
+
+    assert.strictEqual(mediaContexts().length, 1);
+    assert.strictEqual(player._audioGraph.gain.gain.value, 1);
+    delete window.AudioContext;
+});
+
+test('HtmlVideoPlayer: the user mute state survives the element swap', async () => {
+    window.AudioContext = StrictAudioContext;
+    const { player } = createPlayer();
+
+    await playAndStart(player, track(-6));
+    player._videoElement.muted = true;
+    await player.stop();
+
+    assert.strictEqual(player._videoElement.muted, true);
+    delete window.AudioContext;
+});
+
+test('HtmlVideoPlayer: the shared AudioContext is resumed for the next track and closed on destroy()', async () => {
+    window.AudioContext = StrictAudioContext;
+    StrictAudioContext.instances = [];
+    const { player } = createPlayer();
+
+    await playAndStart(player, track(-6));
+    await player.stop();
+    assert.strictEqual(mediaContexts()[0].state, 'suspended');
+
+    await playAndStart(player, track(-6));
+    assert.strictEqual(mediaContexts()[0].state, 'running');
+
+    player.destroy();
+    assert.strictEqual(mediaContexts()[0].closed, true);
+    delete window.AudioContext;
 });
