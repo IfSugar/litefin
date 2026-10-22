@@ -248,3 +248,58 @@ test('JellyfinPlayer: a failed transcode escalation is reported exactly once', a
     assert.strictEqual(player.events.filter((e) => e === 'error').length, 1);
     assert.strictEqual(player._isRestarting, false);
 });
+
+// ----------------------------------------------------------------------------
+// C4 — forced remux labelling and escalation
+// ----------------------------------------------------------------------------
+
+// MediaHelper.getTranscodeStatus, taken from the source like the player methods
+const mediaHelperSource = readFileSync(new URL('../src/player/core/MediaHelper.js', import.meta.url), 'utf8').replace(
+    /\r\n/g,
+    '\n'
+);
+const transcodeStatusStart = mediaHelperSource.indexOf('\n    getTranscodeStatus(mediaSource) {');
+const MediaHelper = vm.runInNewContext(
+    `({${mediaHelperSource.slice(transcodeStatusStart + 1, mediaHelperSource.indexOf('\n    },\n', transcodeStatusStart) + 6)}})`
+);
+
+const hevcEac3 = [
+    { Index: 0, Type: 'Video', Codec: 'hevc' },
+    { Index: 1, Type: 'Audio', Codec: 'eac3', IsDefault: true }
+];
+const remuxSource = (query) => ({ MediaStreams: hevcEac3, TranscodingUrl: `/videos/x/master.m3u8?${query}` });
+
+function resolveRemux(mediaSource) {
+    const player = createPlayer(['_resolveForcedRemuxPlayMethod(mediaSource, playMethod) {'], { globals: { MediaHelper } });
+    return player._resolveForcedRemuxPlayMethod(mediaSource, 'Transcode');
+}
+
+test('JellyfinPlayer: a forced remux without a target video codec is a remux, not a transcode', () => {
+    assert.strictEqual(
+        resolveRemux(remuxSource('AudioCodec=eac3,aac&AudioStreamIndex=1&TranscodeReasons=ContainerNotSupported,VideoCodecNotSupported')),
+        'Remux'
+    );
+    assert.strictEqual(
+        resolveRemux(remuxSource('VideoCodec=&AudioCodec=aac&AudioStreamIndex=1&TranscodeReasons=ContainerNotSupported,VideoCodecNotSupported,AudioCodecNotSupported')),
+        'DirectStream'
+    );
+    assert.strictEqual(resolveRemux(remuxSource('VideoCodec=copy&AudioCodec=eac3&TranscodeReasons=VideoCodecNotSupported')), 'Remux');
+    assert.strictEqual(resolveRemux(remuxSource('TranscodeReasons=DirectPlayError')), 'Remux');
+});
+
+test('JellyfinPlayer: a forced remux the server re-encodes stays a transcode', () => {
+    assert.strictEqual(
+        resolveRemux(remuxSource('VideoCodec=h264&AudioCodec=aac&TranscodeReasons=VideoCodecNotSupported')),
+        'Transcode'
+    );
+});
+
+test('JellyfinPlayer: an error in a forced remux escalates to a transcode', async () => {
+    const player = createPlayer(['_handleBackendEvent(event) {']);
+    player._playbackMode = 'remux';
+    player._currentPlayMethod = 'Transcode';
+
+    player._handleBackendEvent({ type: 'error', data: { code: 3, message: 'MEDIA_ERR_DECODE' } });
+    await settle();
+    assert.strictEqual(player.playCalls[0]?.playbackMode, 'transcode');
+});

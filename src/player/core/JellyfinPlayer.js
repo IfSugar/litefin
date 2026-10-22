@@ -2173,7 +2173,8 @@ export class JellyfinPlayer extends EventEmitter {
                 !this._isRestarting &&
                 !this._directPlayEscalated &&
                 this._currentPlayOptions &&
-                this._currentPlayMethod !== 'Transcode' &&
+                // A forced remux copies the video even when labelled 'Transcode'
+                (this._currentPlayMethod !== 'Transcode' || this._playbackMode === 'remux') &&
                 this._playbackMode !== 'transcode';
 
             if (canEscalate) {
@@ -2228,6 +2229,53 @@ export class JellyfinPlayer extends EventEmitter {
 
         // Re-emit events from backend
         this.emit(event.type, event.data);
+    }
+
+    /**
+     * Play method of a forced remux (video copy requested) that the server
+     * reports like a transcode.
+     *
+     * - TranscodeReasons=DirectPlayError only: the streams are copied.
+     * - Current Jellyfin keeps only h264/hevc/vp9/av1 in an HLS video codec
+     *   list, so the requested 'copy' is dropped and VideoCodecNotSupported
+     *   is added, yet the server still copies the video because no target
+     *   codec is left. So the video is copied when the TranscodingUrl names
+     *   no target video codec (or 'copy').
+     *
+     * @private
+     * @param {Object} mediaSource
+     * @param {string} playMethod - Method derived by MediaHelper.getPlayMethod()
+     * @returns {string} 'Remux' or 'DirectStream' when the video is copied, else playMethod
+     */
+    _resolveForcedRemuxPlayMethod(mediaSource, playMethod) {
+        const url = mediaSource.TranscodingUrl || '';
+        const reasons = mediaSource.TranscodingReasons;
+        const hasOnlyDirectPlayError = reasons === 'DirectPlayError' ||
+            (Array.isArray(reasons) && reasons.length === 1 && reasons[0] === 'DirectPlayError');
+
+        // Also check the URL parameters if reasons property is empty (it's often in the URL)
+        const urlHasOnlyDirectPlayError = url.includes('TranscodeReasons=DirectPlayError') &&
+            !url.includes('ContainerNotSupported') &&
+            !url.includes('VideoCodecNotSupported') &&
+            !url.includes('AudioCodecNotSupported');
+
+        if (hasOnlyDirectPlayError || urlHasOnlyDirectPlayError) {
+            log.info('[PlaybackMode] Inferring Remux based on DirectPlayError only.');
+            return 'Remux';
+        }
+
+        const videoCodecParam = url.match(/[?&]VideoCodec=([^&]*)/i);
+        const targetVideoCodecs = videoCodecParam
+            ? decodeURIComponent(videoCodecParam[1]).toLowerCase().split(',').filter(Boolean)
+            : [];
+        if (targetVideoCodecs.length > 0 && !targetVideoCodecs.includes('copy')) {
+            return playMethod;
+        }
+
+        const { isAudioDirect } = MediaHelper.getTranscodeStatus(mediaSource);
+        const method = isAudioDirect ? 'Remux' : 'DirectStream';
+        log.info(`[PlaybackMode] Forced remux with no target video codec — video is copied (${method}).`);
+        return method;
     }
 
     // ========================================================================
@@ -2554,29 +2602,14 @@ export class JellyfinPlayer extends EventEmitter {
             let playMethod = MediaHelper.getPlayMethod(mediaSource);
 
             // In "Force Remux" mode, the server might report "Transcode" because it technically
-            // falls back to the transcoding pipeline, but if the only reason is "DirectPlayError",
-            // it means it's remuxing (copying streams) because we enabled all codecs in DeviceProfile.
+            // falls back to the transcoding pipeline while it copies the video.
             const wasForcedRemux = (this._playbackMode === 'remux' || (typeof profilePlaybackMode !== 'undefined' && profilePlaybackMode === 'remux'));
             if (wasForcedRemux && playMethod === 'Transcode') {
-                const reasons = mediaSource.TranscodingReasons;
-                const hasOnlyDirectPlayError = reasons === 'DirectPlayError' || 
-                    (Array.isArray(reasons) && reasons.length === 1 && reasons[0] === 'DirectPlayError');
-                
-                // Also check the URL parameters if reasons property is empty (it's often in the URL)
-                const urlHasOnlyDirectPlayError = mediaSource.TranscodingUrl && 
-                    mediaSource.TranscodingUrl.includes('TranscodeReasons=DirectPlayError') &&
-                    !mediaSource.TranscodingUrl.includes('ContainerNotSupported') &&
-                    !mediaSource.TranscodingUrl.includes('VideoCodecNotSupported') &&
-                    !mediaSource.TranscodingUrl.includes('AudioCodecNotSupported');
-
-                if (hasOnlyDirectPlayError || urlHasOnlyDirectPlayError) {
-                     playMethod = 'Remux';
-                     
+                playMethod = this._resolveForcedRemuxPlayMethod(mediaSource, playMethod);
+                if (playMethod !== 'Transcode') {
                      // CRITICAL: Update the MediaSource object itself so that
                      // MediaHelper.getPlayMethod() returns 'Remux' for the OSD/UI later.
                      mediaSource.SupportsDirectStream = true;
-                     
-                     log.info('[PlaybackMode] Inferring Remux based on DirectPlayError only.');
                 }
             }
             if (this._playbackMode === 'transcode') {
@@ -3222,7 +3255,8 @@ export class JellyfinPlayer extends EventEmitter {
                 !this._isRestarting &&
                 !this._directPlayEscalated &&
                 this._currentPlayOptions &&
-                this._currentPlayMethod !== 'Transcode' &&
+                // A forced remux copies the video even when labelled 'Transcode'
+                (this._currentPlayMethod !== 'Transcode' || this._playbackMode === 'remux') &&
                 this._playbackMode !== 'transcode';
 
             if (canEscalate) {
