@@ -2040,14 +2040,15 @@ export class JellyfinPlayer extends EventEmitter {
                     try {
                         await this.stop();
                         await new Promise(resolve => setTimeout(resolve, 500));
-                        await this.play(restartOptions);
+                        const started = await this.play(restartOptions);
 
                         // -------------------------------------------------------------
                         // Arm stuck-detection watchdog once remux stream is initiated.
                         // If the hardware decoder hangs on mid-GOP stream copy, the
                         // watchdog will detect lack of progress and escalate to transcode.
+                        // Not when the user stopped playback while the restart loaded.
                         // -------------------------------------------------------------
-                        if (!isAlreadyRemux) {
+                        if (started !== false && !isAlreadyRemux) {
                             this._armRemuxStuckWatchdog(effectiveTicks);
                         }
                     } catch (e) {
@@ -2330,7 +2331,8 @@ export class JellyfinPlayer extends EventEmitter {
      * @param {number} [options.startPositionTicks=0] - Start position in ticks
      * @param {number} [options.audioStreamIndex] - Audio track index
      * @param {number} [options.subtitleStreamIndex] - Subtitle track index
-     * @returns {Promise<void>}
+     * @returns {Promise<boolean|void>} false when stop() or a newer play() superseded
+     *   this request before it started; callers must then not continue with it
      */
     async play(options) {
         //log.info('Play requested:', options);
@@ -2997,7 +2999,22 @@ export class JellyfinPlayer extends EventEmitter {
             }
 
             // Instruct the resolved backend (TizenAVPlayer, WebOSPlayer, or HTML5) to initialize
-            await this._backend.play(backendOptions);
+            try {
+                await this._backend.play(backendOptions);
+            } catch (backendErr) {
+                // ------------------------------------------------------------------
+                // Superseded load: stop() or a newer play() ended this backend session
+                // before it started. This request is over: resolve false so callers do
+                // not report playback start, arm watchdogs or escalate it.
+                // (A DOM AbortError from an interrupted video.play() is not a cancel of
+                // the request; it goes on to the catch below as before.)
+                // ------------------------------------------------------------------
+                if (backendErr?.superseded) {
+                    log.info('Backend play() was superseded by stop() or a newer request — abandoning this play() call');
+                    return false;
+                }
+                throw backendErr;
+            }
             log.info('Backend play() promise resolved');
 
             // A restart recreates the video element, so re-apply speed and aspect ratio
