@@ -43,7 +43,9 @@ function createPlayer({ playResult }) {
         PlayerSettings: { get: () => undefined }
     });
     const methods = vm.runInContext(
-        `${playerEventSource}\n({\n${extractMethod('_handleBackendEvent(event) {')}\n})`,
+        `${playerEventSource}\n({\n${['_handleBackendEvent(event) {', 'async _playAfterRestartPause(options, pauseMs) {']
+            .map(extractMethod)
+            .join(',\n')}\n})`,
         context
     );
     return Object.assign(Object.create(methods), {

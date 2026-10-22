@@ -48,8 +48,10 @@ function createPlayer(signatures, { settings = {}, globals = {} } = {}) {
         PlayerSettings: { get: (key) => settings[key] },
         ...globals
     });
+    // Restart flows start their play() through this helper
+    const loaded = signatures.concat('async _playAfterRestartPause(options, pauseMs) {');
     const methods = vm.runInContext(
-        `${playerEventSource}\n({ PlayerEvent, methods: {\n${signatures.map(extractMethod).join(',\n')}\n} })`,
+        `${playerEventSource}\n({ PlayerEvent, methods: {\n${loaded.map(extractMethod).join(',\n')}\n} })`,
         context
     );
 

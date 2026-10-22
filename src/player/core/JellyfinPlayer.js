@@ -1362,6 +1362,7 @@ export class JellyfinPlayer extends EventEmitter {
         // "Auto" (null) means Unlimited/Direct Play.
         this._manualBitrate = PlayerSettings.get('maxBitrateInternet') || null;
         this._isRestarting = false; // Flag to suppress stop events during manual quality change
+        this._playRequestId = 0; // Advanced by play(), stop() and destroy(); see play()
         this._lastReportedPlayError = null; // Last error play() emitted (restart flows skip re-reporting it)
         this._playbackMode = 'auto'; // Current playback mode ('auto', 'directPlay', 'transcode', 'remux', 'transcodeVideo', 'transcodeAudio')
         
@@ -1983,8 +1984,7 @@ export class JellyfinPlayer extends EventEmitter {
                 (async () => {
                     try {
                         await this.stop();
-                        await new Promise(resolve => setTimeout(resolve, 500));
-                        await this.play(restartOptions);
+                        await this._playAfterRestartPause(restartOptions, 500);
                         this._isRestarting = false;
                     } catch (e) {
                         log.error('audiotrackswitchfailed restart failed:', e);
@@ -2066,8 +2066,7 @@ export class JellyfinPlayer extends EventEmitter {
                 (async () => {
                     try {
                         await this.stop();
-                        await new Promise(resolve => setTimeout(resolve, 500));
-                        const started = await this.play(restartOptions);
+                        const started = await this._playAfterRestartPause(restartOptions, 500);
 
                         // -------------------------------------------------------------
                         // Arm stuck-detection watchdog once remux stream is initiated.
@@ -2132,6 +2131,7 @@ export class JellyfinPlayer extends EventEmitter {
                 (async () => {
                     try {
                         await this.stop();
+                        const request = this._playRequestId;
                         if (typeof this._backend?.destroy === 'function') {
                             this._backend.destroy();
                         }
@@ -2152,6 +2152,11 @@ export class JellyfinPlayer extends EventEmitter {
                         });
                         restartOptions._deviceProfile = html5Profile;
 
+                        // The new backend stays in place either way; the old one is destroyed
+                        if (request !== this._playRequestId) {
+                            log.info('[BackendFallback] Playback was stopped or replaced meanwhile — not restarting');
+                            return;
+                        }
                         await this.play(restartOptions);
                     } catch (fallbackErr) {
                         log.error('[BackendFallback] Failed to recover via HTML5 backend:', fallbackErr);
@@ -2217,10 +2222,8 @@ export class JellyfinPlayer extends EventEmitter {
                     try {
                         // Tear down existing backend decoder cleanly
                         await this.stop();
-                        // Brief stabilization pause before launching transcoded stream
-                        await new Promise(resolve => setTimeout(resolve, 500));
-                        // Re-launch with strict transcode parameters
-                        await this.play(restartOptions);
+                        // Brief stabilization pause, then re-launch with strict transcode parameters
+                        await this._playAfterRestartPause(restartOptions, 500);
                     } catch (escalateErr) {
                         log.error('[JellyfinPlayer] DirectPlay transcode escalation failed:', escalateErr);
                         // Forward error to UI if transcode restart fails (play() reports its own failures)
@@ -2387,9 +2390,8 @@ export class JellyfinPlayer extends EventEmitter {
             try {
                 // Teardown backend session cleanly before transcode re-initialization
                 await this.stop();
-                await new Promise(resolve => setTimeout(resolve, 500));
                 // Start playback in full transcode mode
-                await this.play(transcodeOptions);
+                await this._playAfterRestartPause(transcodeOptions, 500);
             } catch (e) {
                 log.error('[JellyfinPlayer] Transcode escalation restart failed:', e);
             } finally {
@@ -2401,6 +2403,38 @@ export class JellyfinPlayer extends EventEmitter {
     // ========================================================================
     // Playback Control
     // ========================================================================
+
+    /**
+     * Ends a play() request that stop(), destroy() or a newer play() replaced.
+     * @param {string} stage - The await the request was waiting on
+     * @returns {false} The value play() resolves for a superseded request
+     * @private
+     */
+    _abandonSupersededPlay(stage) {
+        log.info(`play() request superseded by stop() or a newer request (after ${stage}) — abandoning it`);
+        return false;
+    }
+
+    /**
+     * Starts a restart's play() after the pause that follows its stop(),
+     * unless stop(), destroy() or another play() came in during the pause
+     * (Back or next item while the restart was pending). A restart started
+     * anyway would load the old item again on a stopped or replaced player.
+     *
+     * @param {Object} options - The restart's play options
+     * @param {number} pauseMs - Pause before play()
+     * @returns {Promise<boolean|void>} play()'s result, or false when abandoned
+     * @private
+     */
+    async _playAfterRestartPause(options, pauseMs) {
+        const request = this._playRequestId;
+        await new Promise(resolve => setTimeout(resolve, pauseMs));
+        if (request !== this._playRequestId) {
+            log.info('Restart abandoned: playback was stopped or replaced while it was pending');
+            return false;
+        }
+        return this.play(options);
+    }
 
     /**
      * Play media item
@@ -2415,6 +2449,15 @@ export class JellyfinPlayer extends EventEmitter {
      *   this request before it started; callers must then not continue with it
      */
     async play(options) {
+        // ────────────────────────────────────────────────────────────────
+        // Request token: stop(), destroy() and a newer play() advance it.
+        // A request checks it after every await, so a stale request (Back
+        // while PlaybackInfo loads, quick next/previous) never touches the
+        // player state, the backend or the page once it has been replaced.
+        // ────────────────────────────────────────────────────────────────
+        const request = (this._playRequestId = (this._playRequestId || 0) + 1);
+        const isSuperseded = () => request !== this._playRequestId;
+
         //log.info('Play requested:', options);
         /*
          * ====================================================================
@@ -2529,6 +2572,7 @@ export class JellyfinPlayer extends EventEmitter {
             // The desktop and web profiles depend on the WebCodecs AV1 probe; it is cached after the first run.
             if ((platformInfo.isDesktop || platformInfo.isWeb) && platformInfo.hasWebCodecsSupport) {
                 await webCodecsProbe.probeAV1();
+                if (isSuperseded()) return this._abandonSupersededPlay('AV1 probe');
             }
 
             // Build device profile once (avoids duplicate logs/work).
@@ -2565,6 +2609,7 @@ export class JellyfinPlayer extends EventEmitter {
 
             // Get playback info from server
             const playbackInfo = await this._getPlaybackInfo(options, deviceProfile, this._manualBitrate);
+            if (isSuperseded()) return this._abandonSupersededPlay('PlaybackInfo');
             log.debug('PlaybackInfo keys:', Object.keys(playbackInfo));
             if (playbackInfo.MediaSources && playbackInfo.MediaSources.length > 0) {
                  log.debug('MediaSource[0] keys:', Object.keys(playbackInfo.MediaSources[0]));
@@ -2700,6 +2745,7 @@ export class JellyfinPlayer extends EventEmitter {
                     } catch (stopErr) {
                         log.warn('[InterlacedFallback] Backend stop() threw during pre-switch cleanup:', stopErr);
                     }
+                    if (isSuperseded()) return this._abandonSupersededPlay('interlaced fallback');
 
                     // Switch backend to HTML5 in-place (no page reload needed).
                     // HtmlVideoPlayer is already statically imported at the top of this module,
@@ -2820,6 +2866,7 @@ export class JellyfinPlayer extends EventEmitter {
                     } catch (e) {
                         log.warn('Failed to fetch item details for chapters:', e);
                     }
+                    if (isSuperseded()) return this._abandonSupersededPlay('chapters');
                 }
             }
 
@@ -3017,6 +3064,7 @@ export class JellyfinPlayer extends EventEmitter {
                     }
                     this._playSetupInProgress = false;
                 }
+                if (isSuperseded()) return this._abandonSupersededPlay('subtitle pre-flight');
 
                 /*
                  * -----------------------------------------------------------------
@@ -3080,6 +3128,8 @@ export class JellyfinPlayer extends EventEmitter {
                 }
                 throw backendErr;
             }
+            // Backends without load sessions (Tizen AVPlay) resolve even after stop()
+            if (isSuperseded()) return this._abandonSupersededPlay('backend play()');
             log.info('Backend play() promise resolved');
 
             // A restart recreates the video element, so re-apply speed and aspect ratio
@@ -3166,6 +3216,11 @@ export class JellyfinPlayer extends EventEmitter {
                     .catch(err => log.warn('[Play-Flow] Secondary subtitle re-application failed:', err));
             }
         } catch (error) {
+            // A replaced request has nothing left to report or escalate: its
+            // failure (a timed-out PlaybackInfo after Back, a destroyed
+            // backend) belongs to playback the user already left.
+            if (isSuperseded()) return this._abandonSupersededPlay(`failure: ${error?.message || error}`);
+
             // =================================================================
             // Suppress False-Positive Interruption Errors During Session Restart
             // =================================================================
@@ -3223,6 +3278,7 @@ export class JellyfinPlayer extends EventEmitter {
                 } catch (tearDownErr) {
                     log.warn(`[BackendFallback] Clean stop failed for ${failedBackend}:`, tearDownErr);
                 }
+                if (isSuperseded()) return this._abandonSupersededPlay('backend fallback');
 
                 // Switch to HTML5 player
                 this._backendType = 'html5';
@@ -3292,8 +3348,7 @@ export class JellyfinPlayer extends EventEmitter {
 
                 try {
                     await this.stop();
-                    await new Promise(resolve => setTimeout(resolve, 500));
-                    await this.play(restartOptions);
+                    await this._playAfterRestartPause(restartOptions, 500);
                     return;
                 } catch (escalateErr) {
                     log.error('[JellyfinPlayer] DirectPlay setup transcode escalation failed:', escalateErr);
@@ -3382,6 +3437,9 @@ export class JellyfinPlayer extends EventEmitter {
      * Stop playback
      */
     async stop() {
+        // Ends any play() request still loading (see play())
+        this._playRequestId = (this._playRequestId || 0) + 1;
+
         const item = this._currentItem;
         const positionTicks = this.getCurrentPositionTicks();
 
@@ -3702,8 +3760,7 @@ export class JellyfinPlayer extends EventEmitter {
             try {
                 this.emit(PlayerEvent.RESTARTING);
                 await this.stop();
-                await new Promise(resolve => setTimeout(resolve, 500));
-                await this.play(restartOptions);
+                await this._playAfterRestartPause(restartOptions, 500);
                 // Reset the restarting flag on success so subsequent stop() calls
                 // emit proper STOP events and clear state normally.
                 this._isRestarting = false;
@@ -3867,8 +3924,7 @@ export class JellyfinPlayer extends EventEmitter {
             try {
                 this.emit(PlayerEvent.RESTARTING);
                 await this.stop();
-                await new Promise(resolve => setTimeout(resolve, 500));
-                await this.play(restartOptions);
+                await this._playAfterRestartPause(restartOptions, 500);
             } catch (e) {
                 // play() reports its own failure (error event); only clean up here
                 log.error('Failed to restart playback for subtitle burn-in:', e);
@@ -3927,8 +3983,7 @@ export class JellyfinPlayer extends EventEmitter {
                 try {
                     this.emit(PlayerEvent.RESTARTING);
                     await this.stop();
-                    await new Promise(resolve => setTimeout(resolve, 500));
-                    await this.play(restartOptions);
+                    await this._playAfterRestartPause(restartOptions, 500);
                     // Reset on success so subsequent stop() calls behave normally
                     this._isRestarting = false;
                 } catch (e) {
@@ -5528,9 +5583,7 @@ export class JellyfinPlayer extends EventEmitter {
             // _manualBitrate is preserved because _isRestarting was true
             
             // Tizen: Give AVPlay time to cleanup
-            await new Promise(resolve => setTimeout(resolve, 500));
-
-            await this.play(playOptions);
+            await this._playAfterRestartPause(playOptions, 500);
 
             // No manual seek needed - server starts transcode at correct offset
             // and MediaHelper handles the time reporting offset.
@@ -5604,8 +5657,7 @@ export class JellyfinPlayer extends EventEmitter {
                     this.emit(PlayerEvent.RESTARTING);
                     await this.stop();
                     // Give backend time to cleanup
-                    await new Promise(resolve => setTimeout(resolve, 500));
-                    await this.play(newOptions);
+                    await this._playAfterRestartPause(newOptions, 500);
                     // _isRestarting reset in play() success path implicitly? 
                     // No, wait. play() calls stop(). stop() checks _isRestarting.
                     // But play() sets _isRestarting = false ?
