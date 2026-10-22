@@ -4990,13 +4990,18 @@ export default class OSDController extends Component {
          * To eliminate this, if the player is actively seeking and force is not
          * asserted, we defer unpausing until the authoritative 'seeked' event
          * fires from the hardware demuxer.
+         *
+         * The webOS and HTML5 backends hold the play until the seek lands
+         * themselves (queuesPostSeekPlay). webOS carries out a seek on a paused
+         * element only once playback starts, so waiting here for 'seeked' only
+         * added the 3.5 s timeout to every scrub (LG C4, native HLS remux).
          * ====================================================================
          */
         const isSeeking = Boolean(
             (typeof this._player.isSeeking === 'function' ? this._player.isSeeking() : this._player.isSeeking) ||
             this._player._isSeeking
         );
-        if (!force && isSeeking && typeof this._player.on === 'function') {
+        if (!force && isSeeking && !this._player.queuesPostSeekPlay && typeof this._player.on === 'function') {
             log.info('OSDController: Deferring playback resume until seeked event completes');
             // Flag that playback resumption is waiting on the hardware seeked event
             this._seekPendingResume = true;

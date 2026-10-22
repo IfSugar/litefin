@@ -1740,6 +1740,17 @@ export class JellyfinPlayer extends EventEmitter {
     }
 
     /**
+     * Whether the backend holds a play requested during a seek until the seek
+     * lands, and starts it anyway when 'seeked' does not come (webOS carries out
+     * a seek on a paused element only once playback starts). Callers need not
+     * wait for 'seeked' before unpause() then.
+     * @returns {boolean}
+     */
+    get queuesPostSeekPlay() {
+        return this._backendType === 'webos' || this._backendType === 'html5';
+    }
+
+    /**
      * Get the current backend type string.
      * Possible values: 'tizen', 'webos', 'html5'
      * @returns {string}
@@ -3611,9 +3622,14 @@ export class JellyfinPlayer extends EventEmitter {
          *
          * To eliminate this ghost playback, queue the unpause request and allow
          * it to execute once the hardware fires the authoritative 'seeked' event.
+         *
+         * The webOS and HTML5 backends queue it themselves, and start playback
+         * when 'seeked' does not come: webOS completes a seek on a paused
+         * element only once playback starts, so waiting here (up to the 5 s
+         * failsafe) only held the picture frozen after every scrub.
          * ====================================================================
          */
-        if (this.isSeeking) {
+        if (this.isSeeking && !this.queuesPostSeekPlay) {
             log.info('[JellyfinPlayer] unpause() requested while seek in flight — queueing play for post-seek landing');
             this._pendingPlayAfterSeek = true;
             return;

@@ -745,6 +745,27 @@ test('OSDController: confirmed seek defers playback resumption until seeked even
     assert.equal(osd._player.isPaused(), false);
 });
 
+test('OSDController: a backend that holds post-seek play itself is resumed right after the seek', () => {
+    // webOS carries out a seek on a paused element only once playback starts: waiting for
+    // 'seeked' only added the 3.5 s timeout to every scrub in a native HLS remux (LG C4)
+    const { osd } = setup(true, false);
+    let isSeekingInHardware = false;
+    osd._player.on = () => {};
+    osd._player.seek = () => {
+        isSeekingInHardware = true;
+    };
+    Object.defineProperty(osd._player, 'isSeeking', { get: () => isSeekingInHardware });
+    osd._player.queuesPostSeekPlay = true;
+
+    osd.handleInput('right');
+    assert.equal(osd._player.isPaused(), true);
+    osd.handleInput('enter');
+
+    assert.equal(isSeekingInHardware, true);
+    assert.equal(osd._seekPendingResume, false, 'resume held for a seeked event webOS sends only after play');
+    assert.equal(osd._player.isPaused(), false);
+});
+
 test('OSDController: debounced seek defers playback resumption until seeked event fires', () => {
     // Initialize controller with confirmSeekWithOK disabled and initial playback active
     const { osd, advance } = setup(false, false);
