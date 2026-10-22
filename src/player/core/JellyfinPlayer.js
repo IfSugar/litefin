@@ -40,6 +40,21 @@ const log = logger.create('JellyfinPlayer');
  */
 const PLAYBACK_INFO_TIMEOUT_MS = 30000;
 
+/**
+ * Remux stuck watchdog (see _armRemuxStuckWatchdog). A remux restart gets
+ * REMUX_WATCHDOG_FIRST_CHECK_MS to start advancing. A remux that is still
+ * filling its buffer (data arriving, less than REMUX_STUCK_BUFFER_AHEAD_S
+ * buffered) is checked again every REMUX_WATCHDOG_RECHECK_MS, up to
+ * REMUX_WATCHDOG_MAX_MS in all. More buffered data than a pipeline needs to
+ * start (one to two 6 s segments) and no progress is the decoder freeze the
+ * watchdog exists for; over a LAN a frozen remux fills that much well
+ * within the first check.
+ */
+const REMUX_WATCHDOG_FIRST_CHECK_MS = 8000;
+const REMUX_WATCHDOG_RECHECK_MS = 4000;
+const REMUX_WATCHDOG_MAX_MS = 30000;
+const REMUX_STUCK_BUFFER_AHEAD_S = 10;
+
 // ────────────────────────────────────────────────────────────────────────────
 // Audio Capability Detection Helpers
 // ────────────────────────────────────────────────────────────────────────────
@@ -1444,6 +1459,8 @@ export class JellyfinPlayer extends EventEmitter {
         this._remuxWatchdogActive = false;
         this._remuxWatchdogTargetTicks = null;
         this._remuxWatchdogInitialTime = null;
+        this._remuxWatchdogArmedAt = 0; // When the watchdog was armed (Date.now())
+        this._remuxWatchdogBufferedEnd = null; // End of the buffered range at the last check
 
         // Play options of the one fresh transcode a failed transcoded resume gets
         // (see the resumeseekfailed handler); any other restart creates new options
@@ -2346,6 +2363,11 @@ export class JellyfinPlayer extends EventEmitter {
      * progression, it escalates playback to 'transcode', which forces a clean IDR
      * keyframe and unblocks the decoder immediately.
      *
+     * A remux of a high-bitrate source (4K at ~120 Mbps) can still be filling
+     * its first segments after 8 s; that is not a freeze. While data keeps
+     * arriving and less than REMUX_STUCK_BUFFER_AHEAD_S is buffered, the check
+     * is repeated (up to REMUX_WATCHDOG_MAX_MS in all).
+     *
      * @private
      * @param {number} targetTicks - Target resume position in ticks
      */
@@ -2356,19 +2378,57 @@ export class JellyfinPlayer extends EventEmitter {
         this._remuxWatchdogActive = true;
         this._remuxWatchdogTargetTicks = targetTicks;
         this._remuxWatchdogInitialTime = null;
+        this._remuxWatchdogArmedAt = Date.now();
+        // Baseline for "is data still arriving" at the first check
+        const buffer = this._getBackendBufferState();
+        this._remuxWatchdogBufferedEnd = buffer ? buffer.end : null;
 
         log.info(`[JellyfinPlayer] Armed remux stuck watchdog (8s timeout) at ${(targetTicks / 10000000).toFixed(2)}s`);
 
+        // Schedule stuck evaluation window (8 seconds)
+        this._scheduleRemuxWatchdogCheck(REMUX_WATCHDOG_FIRST_CHECK_MS);
+    }
+
+    /** @private */
+    _scheduleRemuxWatchdogCheck(delayMs) {
         const timerFn = typeof setTimeout !== 'undefined'
             ? setTimeout
             : (typeof globalThis !== 'undefined' ? globalThis.setTimeout : null);
 
         if (!timerFn) return;
 
-        // Schedule stuck evaluation window (8 seconds)
         this._remuxWatchdogTimeout = timerFn(() => {
+            this._remuxWatchdogTimeout = null;
             this._handleRemuxWatchdogTimeout();
-        }, 8000);
+        }, delayMs);
+    }
+
+    /**
+     * Media buffered ahead of the playhead in the backend's <video> element.
+     * @private
+     * @returns {{ahead: number, end: number}|null} Seconds ahead and the end of the
+     *   buffered range (media time), or null when the backend has no media element
+     *   (AVPlay) or it cannot be read
+     */
+    _getBackendBufferState() {
+        const backend = this._backend;
+        const video = backend && typeof backend.getVideoElement === 'function' ? backend.getVideoElement() : null;
+        if (!video || !video.buffered) return null;
+
+        try {
+            const ct = video.currentTime || 0;
+            for (let i = 0; i < video.buffered.length; i++) {
+                const start = video.buffered.start(i);
+                const end = video.buffered.end(i);
+                // The first remuxed segment can start just after the playhead
+                if (start <= ct + 1 && end > ct) {
+                    return { ahead: end - ct, end };
+                }
+            }
+            return { ahead: 0, end: ct };
+        } catch (e) {
+            return null;
+        }
     }
 
     /**
@@ -2388,6 +2448,7 @@ export class JellyfinPlayer extends EventEmitter {
         this._remuxWatchdogActive = false;
         this._remuxWatchdogTargetTicks = null;
         this._remuxWatchdogInitialTime = null;
+        this._remuxWatchdogBufferedEnd = null;
     }
 
     /**
@@ -2401,8 +2462,38 @@ export class JellyfinPlayer extends EventEmitter {
             return;
         }
 
+        // ---------------------------------------------------------------------
+        // Still filling the buffer, or frozen?
+        // ---------------------------------------------------------------------
+        // A freeze shows as buffered data the playhead does not move into. A
+        // remux of a high-bitrate source can simply not have enough data yet:
+        // keep waiting while data arrives, up to REMUX_WATCHDOG_MAX_MS.
+        // ---------------------------------------------------------------------
+        const buffer = this._getBackendBufferState();
+        const waitedMs = Date.now() - (this._remuxWatchdogArmedAt || 0);
+        if (buffer) {
+            const previousEnd = this._remuxWatchdogBufferedEnd;
+            const dataArriving = previousEnd === null ? buffer.ahead > 0 : buffer.end > previousEnd + 0.1;
+            this._remuxWatchdogBufferedEnd = buffer.end;
+
+            if (dataArriving && buffer.ahead < REMUX_STUCK_BUFFER_AHEAD_S && waitedMs < REMUX_WATCHDOG_MAX_MS) {
+                log.info(
+                    `[JellyfinPlayer] Remux still buffering (${buffer.ahead.toFixed(1)}s ahead after ${(waitedMs / 1000).toFixed(1)}s) — not frozen, checking again`
+                );
+                this._scheduleRemuxWatchdogCheck(Math.min(REMUX_WATCHDOG_RECHECK_MS, REMUX_WATCHDOG_MAX_MS - waitedMs));
+                return;
+            }
+        }
+
         const targetTicks = this._remuxWatchdogTargetTicks || this.getCurrentPositionTicks();
-        log.warn(`[JellyfinPlayer] Remux playback stuck after fallback (decoder frozen at ${(targetTicks / 10000000).toFixed(2)}s). Escalating to transcode.`);
+        const why = !buffer
+            ? 'no progress'
+            : buffer.ahead >= REMUX_STUCK_BUFFER_AHEAD_S
+                ? `${buffer.ahead.toFixed(1)}s buffered but the decoder is not advancing`
+                : waitedMs >= REMUX_WATCHDOG_MAX_MS
+                    ? `still not playing after ${Math.round(waitedMs / 1000)}s`
+                    : `no data arriving (${buffer.ahead.toFixed(1)}s buffered)`;
+        log.warn(`[JellyfinPlayer] Remux playback stuck after fallback at ${(targetTicks / 10000000).toFixed(2)}s (${why}). Escalating to transcode.`);
 
         // Disarm watchdog so we don't re-trigger or cascade
         this._clearRemuxStuckWatchdog();
