@@ -68,7 +68,7 @@ function getProbedCodecs() {
         // Some TVs only support VP9 in WebM, others in MP4
         vp9: supportsCodec('video/webm; codecs="vp9"') || supportsCodec('video/mp4; codecs="vp09.00.10.08"'),
 
-        // AV1 typically only on WebOS 6+ (O7, G1, C1 etc.)
+        // AV1: every webOS 6+ set, and some webOS 5 sets (2020 α9 Gen 3)
         av1: supportsCodec('video/mp4; codecs="av01.0.05M.08"') || supportsCodec('video/webm; codecs="av1"'),
 
         // Probe for 10-bit HEVC support as a proxy for HDR10 with multiple level/string variants
@@ -251,8 +251,9 @@ export function getDeviceCapabilities() {
 
     // AV1 and VP9: MSE probing natively fails on early WebOS but hardware decodes them securely.
     // WebOS 6+ natively supports AV1. VP9 is generally safe globally on WebOS 4+.
+    // Below webOS 6 the probe decides: LG's 2020 α9 Gen 3 sets (webOS 5) already decode AV1.
     const vp9 = true;
-    const av1 = webosVersion >= 6;
+    const av1 = webosVersion >= 6 || codecs.av1;
 
     const ac3 = codecs.ac3;
 

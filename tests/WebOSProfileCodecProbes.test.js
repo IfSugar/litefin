@@ -108,3 +108,31 @@ test('webOS profile: the DTS setting overrides the probe', async () => {
     const enabled = await loadProfile({ webosVersion: 6, answer: () => '', settings: { enableDts: 'enable' } });
     assert.strictEqual(enabled.getDeviceCapabilities().dts, true);
 });
+
+function directPlayVideoCodecs(profile) {
+    return new Set(profile.DirectPlayProfiles.flatMap((p) => String(p.VideoCodec || '').split(',')).filter(Boolean));
+}
+
+test('webOS profile: AV1 is advertised on webOS 5 when the TV reports an AV1 decoder', async () => {
+    const { getDeviceCapabilities, buildJellyfinProfile } = await loadProfile({
+        webosVersion: 5,
+        answer: answers({ av01: 'probably' })
+    });
+    assert.strictEqual(getDeviceCapabilities().av1, true);
+    assert.ok(directPlayVideoCodecs(buildJellyfinProfile()).has('av1'), 'AV1 transcoded on a TV that decodes it');
+});
+
+test('webOS profile: AV1 stays off on webOS 5 without a decoder, on webOS 6+ regardless, and follows the setting', async () => {
+    const webos5 = await loadProfile({ webosVersion: 5, answer: () => '' });
+    assert.strictEqual(webos5.getDeviceCapabilities().av1, false);
+
+    const webos6 = await loadProfile({ webosVersion: 6, answer: () => '' });
+    assert.strictEqual(webos6.getDeviceCapabilities().av1, true);
+
+    const disabled = await loadProfile({
+        webosVersion: 5,
+        answer: answers({ av01: 'probably' }),
+        settings: { enableAV1: 'disable' }
+    });
+    assert.ok(!directPlayVideoCodecs(disabled.buildJellyfinProfile()).has('av1'));
+});
