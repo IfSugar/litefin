@@ -8,6 +8,7 @@ import test from 'node:test';
  * Smaller fixes in the native webOS player:
  *   - the video box is written only when it changes (A8)
  *   - one TV video-window request at a time, with a slower refresh (A8)
+ *   - canPlayType probes are not repeated on every play (A8)
  * ============================================================================
  */
 
@@ -282,4 +283,23 @@ test('WebOSPlayer: an accepted TV video window is refreshed every 30 s once sett
     assert.ok(luna.sent.length - sentAfterOneMinute <= 2, `${luna.sent.length - sentAfterOneMinute} refreshes in the second minute`);
     assert.ok(luna.sent.length >= 6, 'the first refreshes still come every 3 s');
     await player.stop();
+});
+
+test('WebOSPlayer: canPlayType is asked once per MIME type, not on every play', async () => {
+    // The Dolby Vision direct-play path probes 'video/mp4; codecs="dvh1"' before each load
+    const doviSource = {
+        Container: 'mp4',
+        MediaStreams: [
+            { Index: 0, Type: 'Video', Codec: 'hevc', VideoRangeType: 'DOVI' },
+            { Index: 1, Type: 'Audio', Codec: 'aac', IsDefault: true }
+        ]
+    };
+    const { player } = createPlayer();
+    await playAndStart(player, { url: 'http://srv/Videos/a/stream.mp4', mediaSource: doviSource });
+    const created = createdVideos.length;
+    await player.stop();
+    await playAndStart(player, { url: 'http://srv/Videos/b/stream.mp4', mediaSource: doviSource });
+    await player.stop();
+    await playAndStart(player, { url: 'http://srv/Videos/c/stream.mp4', mediaSource: doviSource });
+    assert.strictEqual(createdVideos.length, created, 'a throw-away <video> per play');
 });

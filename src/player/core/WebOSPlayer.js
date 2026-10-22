@@ -129,6 +129,28 @@ const HLS_MEDIA_RECOVERY_WINDOW_MS = 3000;
  */
 const TIMEUPDATE_MIN_INTERVAL_MS = 100;
 
+/** canPlayType answers by MIME type; they do not change while the app runs. */
+const canPlayTypeCache = Object.create(null);
+
+/**
+ * canPlayType through one throw-away <video> per MIME type for the app's
+ * lifetime, instead of a new element on every play.
+ * @param {string} type - MIME type with optional codecs parameter
+ * @returns {string} '', 'maybe' or 'probably' (or 'no' on very old engines)
+ */
+function canPlayTypeCached(type) {
+    if (!(type in canPlayTypeCache)) {
+        let answer = '';
+        try {
+            answer = document.createElement('video').canPlayType(type) || '';
+        } catch (e) {
+            answer = '';
+        }
+        canPlayTypeCache[type] = answer;
+    }
+    return canPlayTypeCache[type];
+}
+
 /** Refresh of an accepted TV video window: every 3 s for the first five, then every 30 s. */
 const OUTPUT_WINDOW_REFRESH_MS = 3000;
 const OUTPUT_WINDOW_SLOW_REFRESH_MS = 30000;
@@ -1028,10 +1050,9 @@ export class WebOSPlayer {
         }
 
         // Test native browser HLS MIME support for webOS 5+ hardware decoding
-        const video = document.createElement('video');
         const nativeHls = !!(
-            video.canPlayType('application/x-mpegURL').replace(/no/, '') ||
-            video.canPlayType('application/vnd.apple.mpegURL').replace(/no/, '')
+            canPlayTypeCached('application/x-mpegURL').replace(/no/, '') ||
+            canPlayTypeCached('application/vnd.apple.mpegURL').replace(/no/, '')
         );
         log.debug('Native HLS support:', nativeHls);
         return nativeHls;
@@ -1184,8 +1205,7 @@ export class WebOSPlayer {
             // (dvh1 / dvhe are ISO BMFF-defined tags). video/x-matroska with
             // dvh1 would be rejected by Chromium's codec validation.
             const dvHint = 'video/mp4; codecs="dvh1"';
-            const testVideo = document.createElement('video');
-            const canPlayDv = testVideo.canPlayType(dvHint) !== '';
+            const canPlayDv = canPlayTypeCached(dvHint) !== '';
 
             if (canPlayDv) {
                 log.info('WebOSPlayer: DoVi content detected — using dvh1 codec hint to activate DV decoder pipeline');
