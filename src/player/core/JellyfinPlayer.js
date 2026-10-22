@@ -2147,7 +2147,6 @@ export class JellyfinPlayer extends EventEmitter {
             const isAutoTranscodeEnabled = PlayerSettings.get('autoTranscodeOnError') !== false;
             const canEscalate =
                 isAutoTranscodeEnabled &&
-                !PlayerSettings.get('forceDirectPlay') &&
                 !this._isRestarting &&
                 !this._directPlayEscalated &&
                 this._currentPlayOptions &&
@@ -2442,6 +2441,7 @@ export class JellyfinPlayer extends EventEmitter {
             if (needsDirectStreamForAudio && (profilePlaybackMode === 'auto' || profilePlaybackMode === 'directPlay')) {
                 log.info('Audio track selection requires remux: Upgrading profile mode to "remux" to ensure video Direct Stream.');
                 profilePlaybackMode = 'remux';
+                this._playbackMode = 'remux';
             }
 
             // The desktop and web profiles depend on the WebCodecs AV1 probe; it is cached after the first run.
@@ -3169,7 +3169,6 @@ export class JellyfinPlayer extends EventEmitter {
             const isAutoTranscodeEnabled = PlayerSettings.get('autoTranscodeOnError') !== false;
             const canEscalate =
                 isAutoTranscodeEnabled &&
-                !PlayerSettings.get('forceDirectPlay') &&
                 !this._isRestarting &&
                 !this._directPlayEscalated &&
                 this._currentPlayOptions &&
@@ -5059,40 +5058,148 @@ export class JellyfinPlayer extends EventEmitter {
             EnableDirectStream: true
         };
 
-        // Strict Playback Mode Enforcement
-        const forceTranscodeSetting = PlayerSettings.get('forceTranscode');
-        const forceDirectPlaySetting = PlayerSettings.get('forceDirectPlay');
-        
-        let currentMode = this._playbackMode;
-        if (forceTranscodeSetting) currentMode = 'transcode';
-        else if (forceDirectPlaySetting) currentMode = 'directPlay';
+        // ---------------------------------------------------------------------
+        // 1. Audio Track Capability & Passthrough Override Evaluation
+        // ---------------------------------------------------------------------
+        // Locate candidate audio streams to check for TrueHD or DTS.
+        // TV internal speakers cannot decode TrueHD or DTS without an external
+        // sound system (AVR / soundbar via eARC). Even when Force Direct Play is
+        // enabled, unless the user explicitly turned on the TrueHD or DTS override in
+        // player settings, the server must transcode the audio track (DirectStream/Remux)
+        // rather than failing silently or causing hardware decoder faults.
+        // ---------------------------------------------------------------------
+        const activeSource = options.mediaSource ||
+            (options.item?.MediaSources
+                ? options.item.MediaSources.find(m => m.Id === options.mediaSourceId) || options.item.MediaSources[0]
+                : null);
+        const candidateAudioStreams = (activeSource?.MediaStreams || []).filter(s => s.Type === 'Audio');
+
+        const reqAudioIndex = options.audioStreamIndex !== undefined && options.audioStreamIndex !== null
+            ? Number(options.audioStreamIndex)
+            : undefined;
+        const targetAudioStream = reqAudioIndex !== undefined
+            ? candidateAudioStreams.find(s => s.Index === reqAudioIndex)
+            : (candidateAudioStreams.find(s => s.IsDefault) || candidateAudioStreams[0]);
+        const physicalDefaultStream = candidateAudioStreams.find(s => s.IsDefault) || candidateAudioStreams[0];
+
+        // Query whether explicit TrueHD or DTS passthrough overrides are enabled
+        const hasTrueHdOverride = isTrueHdSupported();
+        const hasDtsOverride = isDtsSupported();
+
+        const targetCodec = (targetAudioStream?.Codec || '').toLowerCase();
+        const defaultCodec = (physicalDefaultStream?.Codec || '').toLowerCase();
+
+        const isTargetTrueHd = targetCodec === 'truehd' || targetCodec === 'mlp';
+        const isTargetDts = targetCodec.includes('dts') || targetCodec === 'dca';
+        const isDefaultTrueHd = defaultCodec === 'truehd' || defaultCodec === 'mlp';
+        const isDefaultDts = defaultCodec.includes('dts') || defaultCodec === 'dca';
+
+        // Track requires audio transcoding if TrueHD is present without TrueHD override,
+        // or if DTS is present without DTS override, or if not natively playable.
+        const audioRequiresTranscode =
+            (isTargetTrueHd && !hasTrueHdOverride) ||
+            (isTargetDts && !hasDtsOverride) ||
+            (isDefaultTrueHd && !hasTrueHdOverride) ||
+            (isDefaultDts && !hasDtsOverride) ||
+            (activeSource && options.audioStreamIndex !== undefined && options.audioStreamIndex !== null &&
+                doesAudioTrackRequireDirectStream(activeSource, options.audioStreamIndex, this._backendType));
+
+        // ---------------------------------------------------------------------
+        // 2. Playback Mode Priority: In-Player Selection vs Settings Defaults
+        // ---------------------------------------------------------------------
+        // User selections made inside the active player session (via the OSD
+        // Playback Mode menu or Quality menu manual bitrate cap) MUST take
+        // precedence over global default settings.
+        // ---------------------------------------------------------------------
+        const explicitPlayerMode = (options.playbackMode && options.playbackMode !== 'auto')
+            ? options.playbackMode
+            : (this._playbackMode && this._playbackMode !== 'auto' ? this._playbackMode : null);
+
+        const hasManualBitrate = typeof manualBitrate === 'number' && manualBitrate > 0 && manualBitrate < 120000000;
+
+        let currentMode = 'auto';
+
+        if (explicitPlayerMode) {
+            // In-player selection explicitly chosen (remux, transcode, transcodeVideo, transcodeAudio, directPlay)
+            currentMode = explicitPlayerMode;
+            log.info(`[PlaybackMode] Honoring explicit in-player mode selection: ${currentMode}`);
+        } else if (hasManualBitrate) {
+            // Manual bitrate cap requires transcoding
+            currentMode = 'transcode';
+            log.info(`[PlaybackMode] Manual bitrate limit active (${manualBitrate} bps): using transcode mode`);
+        } else if (audioRequiresTranscode) {
+            // TrueHD / DTS present without sound system override, or track requires remux
+            currentMode = 'remux';
+            log.info('[PlaybackMode] Audio track (TrueHD/DTS) lacks hardware override: upgrading to remux to transcode audio');
+        } else {
+            // Default policy from global user settings
+            const forceTranscodeSetting = PlayerSettings.get('forceTranscode');
+            const forceDirectPlaySetting = PlayerSettings.get('forceDirectPlay');
+
+            if (forceTranscodeSetting) {
+                currentMode = 'transcode';
+            } else if (forceDirectPlaySetting) {
+                currentMode = 'directPlay';
+            }
+        }
 
         switch (currentMode) {
             case 'directPlay':
+                // Check if audio overrides permit TrueHD and DTS in DirectPlayProfiles
+                const allowTrueHdDirect = isTrueHdSupported();
+                const allowDtsDirect = isDtsSupported();
+
+                // If audio requires transcoding (TrueHD or DTS without override),
+                // fall back to remux mode to stream-copy video and transcode audio.
+                if (audioRequiresTranscode) {
+                    log.info('[PlaybackMode] DirectPlay requested but audio codec lacks override: falling back to Remux');
+                    requestBody.EnableDirectPlay = false;
+                    requestBody.EnableDirectStream = true;
+                    requestBody.EnableTranscoding = true;
+                    requestBody.AllowVideoStreamCopy = true;
+                    requestBody.AllowAudioStreamCopy = true;
+                    requestBody.DeviceProfile.CodecProfiles = [];
+                    requestBody.DeviceProfile.ContainerProfiles = [];
+                    requestBody.DeviceProfile.DirectPlayProfiles = [];
+                    break;
+                }
+
+                // Build filtered audio codec string omitting TrueHD and DTS unless their overrides are active
+                const directPlayAudioList = [
+                    'aac', 'mp3', 'mpa', 'wav', 'wma', 'wv', 'flac', 'ogg', 'oga', 'vorbis', 'ac3', 'eac3', 'opus', 'alac'
+                ];
+                if (allowDtsDirect) {
+                    directPlayAudioList.push('dts', 'dtshd');
+                }
+                if (allowTrueHdDirect) {
+                    directPlayAudioList.push('truehd');
+                }
+                const directPlayAudioString = directPlayAudioList.join(',');
+
                 requestBody.EnableDirectPlay = true;
-                requestBody.EnableDirectStream = false;
+                requestBody.EnableDirectStream = true;
                 requestBody.EnableTranscoding = false;
-                requestBody.AllowVideoStreamCopy = false;
-                requestBody.AllowAudioStreamCopy = false;
+                requestBody.AllowVideoStreamCopy = true;
+                requestBody.AllowAudioStreamCopy = true;
                 
-                // Nuclear option: tell the server we can parse everything natively
+                // Construct DirectPlay profiles with strict audio codec guards
                 requestBody.DeviceProfile.DirectPlayProfiles = [{
                     Container: 'm4v,3gp,ts,mpegts,mov,xvid,vob,mkv,wmv,asf,ogm,ogv,m2v,avi,mpg,mpeg,mp4,webm,wtv,dvr-ms,m2ts,rmvb,mxf',
-                    AudioCodec: 'aac,mp3,mpa,wav,wma,wv,flac,ogg,oga,vorbis,ac3,eac3,dts,dtshd,opus,truehd,alac',
+                    AudioCodec: directPlayAudioString,
                     VideoCodec: 'h264,h265,hevc,vp8,vp9,mpeg1video,mpeg2video,mpeg4,wmv2,wmv3,vcl,theora,vc1,mpeg,h263,msmpeg4,av1',
                     Type: 'Video'
                 }, {
-                    Container: 'aac,mp3,mpa,wav,wma,wv,flac,ogg,oga,vorbis,ac3,eac3,dts,dtshd,opus,truehd,alac',
-                    AudioCodec: 'aac,mp3,mpa,wav,wma,wv,flac,ogg,oga,vorbis,ac3,eac3,dts,dtshd,opus,truehd,alac',
+                    Container: 'aac,mp3,mpa,wav,wma,wv,flac,ogg,oga,vorbis,ac3,eac3,opus,alac' + (allowDtsDirect ? ',dts,dtshd' : '') + (allowTrueHdDirect ? ',truehd' : ''),
+                    AudioCodec: directPlayAudioString,
                     Type: 'Audio'
                 }];
-                // Clear any transcoding/direct stream profiles and ALL codec limits
+                // Clear any transcoding profiles and ALL codec limits to prevent false transcode
                 requestBody.DeviceProfile.TranscodingProfiles = [];
                 requestBody.DeviceProfile.DirectStreamProfiles = [];
                 requestBody.DeviceProfile.CodecProfiles = [];
                 requestBody.DeviceProfile.ContainerProfiles = [];
                 
-                log.info('PlaybackInfo API Override: Enforcing STRICT Direct Play (Safeguarded DeviceProfile)');
+                log.info('PlaybackInfo API Override: Enforcing Direct Play with codec override guards');
                 break;
             case 'remux':
                 requestBody.EnableDirectPlay = false;
@@ -5108,6 +5215,24 @@ export class JellyfinPlayer extends EventEmitter {
                 requestBody.DeviceProfile.DirectPlayProfiles = [];
 
                 log.info('PlaybackInfo API Override: Enforcing STRICT Remuxing (Safeguarded DeviceProfile)');
+                break;
+            case 'transcodeVideo':
+                requestBody.EnableDirectPlay = false;
+                requestBody.EnableDirectStream = true;
+                requestBody.EnableTranscoding = true;
+                requestBody.AllowVideoStreamCopy = false;
+                requestBody.AllowAudioStreamCopy = true;
+                requestBody.DeviceProfile.DirectPlayProfiles = [];
+                log.info('PlaybackInfo API Override: Enforcing Video Transcode Only (Audio Copy)');
+                break;
+            case 'transcodeAudio':
+                requestBody.EnableDirectPlay = false;
+                requestBody.EnableDirectStream = true;
+                requestBody.EnableTranscoding = true;
+                requestBody.AllowVideoStreamCopy = true;
+                requestBody.AllowAudioStreamCopy = false;
+                requestBody.DeviceProfile.DirectPlayProfiles = [];
+                log.info('PlaybackInfo API Override: Enforcing Audio Transcode Only (Video Stream Copy)');
                 break;
             case 'transcode':
                 requestBody.EnableDirectPlay = false;
