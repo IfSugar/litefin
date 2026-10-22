@@ -129,6 +129,31 @@ class DetailsPage extends Page {
     }
 
     /**
+     * Determine the user's preferred tooltip presentation mode for action buttons.
+     * Evaluates storage preference with fallback support for legacy boolean states.
+     *
+     * @returns {'hidden' | 'floating' | 'cards'} Resolved tooltip presentation style
+     * @private
+     */
+    _getActionTooltipsMode() {
+        // Read raw preference string from local storage
+        const pref = storage.getItem('pref:showActionTooltips');
+
+        // Check if explicitly configured to hide or legacy false flag
+        if (pref === 'hidden' || pref === 'false') {
+            return 'hidden';
+        }
+
+        // Check if configured for legacy card pill badges
+        if (pref === 'cards') {
+            return 'cards';
+        }
+
+        // Default presentation is clean floating text
+        return 'floating';
+    }
+
+    /**
      * Updates the page container classes to reflect the layout mode
      * configured for the current media item type.
      */
@@ -174,11 +199,15 @@ class DetailsPage extends Page {
             layoutClass = 'layout-backdrop-left';
         }
 
-        const showTooltips = storage.getItem('pref:showActionTooltips') !== 'false';
-        const tooltipsClass = showTooltips ? '' : 'tooltips-disabled';
+        // Resolve action tooltips display mode (floating text default, name cards, or hidden)
+        const tooltipMode = this._getActionTooltipsMode();
+        // Hide tooltips class used for layout adjustments when tooltips are disabled
+        const tooltipsClass = tooltipMode === 'hidden' ? 'tooltips-disabled' : '';
+        // Modifier class indicating whether floating or card style is active
+        const tooltipModeClass = `tooltip-mode-${tooltipMode}`;
 
         return `
-            <div class="page details-page ${layoutClass} ${tooltipsClass}">
+            <div class="page details-page ${layoutClass} ${tooltipsClass} ${tooltipModeClass}">
                 <!-- Backdrop -->
                 <div class="details-backdrop" id="backdrop">
                     <div class="backdrop-gradient"></div>
@@ -243,7 +272,7 @@ class DetailsPage extends Page {
                                 <button class="btn btn-icon more-btn" tabindex="0" aria-label="${i18n.t('MoreOptions')}" data-tooltip="${i18n.t('MoreOptions')}">
                                     ${detailsIcons.more}
                                 </button>
-                                <div class="action-btn-tooltip-bar" id="action-tooltip-bar">
+                                <div class="action-btn-tooltip-bar style-${tooltipMode}" id="action-tooltip-bar">
                                     <span class="action-btn-tooltip-text" id="action-tooltip-text"></span>
                                 </div>
                             </section>
@@ -621,7 +650,9 @@ class DetailsPage extends Page {
             !window.matchMedia('(pointer: fine)').matches;
 
         this._onFocusChangedForTooltip = (focusedEl) => {
-            const isEnabled = storage.getItem('pref:showActionTooltips') !== 'false';
+            // Check if tooltips mode is active (either floating or cards)
+            const tooltipMode = this._getActionTooltipsMode();
+            const isEnabled = tooltipMode !== 'hidden';
             const targetEl = focusedEl || document.activeElement;
             if (!isEnabled || !targetEl) {
                 tooltipBar.classList.remove('visible');
@@ -658,7 +689,8 @@ class DetailsPage extends Page {
                     const btnBottomY = targetEl.offsetTop + targetEl.offsetHeight;
 
                     tooltipBar.style.left = `${btnCenterX}px`;
-                    tooltipBar.style.top = `${btnBottomY}px`;
+                    // Floating text sits specifically at 90px from the container top
+                    tooltipBar.style.top = tooltipMode === 'floating' ? '90px' : `${btnBottomY}px`;
                     tooltipText.textContent = text;
                     tooltipBar.classList.add('visible');
                     return;
@@ -3408,7 +3440,9 @@ class DetailsPage extends Page {
 
             // Apply localization to the formatted time label to construct the full button label text.
             const resumeLabel = i18n.t('ResumeAt', [timeString]);
-            const showTooltips = storage.getItem('pref:showActionTooltips') !== 'false';
+            // Check tooltip display mode
+            const tooltipMode = this._getActionTooltipsMode();
+            const showTooltips = tooltipMode !== 'hidden';
 
             if (showTooltips) {
                 // When tooltips are enabled, display timestamp only on the button pill

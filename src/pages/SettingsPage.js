@@ -2520,10 +2520,24 @@ class SettingsPage extends Page {
                         <span class="setting-description" data-i18n="ShowActionTooltipsDescription">${i18n.t('ShowActionTooltipsDescription') || 'Display a label under focused action buttons on the details page.'}</span>
                     </div>
                     <div class="setting-control">
-                        <button class="toggle-switch ${storage.getItem('pref:showActionTooltips') !== 'false' ? 'active' : ''}" 
-                                id="toggle-show-action-tooltips" 
-                                tabindex="0">
-                        </button>
+                        ${this._renderDropdown(
+                            'show-action-tooltips-select',
+                            [
+                                {
+                                    value: 'hidden',
+                                    label: i18n.t('OptionActionTooltipsHidden') || 'Hidden'
+                                },
+                                {
+                                    value: 'floating',
+                                    label: `${i18n.t('OptionActionTooltipsFloating') || 'Floating Text'} (${i18n.t('Default') || 'Default'})`
+                                },
+                                {
+                                    value: 'cards',
+                                    label: i18n.t('OptionActionTooltipsCards') || 'Name Cards'
+                                }
+                            ],
+                            this._getActionTooltipsMode()
+                        )}
                     </div>
                 </div>
 
@@ -8990,24 +9004,6 @@ class SettingsPage extends Page {
             });
         }
 
-        // =====================================================================
-        // TOGGLE SHOW ACTION BUTTON NAMES TOOLTIP
-        // =====================================================================
-        // Controls whether dynamic tooltip names appear directly below focused
-        // action buttons on the item details page.
-        // =====================================================================
-        const showActionTooltipsBtn = this.$('#toggle-show-action-tooltips');
-        if (showActionTooltipsBtn) {
-            showActionTooltipsBtn.addEventListener('click', () => {
-                // Enabled by default (true unless explicitly stored as 'false')
-                const isEnabled = storage.getItem('pref:showActionTooltips') !== 'false';
-                const newValue = !isEnabled;
-
-                storage.setItem('pref:showActionTooltips', newValue.toString());
-                showActionTooltipsBtn.classList.toggle('active', newValue);
-                log.info(`Show Action Tooltips set to: ${newValue}`);
-            });
-        }
 
         // ==========================================
         // TOGGLE FORCE EXPANDABLE POSTERS (MODERN)
@@ -10659,6 +10655,31 @@ class SettingsPage extends Page {
         }
     }
 
+    /**
+     * Determine the user's preferred tooltip presentation mode for action buttons.
+     * Evaluates storage preference with fallback support for legacy boolean states.
+     *
+     * @returns {'hidden' | 'floating' | 'cards'} Resolved tooltip presentation style
+     * @private
+     */
+    _getActionTooltipsMode() {
+        // Read raw preference string from local storage
+        const pref = storage.getItem('pref:showActionTooltips');
+
+        // Check if explicitly configured to hide or legacy false flag
+        if (pref === 'hidden' || pref === 'false') {
+            return 'hidden';
+        }
+
+        // Check if configured for legacy card pill badges
+        if (pref === 'cards') {
+            return 'cards';
+        }
+
+        // Default presentation is clean floating text
+        return 'floating';
+    }
+
     _renderDropdown(id, options, currentValue, disabled = false) {
         options = this._getFontDropdownOptions(id, options, currentValue);
         // Find current label (using String conversion to match storage strings with number options)
@@ -12281,6 +12302,7 @@ class SettingsPage extends Page {
             'next-up-max-days-select': { key: 'pref:nextUpMaxDays', type: 'local' },
             'score-visibility-select': { key: 'pref:scoreVisibility', type: 'local' },
             'details-title-style-select': { key: 'pref:detailsTitleStyle', type: 'local' },
+            'show-action-tooltips-select': { key: 'pref:showActionTooltips', type: 'local' },
             'details-overview-max-lines-select': { key: 'pref:detailsOverviewMaxLines', type: 'local' },
             'watch-provider-region-select': { key: 'pref:watchProviderRegion', type: 'local' },
             'details-layout-select': { key: 'pref:detailsLayout', type: 'local' },

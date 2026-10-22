@@ -52,6 +52,31 @@ class SeerrDetailsPage extends Page {
         this._isWatchlisted = false;
     }
 
+    /**
+     * Determine the user's preferred tooltip presentation mode for action buttons.
+     * Evaluates storage preference with fallback support for legacy boolean states.
+     *
+     * @returns {'hidden' | 'floating' | 'cards'} Resolved tooltip presentation style
+     * @private
+     */
+    _getActionTooltipsMode() {
+        // Read raw preference string from local storage
+        const pref = storage.getItem('pref:showActionTooltips');
+
+        // Check if explicitly configured to hide or legacy false flag
+        if (pref === 'hidden' || pref === 'false') {
+            return 'hidden';
+        }
+
+        // Check if configured for legacy card pill badges
+        if (pref === 'cards') {
+            return 'cards';
+        }
+
+        // Default presentation is clean floating text
+        return 'floating';
+    }
+
     render() {
         const detailsLayout = storage.getItem('pref:detailsLayout') || 'posterLeft';
         const layoutClasses = {
@@ -60,11 +85,15 @@ class SeerrDetailsPage extends Page {
             backdropLeft: 'layout-backdrop-left'
         };
 
-        const showTooltips = storage.getItem('pref:showActionTooltips') !== 'false';
-        const tooltipsClass = showTooltips ? '' : 'tooltips-disabled';
+        // Resolve action tooltips display mode (floating text default, name cards, or hidden)
+        const tooltipMode = this._getActionTooltipsMode();
+        // Hide tooltips class used for layout adjustments when tooltips are disabled
+        const tooltipsClass = tooltipMode === 'hidden' ? 'tooltips-disabled' : '';
+        // Modifier class indicating whether floating or card style is active
+        const tooltipModeClass = `tooltip-mode-${tooltipMode}`;
 
         return `
-            <div class="page details-page seerr-details-page ${layoutClasses[detailsLayout] || 'layout-poster-left'} ${tooltipsClass}">
+            <div class="page details-page seerr-details-page ${layoutClasses[detailsLayout] || 'layout-poster-left'} ${tooltipsClass} ${tooltipModeClass}">
                 <div class="details-backdrop" id="backdrop">
                     <div class="backdrop-gradient"></div>
                 </div>
@@ -98,7 +127,7 @@ class SeerrDetailsPage extends Page {
                                     ${detailsIcons.watchlist}
                                     <span>${i18n.t('SeerrAddToWatchlist')}</span>
                                 </button>
-                                <div class="action-btn-tooltip-bar" id="action-tooltip-bar">
+                                <div class="action-btn-tooltip-bar style-${tooltipMode}" id="action-tooltip-bar">
                                     <span class="action-btn-tooltip-text" id="action-tooltip-text"></span>
                                 </div>
                             </section>
@@ -1178,7 +1207,9 @@ class SeerrDetailsPage extends Page {
         if (!tooltipBar || !tooltipText) return;
 
         this._onFocusChangedForTooltip = (focusedEl) => {
-            const isEnabled = storage.getItem('pref:showActionTooltips') !== 'false';
+            // Check if tooltips mode is active (either floating or cards)
+            const tooltipMode = this._getActionTooltipsMode();
+            const isEnabled = tooltipMode !== 'hidden';
             const targetEl = focusedEl || document.activeElement;
             if (!isEnabled || !targetEl) {
                 tooltipBar.classList.remove('visible');
@@ -1198,7 +1229,8 @@ class SeerrDetailsPage extends Page {
                     const btnBottomY = targetEl.offsetTop + targetEl.offsetHeight;
 
                     tooltipBar.style.left = `${btnCenterX}px`;
-                    tooltipBar.style.top = `${btnBottomY}px`;
+                    // Floating text sits specifically at 90px from the container top
+                    tooltipBar.style.top = tooltipMode === 'floating' ? '90px' : `${btnBottomY}px`;
                     tooltipText.textContent = text;
                     tooltipBar.classList.add('visible');
                     return;

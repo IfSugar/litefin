@@ -57,12 +57,41 @@ class PersonPage extends Page {
         }
     }
 
+    /**
+     * Determine the user's preferred tooltip presentation mode for action buttons.
+     * Evaluates storage preference with fallback support for legacy boolean states.
+     *
+     * @returns {'hidden' | 'floating' | 'cards'} Resolved tooltip presentation style
+     * @private
+     */
+    _getActionTooltipsMode() {
+        // Read raw preference string from local storage
+        const pref = storage.getItem('pref:showActionTooltips');
+
+        // Check if explicitly configured to hide or legacy false flag
+        if (pref === 'hidden' || pref === 'false') {
+            return 'hidden';
+        }
+
+        // Check if configured for legacy card pill badges
+        if (pref === 'cards') {
+            return 'cards';
+        }
+
+        // Default presentation is clean floating text
+        return 'floating';
+    }
+
     render() {
-        const showTooltips = storage.getItem('pref:showActionTooltips') !== 'false';
-        const tooltipsClass = showTooltips ? '' : 'tooltips-disabled';
+        // Resolve action tooltips display mode (floating text default, name cards, or hidden)
+        const tooltipMode = this._getActionTooltipsMode();
+        // Hide tooltips class used for layout adjustments when tooltips are disabled
+        const tooltipsClass = tooltipMode === 'hidden' ? 'tooltips-disabled' : '';
+        // Modifier class indicating whether floating or card style is active
+        const tooltipModeClass = `tooltip-mode-${tooltipMode}`;
 
         return `
-            <div class="page person-page ${tooltipsClass}" id="person-page">
+            <div class="page person-page ${tooltipsClass} ${tooltipModeClass}" id="person-page">
                 <!-- Backdrop -->
                 <div class="details-backdrop" id="person-backdrop">
                     <div class="backdrop-gradient"></div>
@@ -93,7 +122,7 @@ class PersonPage extends Page {
 
                             <!-- Actions (Favorite, Seerr) -->
                             <div class="person-actions-row" id="person-fav-actions">
-                                <div class="action-btn-tooltip-bar" id="action-tooltip-bar">
+                                <div class="action-btn-tooltip-bar style-${tooltipMode}" id="action-tooltip-bar">
                                     <span class="action-btn-tooltip-text" id="action-tooltip-text"></span>
                                 </div>
                             </div>
@@ -344,8 +373,9 @@ class PersonPage extends Page {
             // Append tooltip bar to favContainer synchronously before any async operations
             let tooltipBar = favContainer.querySelector('#action-tooltip-bar');
             if (!tooltipBar) {
+                const tooltipMode = this._getActionTooltipsMode();
                 tooltipBar = document.createElement('div');
-                tooltipBar.className = 'action-btn-tooltip-bar';
+                tooltipBar.className = `action-btn-tooltip-bar style-${tooltipMode}`;
                 tooltipBar.id = 'action-tooltip-bar';
                 tooltipBar.innerHTML = `<span class="action-btn-tooltip-text" id="action-tooltip-text"></span>`;
                 favContainer.appendChild(tooltipBar);
@@ -1193,7 +1223,9 @@ class PersonPage extends Page {
 
     _setupTooltipListener() {
         this._onFocusChangedForTooltip = (focusedEl) => {
-            const isEnabled = storage.getItem('pref:showActionTooltips') !== 'false';
+            // Check if tooltips mode is active (either floating or cards)
+            const tooltipMode = this._getActionTooltipsMode();
+            const isEnabled = tooltipMode !== 'hidden';
             const targetEl = focusedEl || document.activeElement;
             const bar = this.$('#action-tooltip-bar');
             const txt = this.$('#action-tooltip-text');
@@ -1216,7 +1248,8 @@ class PersonPage extends Page {
                     const btnBottomY = targetEl.offsetTop + targetEl.offsetHeight;
 
                     bar.style.left = `${btnCenterX}px`;
-                    bar.style.top = `${btnBottomY}px`;
+                    // Floating text sits specifically at 90px from the container top
+                    bar.style.top = tooltipMode === 'floating' ? '90px' : `${btnBottomY}px`;
                     txt.textContent = text;
                     bar.classList.add('visible');
                     return;
