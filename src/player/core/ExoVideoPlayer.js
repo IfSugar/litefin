@@ -110,6 +110,28 @@ export class ExoVideoPlayer {
     }
 
     /**
+     * Checks whether the native ExoPlayer instance has the FFmpeg extension
+     * loaded for software decoding of AC-3, E-AC-3, DTS, and TrueHD streams.
+     *
+     * @returns {Promise<boolean>}
+     */
+    static async isFfmpegAvailable() {
+        if (typeof window !== 'undefined' && window.LitefinExoPlayer?.isFfmpegAvailable) {
+            try {
+                return Boolean(window.LitefinExoPlayer.isFfmpegAvailable());
+            } catch {
+                return false;
+            }
+        }
+        try {
+            const res = await invokeNative('isFfmpegAvailable');
+            return Boolean(res?.available);
+        } catch {
+            return false;
+        }
+    }
+
+    /**
      * @param {Object} options - Initialization options
      * @param {HTMLElement} options.container - DOM container hosting player overlays
      * @param {Object} options.settings - PlayerSettings configuration manager

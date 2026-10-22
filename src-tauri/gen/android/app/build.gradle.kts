@@ -156,6 +156,18 @@ dependencies {
     implementation("androidx.media3:media3-datasource-okhttp:$media3Version")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
+    // -------------------------------------------------------------------------
+    // Media3 FFmpeg Audio Decoder Extension (Prebuilt Binaries via Jellyfin)
+    // -------------------------------------------------------------------------
+    // Bundles prebuilt native FFmpeg shared libraries (libffmpeg.so) across all
+    // targeted Android ABIs (armeabi-v7a, arm64-v8a, x86, x86_64).
+    // Provides seamless client-side software decoding fallback for proprietary
+    // multi-channel audio codecs (AC-3, E-AC-3, DTS, DTS-HD, and TrueHD)
+    // when native hardware MediaCodec decoders or bitstream passthrough are
+    // missing on the Android device, preventing playback failure or server transcoding.
+    // -------------------------------------------------------------------------
+    implementation("org.jellyfin.media3:media3-ffmpeg-decoder:1.5.0+1")
+
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.1.4")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.5.0")

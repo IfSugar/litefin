@@ -16,6 +16,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
+import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
@@ -149,7 +150,26 @@ class ExoPlayerPlugin(private val activity: Activity) : Plugin(activity) {
     val selector = DefaultTrackSelector(activity)
     this.trackSelector = selector
 
-    val newPlayer = ExoPlayer.Builder(activity)
+    // -------------------------------------------------------------------------
+    // Configure Media3 DefaultRenderersFactory with Extension Fallback
+    // -------------------------------------------------------------------------
+    // Configures the playback pipeline to prioritize native MediaCodec hardware
+    // decoders for maximum energy efficiency, lower latency, and HDMI passthrough.
+    //
+    // If the underlying Android device lacks native decoding support or passthrough
+    // for proprietary surround sound bitstreams (e.g. AC-3, E-AC-3, DTS, DTS-HD,
+    // and TrueHD), DefaultRenderersFactory automatically falls back to software
+    // decoding via the FfmpegAudioRenderer extension.
+    //
+    // Setting enableDecoderFallback to true guarantees that if a hardware decoder
+    // initializes but faults during playback, ExoPlayer immediately falls back to
+    // software rendering instead of dropping audio or failing playback.
+    // -------------------------------------------------------------------------
+    val renderersFactory = DefaultRenderersFactory(activity)
+      .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
+      .setEnableDecoderFallback(true)
+
+    val newPlayer = ExoPlayer.Builder(activity, renderersFactory)
       .setTrackSelector(selector)
       .build()
 
@@ -707,6 +727,29 @@ class ExoPlayerPlugin(private val activity: Activity) : Plugin(activity) {
     }
   }
 
+  /**
+   * Checks whether the native FFmpeg audio decoding extension (libffmpeg.so)
+   * is successfully loaded and operational within the runtime environment.
+   */
+  @Command
+  fun isFfmpegAvailable(invoke: Invoke) {
+    try {
+      // Dynamic reflective probe to verify FfmpegLibrary is linked and initialized
+      val clazz = Class.forName("androidx.media3.decoder.ffmpeg.FfmpegLibrary")
+      val isAvailableMethod = clazz.getMethod("isAvailable")
+      val available = (isAvailableMethod.invoke(null) as? Boolean) ?: false
+      val ret = JSObject().apply {
+        put("available", available)
+      }
+      invoke.resolve(ret)
+    } catch (_: Exception) {
+      val ret = JSObject().apply {
+        put("available", false)
+      }
+      invoke.resolve(ret)
+    }
+  }
+
   // ===========================================================================
   // Event Dispatching Utilities
   // ===========================================================================
@@ -910,6 +953,21 @@ class ExoPlayerPlugin(private val activity: Activity) : Plugin(activity) {
     @JavascriptInterface
     fun isPaused(): Boolean {
       return !(player?.isPlaying ?: false)
+    }
+
+    /**
+     * Synchronous probe callable directly from JavaScript WebView runtime.
+     * Returns true if the native FFmpeg decoder extension is active.
+     */
+    @JavascriptInterface
+    fun isFfmpegAvailable(): Boolean {
+      return try {
+        val clazz = Class.forName("androidx.media3.decoder.ffmpeg.FfmpegLibrary")
+        val isAvailableMethod = clazz.getMethod("isAvailable")
+        (isAvailableMethod.invoke(null) as? Boolean) ?: false
+      } catch (_: Exception) {
+        false
+      }
     }
   }
 
