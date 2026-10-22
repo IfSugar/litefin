@@ -1354,6 +1354,7 @@ export class JellyfinPlayer extends EventEmitter {
         // "Auto" (null) means Unlimited/Direct Play.
         this._manualBitrate = PlayerSettings.get('maxBitrateInternet') || null;
         this._isRestarting = false; // Flag to suppress stop events during manual quality change
+        this._lastReportedPlayError = null; // Last error play() emitted (restart flows skip re-reporting it)
         this._playbackMode = 'auto'; // Current playback mode ('auto', 'directPlay', 'transcode', 'remux', 'transcodeVideo', 'transcodeAudio')
         
         // ────────────────────────────────────────────────────────────────────
@@ -2146,7 +2147,10 @@ export class JellyfinPlayer extends EventEmitter {
                         await this.play(restartOptions);
                     } catch (fallbackErr) {
                         log.error('[BackendFallback] Failed to recover via HTML5 backend:', fallbackErr);
-                        this.emit(PlayerEvent.ERROR, event.data);
+                        // play() has already reported its own failure
+                        if (fallbackErr !== this._lastReportedPlayError) {
+                            this.emit(PlayerEvent.ERROR, event.data);
+                        }
                     } finally {
                         this._isRestarting = false;
                     }
@@ -2210,8 +2214,10 @@ export class JellyfinPlayer extends EventEmitter {
                         await this.play(restartOptions);
                     } catch (escalateErr) {
                         log.error('[JellyfinPlayer] DirectPlay transcode escalation failed:', escalateErr);
-                        // Forward error to UI if transcode restart fails
-                        this.emit(PlayerEvent.ERROR, event.data);
+                        // Forward error to UI if transcode restart fails (play() reports its own failures)
+                        if (escalateErr !== this._lastReportedPlayError) {
+                            this.emit(PlayerEvent.ERROR, event.data);
+                        }
                     } finally {
                         this._isRestarting = false;
                     }
@@ -3134,7 +3140,13 @@ export class JellyfinPlayer extends EventEmitter {
                 error?.message?.includes('interrupted by a new load request') ||
                 error?.name === 'AbortError';
 
-            if (this._isRestarting || this._audioRestartInProgress || (isInterrupted && this._backend)) {
+            // -----------------------------------------------------------------
+            // Only the interruption itself is swallowed. Real failures are
+            // reported even while a restart is in progress: the restart flows
+            // await play() and the page shows a spinner on RESTARTING, so a
+            // swallowed failure left that spinner up forever with no error.
+            // -----------------------------------------------------------------
+            if (isInterrupted) {
                 log.warn(
                     'Playback play() promise interrupted during restart/reload — suppressing error modal:',
                     error?.message || error
@@ -3243,7 +3255,10 @@ export class JellyfinPlayer extends EventEmitter {
                     return;
                 } catch (escalateErr) {
                     log.error('[JellyfinPlayer] DirectPlay setup transcode escalation failed:', escalateErr);
-                    this.emit(PlayerEvent.ERROR, { error: escalateErr, type: 'playback' });
+                    if (escalateErr !== this._lastReportedPlayError) {
+                        this._lastReportedPlayError = escalateErr;
+                        this.emit(PlayerEvent.ERROR, { error: escalateErr, type: 'playback' });
+                    }
                     throw escalateErr;
                 } finally {
                     this._isRestarting = false;
@@ -3251,6 +3266,8 @@ export class JellyfinPlayer extends EventEmitter {
             }
 
             log.error('Playback error caught:', error);
+            // Remembered so restart flows awaiting this play() don't report it twice
+            this._lastReportedPlayError = error;
             this.emit(PlayerEvent.ERROR, { error, type: 'playback' });
             throw error;
         }
@@ -3810,10 +3827,13 @@ export class JellyfinPlayer extends EventEmitter {
                 await this.stop();
                 await new Promise(resolve => setTimeout(resolve, 500));
                 await this.play(restartOptions);
-                // Reset on success so subsequent stop() calls behave normally
-                this._isRestarting = false;
+            } catch (e) {
+                // play() reports its own failure (error event); only clean up here
+                log.error('Failed to restart playback for subtitle burn-in:', e);
             } finally {
-                // Always clear the guard when done
+                // Always clear both flags, so subsequent stop() calls behave normally
+                // and later errors still escalate even if the restart failed
+                this._isRestarting = false;
                 this._burnInRestartInProgress = false;
             }
 

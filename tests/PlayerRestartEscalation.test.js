@@ -175,3 +175,76 @@ test('JellyfinPlayer: a failed transcode resume never restarts as a remux, and r
     await settle();
     assert.strictEqual(player.playCalls.length, 1);
 });
+
+// ----------------------------------------------------------------------------
+// C3 — errors during restarts
+// ----------------------------------------------------------------------------
+
+/** A stub player running the real play() up to a failing PlaybackInfo request. */
+function createPlayingPlayer(failure) {
+    const player = createPlayer(['async play(options) {', '_handleBackendEvent(event) {'], {
+        globals: {
+            TizenAVPlayer: class {},
+            HtmlVideoPlayer: class {},
+            platformInfo: {},
+            webCodecsProbe: {},
+            buildJellyfinProfile: () => ({ Name: 'stub', DirectPlayProfiles: [] })
+        }
+    });
+    player._getPlaybackInfo = async () => {
+        throw failure;
+    };
+    player.stopCalls = 0;
+    player.stop = async function () {
+        this.stopCalls++;
+    };
+    return player;
+}
+
+test('JellyfinPlayer: a failed subtitle burn-in restart clears the restarting state', async () => {
+    const player = createPlayer(['async setSubtitleStreamIndex(index) {'], {
+        settings: { subtitleBurnIn: 'all' },
+        globals: { prewarmManager: { invalidateCache() {} } }
+    });
+    player._currentSubtitleStreamIndex = -1;
+    player.getSubtitleTracks = () => [{ Index: 3, Codec: 'srt' }];
+    player.play = async () => {
+        throw new Error('Failed to get playback info: 500');
+    };
+
+    await player.setSubtitleStreamIndex(3);
+    assert.strictEqual(player._isRestarting, false, 'restarting flag stuck: later errors are swallowed');
+    assert.strictEqual(player._burnInRestartInProgress, false);
+});
+
+test('JellyfinPlayer: a failure while restarting is reported instead of swallowed', async () => {
+    const player = createPlayingPlayer(new Error('Failed to get playback info: 500'));
+    player._isRestarting = true;
+    player._audioRestartInProgress = true;
+
+    await assert.rejects(player.play({ itemId: 'item1', playbackMode: 'remux' }), /500/);
+    assert.deepStrictEqual(player.events.filter((e) => e === 'error'), ['error']);
+});
+
+test('JellyfinPlayer: an interrupted play() is still a silent cancel, even after the backend is gone', async () => {
+    const abort = new Error('The play() request was interrupted by a new load request');
+    abort.name = 'AbortError';
+    const player = createPlayingPlayer(abort);
+    player._backend = null;
+
+    await player.play({ itemId: 'item1' });
+    assert.deepStrictEqual(player.events.filter((e) => e === 'error'), []);
+    assert.strictEqual(player.stopCalls, 0, 'a cancelled load was escalated to a transcode restart');
+});
+
+test('JellyfinPlayer: a failed transcode escalation is reported exactly once', async () => {
+    const player = createPlayingPlayer(new Error('Failed to get playback info: 500'));
+
+    // Direct play fails at runtime → escalation restarts in transcode → that fails too
+    player._handleBackendEvent({ type: 'error', data: { code: 3, message: 'MEDIA_ERR_DECODE' } });
+    await settle();
+    await settle();
+
+    assert.strictEqual(player.events.filter((e) => e === 'error').length, 1);
+    assert.strictEqual(player._isRestarting, false);
+});
