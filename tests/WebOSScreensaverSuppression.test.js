@@ -104,6 +104,42 @@ test('WebOSAdapter: Source code integrity for screensaver suppression and user p
         settingsPageSource.includes('webosAdapter.updateScreensaverSuppressionPreference'),
         'SettingsPage.js must inform webosAdapter upon toggle changes'
     );
+
+    /*
+     * ========================================================================
+     * 9. Verify WebOS Application Manifest (appinfo.json) Configuration
+     * ========================================================================
+     * When movies with non-16:9 aspect ratios (e.g. 2.39:1 ultrawide cinemascope)
+     * are played in letterboxed layout, the <video> element does not cover 100%
+     * of the display viewport height.
+     *
+     * Without enablePigScreenSaver: false, LG webOS treats the playback surface
+     * as Picture-in-Graphics (PIG) and activates the PIG screensaver after
+     * a few minutes of inactivity. This compositor routine masks all graphics
+     * outside the video frame bounds with solid black, cutting off subtitles
+     * rendered in the bottom black bar and debug log overlays.
+     *
+     * Setting enablePigScreenSaver: false and preferredType: 2 guarantees
+     * that webOS keeps the full HTML canvas and subtitle overlays active.
+     * ========================================================================
+     */
+    const appinfo = JSON.parse(
+        readFileSync(new URL('../appinfo.json', import.meta.url), 'utf8')
+    );
+
+    // Ensure Picture-in-Graphics screensaver is explicitly disabled
+    assert.strictEqual(
+        appinfo.enablePigScreenSaver,
+        false,
+        'appinfo.json must define enablePigScreenSaver: false to prevent webOS from masking black bars'
+    );
+
+    // Ensure OSD media playback preferredType 2 is declared
+    assert.strictEqual(
+        appinfo.screenSaverProperties?.preferredType,
+        2,
+        'appinfo.json must declare preferredType: 2 in screenSaverProperties'
+    );
 });
 
 test('WebOSAdapter: Behavioral simulation of screensaver guard and ack logic with preference toggle', () => {
