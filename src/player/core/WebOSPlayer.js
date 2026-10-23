@@ -348,6 +348,8 @@ export class WebOSPlayer {
         // seek → stall → seek feedback loops on Dolby Vision content.
         this._lastRecoveryKickTime = 0;
         this._recoveryPauseTimer  = null;
+        // Dolby Vision pause/play flush in progress: null | 'pausing' | 'resuming'
+        this._recoveryFlush = null;
 
         // ---- Robust resume state ----
         this._robustSeekTarget   = null;
@@ -544,6 +546,8 @@ export class WebOSPlayer {
     _endSession() {
         this._loadPending = false;
         this._seekWatch = null;
+        // A Dolby Vision flush ends with its session (its resume timer is cleared below)
+        this._recoveryFlush = null;
         const cleanups = this._sessionCleanups;
         this._sessionCleanups = [];
         for (let i = 0; i < cleanups.length; i++) {
@@ -2289,6 +2293,14 @@ export class WebOSPlayer {
         // Disarm any queued post-seek unpause operations so an explicit pause halts playback
         const cancelledPlay = this._pendingPlayAfterSeek;
         this._pendingPlayAfterSeek = false;
+        // A Dolby Vision flush holding the element paused does not resume it now: the user's
+        // pause stands. Its own pause was not reported, so this one is reported below.
+        const cancelledFlush = this._recoveryFlush === 'pausing';
+        if (cancelledFlush) {
+            clearTimeout(this._recoveryPauseTimer);
+            this._recoveryPauseTimer = null;
+            this._recoveryFlush = null;
+        }
         const video = this._videoElement;
         if (!video) return;
         if (video.paused) {
@@ -2296,7 +2308,7 @@ export class WebOSPlayer {
             // event will come. JellyfinPlayer already counts playback as resumed and
             // took every later Play press for a pause (LG C4: Play did nothing until
             // the user left the item), so report the pause here.
-            if (cancelledPlay) this.onEvent({ type: 'pause' });
+            if (cancelledPlay || cancelledFlush) this.onEvent({ type: 'pause' });
             return;
         }
         video.pause();
@@ -3802,11 +3814,19 @@ export class WebOSPlayer {
 
     /** @private */
     _onPause() {
+        // The Dolby Vision flush pausing the element: not a pause of the user's
+        if (this._recoveryFlush === 'pausing') return;
         this.onEvent({ type: 'pause' });
     }
 
     /** @private */
     _onPlay() {
+        // The Dolby Vision flush resuming the element: as far as the user is concerned,
+        // playback never stopped
+        if (this._recoveryFlush === 'resuming') {
+            this._recoveryFlush = null;
+            return;
+        }
         this.onEvent({ type: 'play' });
     }
 
@@ -4199,18 +4219,39 @@ export class WebOSPlayer {
                         's buffered, currentTime frozen — attempting pause/play flush'
                     );
                     this._lastRecoveryKickTime = Date.now();
+                    const video = this._videoElement;
                     try {
-                        this._videoElement.pause();
+                        /*
+                         * Not a pause of the user's: _onPause() and _onPlay() do not
+                         * report the flush's pause and play, so the player does not
+                         * show playback paused for a moment. The resume is a session
+                         * timer that _clearStallCheck() leaves alone: a 'stalled',
+                         * 'waiting' or 'playing' within the 200 ms used to cancel it
+                         * and left the element paused. A Pause of the user's
+                         * meanwhile cancels it (see pause()).
+                         */
+                        this._recoveryFlush = 'pausing';
+                        video.pause();
                         // Short pause (200 ms) lets the decoder pipeline
                         // drain its internal queues before we restart.
-                        this._recoveryPauseTimer = setTimeout(() => {
+                        this._recoveryPauseTimer = this._timer(() => {
                             this._recoveryPauseTimer = null;
-                            if (!this._videoElement) return;
-                            this._videoElement.play().catch(e => {
+                            if (this._recoveryFlush !== 'pausing') return;
+                            if (this._videoElement !== video || !video.paused) {
+                                this._recoveryFlush = null;
+                                return;
+                            }
+                            this._recoveryFlush = 'resuming';
+                            video.play().catch((e) => {
                                 log.error('WebOSPlayer: DoVi pause/play resume failed', e);
+                                // Nothing resumed: report the pause that was held back
+                                if (this._recoveryFlush !== 'resuming') return;
+                                this._recoveryFlush = null;
+                                if (video.paused) this.onEvent({ type: 'pause' });
                             });
                         }, 200);
                     } catch (e) {
+                        this._recoveryFlush = null;
                         log.error('WebOSPlayer: DoVi pause/play flush failed', e);
                     }
                 } else {
@@ -4296,10 +4337,6 @@ export class WebOSPlayer {
         if (this._stallTimer) {
             clearTimeout(this._stallTimer);
             this._stallTimer = null;
-        }
-        if (this._recoveryPauseTimer) {
-            clearTimeout(this._recoveryPauseTimer);
-            this._recoveryPauseTimer = null;
         }
     }
 
