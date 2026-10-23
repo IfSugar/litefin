@@ -53,7 +53,8 @@ const STOP_REPORT_TIMEOUT_MS = 10000;
  * the player anyway; the report (and its retry) carries on in the background.
  * On a LAN it takes ~0.1 s, so the details page still sees the new resume
  * position. With a stalled server, waiting the full timeout held the spinner
- * up for 10 s (LG C4).
+ * up for 10 s (LG C4). A Live TV channel switch waits as long for the old
+ * live stream to close.
  */
 const STOP_REPORT_EXIT_WAIT_MS = 2500;
 
@@ -64,8 +65,9 @@ class PlayerPage extends Page {
         // Player instance
         this._player = null;
 
-        // In-flight PlaybackStopped report of a session replaced by a restart;
-        // the new session's PlaybackStart waits for it (see _onPlayerRestarting)
+        // In-flight PlaybackStopped report of a session replaced by a restart
+        // or left for another item; the next session's PlaybackStart waits for
+        // it (see _onPlayerRestarting, _reportPlaybackStoppedOnSwitch)
         this._pendingStopReport = null;
 
         // PlaybackStart waiting for _pendingStopReport. A stop report for its
@@ -96,6 +98,10 @@ class PlayerPage extends Page {
         // Cached media source for stop reporting
         // (player clears this internally after stop, so we need a copy)
         this._cachedMediaSource = null;
+
+        // Close request of the live stream a stop report just closed
+        // (see _reportPlaybackStoppedOnSwitch)
+        this._liveStreamClose = null;
 
         // Concurrency lock for item switching
         this._isSwitching = false;
@@ -2454,7 +2460,7 @@ class PlayerPage extends Page {
 
             if (this._player?.stop) this._player.stop();
 
-            this._reportPlaybackStopped(mediaSource, positionTicks, false, durationTicks, outgoingItem).then(() => {
+            this._reportPlaybackStoppedOnSwitch(mediaSource, positionTicks, durationTicks, outgoingItem).then(() => {
                 // Settle and restart
                 setTimeout(async () => {
                     this._resumePosition = 0;
@@ -2557,8 +2563,9 @@ class PlayerPage extends Page {
                 await this._player.stop();
             }
 
-            // Report stopped (async) with captured duration and explicit outgoing item
-            await this._reportPlaybackStopped(mediaSource, positionTicks, false, durationTicks, outgoingItem);
+            // Report stopped with captured duration and explicit outgoing item. Only a
+            // live stream is waited for, to close; the next start report waits for the rest.
+            await this._reportPlaybackStoppedOnSwitch(mediaSource, positionTicks, durationTicks, outgoingItem);
 
             // Now advance the queue cursor cleanly to the next item
             const nextItem = playQueue.advance();
@@ -2704,7 +2711,7 @@ class PlayerPage extends Page {
                         await this._player.stop();
                     }
 
-                    await this._reportPlaybackStopped(mediaSource, positionTicks, false, durationTicks, outgoingItem);
+                    await this._reportPlaybackStoppedOnSwitch(mediaSource, positionTicks, durationTicks, outgoingItem);
 
                     // Brief settle delay (same as _playNextItem)
                     await new Promise((resolve) => setTimeout(resolve, 500));
@@ -2777,7 +2784,7 @@ class PlayerPage extends Page {
                     await this._player.stop();
                 }
 
-                await this._reportPlaybackStopped(mediaSource, positionTicks, false, durationTicks, outgoingItem);
+                await this._reportPlaybackStoppedOnSwitch(mediaSource, positionTicks, durationTicks, outgoingItem);
 
                 await new Promise((resolve) => setTimeout(resolve, 500));
 
@@ -2994,7 +3001,7 @@ class PlayerPage extends Page {
                 await this._player.stop();
             }
 
-            await this._reportPlaybackStopped(mediaSource, positionTicks, false, durationTicks, outgoingItem);
+            await this._reportPlaybackStoppedOnSwitch(mediaSource, positionTicks, durationTicks, outgoingItem);
 
             /* Brief settle delay — same as _playNextItem/_playPreviousItem. */
             await new Promise((resolve) => setTimeout(resolve, 500));
@@ -3479,9 +3486,11 @@ class PlayerPage extends Page {
                     log.warn('Failed to report playback stopped during restart:', err);
                 }
             );
-            this._pendingStopReport = report;
-            report.then(() => {
-                if (this._pendingStopReport === report) this._pendingStopReport = null;
+            // The previous item's stop report may still be in flight as well
+            const pending = this._pendingStopReport ? Promise.all([this._pendingStopReport, report]) : report;
+            this._pendingStopReport = pending;
+            pending.then(() => {
+                if (this._pendingStopReport === pending) this._pendingStopReport = null;
             });
 
             // The new session reports its start only once it plays, but the
@@ -3566,6 +3575,9 @@ class PlayerPage extends Page {
                 this._waitingStartReport = null;
             }
 
+            // That wait can take seconds, with progress reports held meanwhile
+            // (see _reportPlaybackProgress): report the state as it is now
+            Object.assign(info, this._getPlayerState(), { IsPaused: Boolean(this._isPaused) });
             await api.reportPlaybackStart(info);
         } catch (error) {
             log.warn('Failed to report playback start:', error);
@@ -4050,6 +4062,14 @@ class PlayerPage extends Page {
             this._isPaused = true;
         } else if (eventName === 'unpause') {
             this._isPaused = false;
+        }
+
+        // The session's start report still waits for the previous session's
+        // stop report (see _reportPlaybackStart): progress sent now would reach
+        // the server before both. The start report carries the state instead.
+        if (this._pendingStopReport) {
+            log.debug('Progress report held until the playback start is reported');
+            return;
         }
 
         try {
@@ -4729,8 +4749,8 @@ class PlayerPage extends Page {
     }
 
     /**
-     * Wait for a stop report before leaving the player, but at most
-     * STOP_REPORT_EXIT_WAIT_MS; the report carries on in the background.
+     * Wait for a stop report before leaving the player (or a Live TV channel),
+     * but at most STOP_REPORT_EXIT_WAIT_MS; the report carries on in the background.
      * @private
      * @param {Promise} report - The pending _reportPlaybackStopped() call
      * @returns {Promise<void>}
@@ -4752,8 +4772,42 @@ class PlayerPage extends Page {
         clearTimeout(timer);
         if (!finished) {
             log.warn(
-                `Stop report not answered within ${STOP_REPORT_EXIT_WAIT_MS} ms — leaving the player, it continues in the background`
+                `Stop report not answered within ${STOP_REPORT_EXIT_WAIT_MS} ms — going on, it continues in the background`
             );
+        }
+    }
+
+    /**
+     * Report playback stopped for the item being left (Next, Previous,
+     * auto-advance…) without waiting for the server: on a stalled one, the
+     * report can take its full timeout. The next session's PlaybackStart waits
+     * for it, and for an earlier one still in flight, so the server still sees
+     * the stop first.
+     * Only a live stream (Live TV) is waited for, at most STOP_REPORT_EXIT_WAIT_MS:
+     * it has to be closed before the next channel opens one, as a single tuner
+     * or a one-stream IPTV account stays busy until then.
+     * @private
+     * @param {Object} mediaSource - Media source captured before player.stop()
+     * @param {number} positionTicks - Position captured before player.stop()
+     * @param {number} durationTicks - Duration captured before player.stop()
+     * @param {Object} [item] - The item being left (default: the current item)
+     * @returns {Promise<void>}
+     */
+    async _reportPlaybackStoppedOnSwitch(mediaSource, positionTicks, durationTicks, item = null) {
+        this._liveStreamClose = null;
+        const report = this._reportPlaybackStopped(mediaSource, positionTicks, false, durationTicks, item).catch(
+            (err) => {
+                log.warn('Failed to report playback stopped:', err);
+            }
+        );
+        const closing = this._liveStreamClose;
+        const pending = this._pendingStopReport ? Promise.all([this._pendingStopReport, report]) : report;
+        this._pendingStopReport = pending;
+        pending.then(() => {
+            if (this._pendingStopReport === pending) this._pendingStopReport = null;
+        });
+        if (closing) {
+            await this._awaitStopReportBeforeExit(Promise.all([report, closing]));
         }
     }
 
@@ -4924,8 +4978,9 @@ class PlayerPage extends Page {
             // 2.6 Close Live Stream if applicable
             if (mediaSource?.LiveStreamId) {
                 log.info('Closing Live Stream:', mediaSource.LiveStreamId);
-                // Call asynchronously to avoid blocking the stopped report
-                api.closeLiveStream(mediaSource.LiveStreamId).catch((err) => {
+                // Call asynchronously to avoid blocking the stopped report; a
+                // channel switch waits for it (see _reportPlaybackStoppedOnSwitch)
+                this._liveStreamClose = api.closeLiveStream(mediaSource.LiveStreamId).catch((err) => {
                     log.warn('Failed to close live stream:', err);
                 });
             }
@@ -5326,8 +5381,12 @@ class PlayerPage extends Page {
             // (and the spinner) for the round trip. Back waits for it at most
             // STOP_REPORT_EXIT_WAIT_MS, so a stalled server cannot hold the page.
             // App exit (_handleAppExit) still uses a synchronous XHR.
+            // The previous item's report may still be in flight (Next, then Back)
             await this._awaitStopReportBeforeExit(
-                this._reportPlaybackStopped(mediaSource, positionTicks, false, durationTicks)
+                Promise.all([
+                    this._pendingStopReport,
+                    this._reportPlaybackStopped(mediaSource, positionTicks, false, durationTicks)
+                ])
             );
         } catch (error) {
             log.warn('Error during stop:', error);
@@ -5974,7 +6033,7 @@ class PlayerPage extends Page {
                 this._player?.getDurationTicks?.() || mediaSource?.RunTimeTicks || this._item?.RunTimeTicks || 0;
 
             await this._player.stop();
-            await this._reportPlaybackStopped(mediaSource, positionTicks, false, durationTicks);
+            await this._reportPlaybackStoppedOnSwitch(mediaSource, positionTicks, durationTicks);
         }
 
         // Briefly settle hardware to prevent decoder state overlaps
