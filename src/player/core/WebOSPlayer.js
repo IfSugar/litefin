@@ -135,6 +135,15 @@ const HLS_MANIFEST_ERRORS = [
 const HLS_MEDIA_RECOVERY_WINDOW_MS = 3000;
 
 /**
+ * Hls.js decoder resets (recoverMediaError) allowed per Hls.js instance until
+ * playback has got HLS_MEDIA_RECOVERY_PROGRESS_S past every earlier reset.
+ * The window alone reset a decoder that fails at the same spot forever,
+ * behind a spinner, whenever each re-buffer took longer than the window.
+ */
+const HLS_MAX_DECODER_RESETS = 3;
+const HLS_MEDIA_RECOVERY_PROGRESS_S = 30;
+
+/**
  * Minimum real-time spacing of forwarded timeupdate events. Chromium fires
  * timeupdate about every 250 ms, and webOS's WebAppMgr raises that to about
  * every 150 ms (--max-timeupdate-event-frequency=150; 156 ms measured on
@@ -1611,6 +1620,8 @@ export class WebOSPlayer {
      * - Fatal media errors: recoverMediaError(), then swapAudioCodec() +
      *   recoverMediaError(), each at most once per 3 s window; a third error
      *   inside the window gives up (same policy as jellyfin-web).
+     *   At most HLS_MAX_DECODER_RESETS resets in all, until playback got
+     *   HLS_MEDIA_RECOVERY_PROGRESS_S past every earlier reset.
      * - Other fatal errors give up straight away.
      *
      * @private
@@ -1623,6 +1634,9 @@ export class WebOSPlayer {
         let networkRetries = 0;
         let lastDecoderReset = 0;
         let lastCodecSwap = 0;
+        // Decoder resets so far, and the furthest position one was made at
+        let decoderResets = 0;
+        let resetPosition = 0;
 
         const onError = (event, data) => {
             if (!data.fatal) {
@@ -1664,16 +1678,31 @@ export class WebOSPlayer {
 
             if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
                 const now = Date.now();
-                if (now - lastDecoderReset > HLS_MEDIA_RECOVERY_WINDOW_MS) {
+                // A decoder that fails at the same spot each time playback gets back to it
+                // is not reset forever: the count starts over only once playback got well
+                // past every earlier reset. The furthest spot counts: the position is 0
+                // while the element reloads after a reset.
+                const media = hls.media || this._videoElement;
+                const position = media && media.currentTime > 0 ? media.currentTime : 0;
+                if (position - resetPosition >= HLS_MEDIA_RECOVERY_PROGRESS_S) decoderResets = 0;
+                const canReset = decoderResets < HLS_MAX_DECODER_RESETS;
+                if (canReset && now - lastDecoderReset > HLS_MEDIA_RECOVERY_WINDOW_MS) {
                     lastDecoderReset = now;
+                    decoderResets++;
+                    resetPosition = Math.max(resetPosition, position);
                     log.info('WebOSPlayer: Attempting Hls.js media error recovery');
                     hls.recoverMediaError();
-                } else if (now - lastCodecSwap > HLS_MEDIA_RECOVERY_WINDOW_MS) {
+                } else if (canReset && now - lastCodecSwap > HLS_MEDIA_RECOVERY_WINDOW_MS) {
                     lastCodecSwap = now;
+                    decoderResets++;
+                    resetPosition = Math.max(resetPosition, position);
                     log.info('WebOSPlayer: Attempting Hls.js media error recovery with audio codec swap');
                     hls.swapAudioCodec();
                     hls.recoverMediaError();
                 } else {
+                    if (!canReset) {
+                        log.warn(`WebOSPlayer: Hls.js decoder reset ${decoderResets} times without progress`);
+                    }
                     const error = new Error(`Hls.js media error (${data.details})`);
                     error.code = 3;
                     fail(error);
