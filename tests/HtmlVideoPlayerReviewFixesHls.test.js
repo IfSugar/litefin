@@ -342,3 +342,65 @@ test('HtmlVideoPlayer: the resume gate waits for segment #2 when segment #1 leav
     bufferSegment(hls, 2);
     assert.strictEqual(video.playCalls, 1);
 });
+
+// ----------------------------------------------------------------------------
+// Fatal media errors: decoder resets per HLS.js instance
+// ----------------------------------------------------------------------------
+
+test('HtmlVideoPlayer: HLS.js media errors that recur every few seconds are reported after three resets', (t) => {
+    t.mock.timers.enable({ apis: ['Date'], now: 1000000 });
+    const { player } = createPlayer(t);
+    const hls = new FakeHls({});
+    const failures = [];
+    const { onError } = player._createHlsErrorHandler(hls, (err) => failures.push(err));
+
+    // A decoder that fails each time the re-buffer reaches the same spot, 3.5 s apart:
+    // never twice inside the 3 s window
+    for (let i = 0; i < 3; i++) {
+        onError('hlsError', fatalMediaError);
+        t.mock.timers.tick(3500);
+    }
+    assert.deepStrictEqual(hls.calls, ['recoverMediaError', 'recoverMediaError', 'recoverMediaError']);
+    assert.strictEqual(failures.length, 0);
+
+    onError('hlsError', fatalMediaError);
+    assert.strictEqual(hls.calls.length, 3, 'decoder reset forever behind a spinner');
+    assert.strictEqual(failures.length, 1);
+    assert.strictEqual(failures[0].code, 3);
+});
+
+test('HtmlVideoPlayer: an HLS.js media error after sustained playback gets a fresh budget', (t) => {
+    t.mock.timers.enable({ apis: ['Date'], now: 1000000 });
+    const { player } = createPlayer(t);
+    const video = player._ensureVideoElement();
+    const hls = new FakeHls({});
+    const failures = [];
+    const { onError } = player._createHlsErrorHandler(hls, (err) => failures.push(err));
+
+    // Three resets get past a bad spot at 10:00, then a new fault at 25:00
+    for (const position of [600, 603, 606, 1500]) {
+        video.currentTime = position;
+        onError('hlsError', fatalMediaError);
+        t.mock.timers.tick(3500);
+    }
+    assert.strictEqual(hls.calls.length, 4, 'a new fault 15 minutes later was reported');
+    assert.strictEqual(failures.length, 0);
+});
+
+test('HtmlVideoPlayer: a media error while the element reloads does not renew the reset budget', (t) => {
+    t.mock.timers.enable({ apis: ['Date'], now: 1000000 });
+    const { player } = createPlayer(t);
+    const video = player._ensureVideoElement();
+    const hls = new FakeHls({});
+    const failures = [];
+    const { onError } = player._createHlsErrorHandler(hls, (err) => failures.push(err));
+
+    // The playhead is at 0 until HLS.js puts it back after a reset
+    for (const position of [600, 603, 0, 604]) {
+        video.currentTime = position;
+        onError('hlsError', fatalMediaError);
+        t.mock.timers.tick(3500);
+    }
+    assert.strictEqual(hls.calls.length, 3);
+    assert.strictEqual(failures.length, 1, 'the same fault got three more resets');
+});

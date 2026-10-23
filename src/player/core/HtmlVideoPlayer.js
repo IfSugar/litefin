@@ -92,6 +92,14 @@ const HLS_START_SEGMENT_WAIT_MS = 5000;
 const HLS_MEDIA_RECOVERY_WINDOW_MS = 3000;
 
 /**
+ * Decoder resets one HLS.js instance gets for fatal media errors, and the
+ * playback progress (s) past every earlier reset after which a new fault
+ * gets a fresh budget.
+ */
+const HLS_MAX_DECODER_RESETS = 3;
+const HLS_DECODER_RESET_PROGRESS_S = 30;
+
+/**
  * Rejection for a load abandoned by stop() or a newer play(). Named
  * 'AbortError' like a DOM abort, so JellyfinPlayer treats it as a cancel.
  * @returns {Error}
@@ -952,7 +960,9 @@ export class HtmlVideoPlayer {
      *   fragment resets the count.
      * - Fatal media errors: recoverMediaError(), then swapAudioCodec() +
      *   recoverMediaError(), each at most once per 3 s window (jellyfin-web's
-     *   policy); a third error inside the window gives up.
+     *   policy); a third error inside the window gives up. A decoder that keeps
+     *   failing a few seconds apart gives up after three resets in all; playback
+     *   30 s past every earlier reset gives a new fault a fresh budget.
      * - Other fatal errors give up straight away.
      *
      * @private
@@ -964,6 +974,9 @@ export class HtmlVideoPlayer {
         let networkRetries = 0;
         let lastDecoderReset = 0;
         let lastCodecSwap = 0;
+        // Decoder resets so far, and the furthest position one was made at
+        let decoderResets = 0;
+        let resetPosition = 0;
 
         const onError = (event, data) => {
             if (!data.fatal) {
@@ -996,11 +1009,16 @@ export class HtmlVideoPlayer {
 
             if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
                 const now = Date.now();
-                if (now - lastDecoderReset > HLS_MEDIA_RECOVERY_WINDOW_MS) {
+                // Playback went on well past every earlier reset: a new fault, not the
+                // same one coming back (the playhead is at 0 while the element reloads)
+                const position = this._videoElement?.currentTime || 0;
+                if (position >= resetPosition + HLS_DECODER_RESET_PROGRESS_S) decoderResets = 0;
+                const resetsLeft = decoderResets < HLS_MAX_DECODER_RESETS;
+                if (resetsLeft && now - lastDecoderReset > HLS_MEDIA_RECOVERY_WINDOW_MS) {
                     lastDecoderReset = now;
                     log.info('Attempting to recover from media error');
                     hls.recoverMediaError();
-                } else if (now - lastCodecSwap > HLS_MEDIA_RECOVERY_WINDOW_MS) {
+                } else if (resetsLeft && now - lastCodecSwap > HLS_MEDIA_RECOVERY_WINDOW_MS) {
                     lastCodecSwap = now;
                     log.info('Attempting to recover from media error with audio codec swap');
                     hls.swapAudioCodec();
@@ -1009,7 +1027,10 @@ export class HtmlVideoPlayer {
                     const error = new Error(`HLS media error (${data.details})`);
                     error.code = 3;
                     fail(error);
+                    return;
                 }
+                decoderResets++;
+                resetPosition = Math.max(resetPosition, position);
                 return;
             }
 
