@@ -97,7 +97,7 @@ function createPlayer() {
         _subtitleManager: { setMediaContext() {} },
         _currentPlayMethod: null,
         _playbackMode: 'auto',
-        _audioRemuxFrom: null,
+        _userPlaybackMode: 'auto',
         _currentItem: null,
         _currentMediaSource: null,
         _currentPlayOptions: null,

@@ -1436,20 +1436,21 @@ export class JellyfinPlayer extends EventEmitter {
         this._playbackMode = 'auto'; // Current playback mode ('auto', 'directPlay', 'transcode', 'remux', 'transcodeVideo', 'transcodeAudio')
 
         // ────────────────────────────────────────────────────────────────────
-        // Initial Playback Mode Store
+        // User Playback Mode
         // ────────────────────────────────────────────────────────────────────
-        // Caches the user's initial requested playback mode configuration
-        // (usually 'auto' or 'directPlay') at startup. This enables us to
-        // revert back to the user's preferred play mode when restarting due
-        // to an audio track switch, preventing the player from getting
-        // permanently stuck in a transcode/remux state.
+        // The mode the user chose: the one a fresh play() from the page asks
+        // for, or the one picked in the Playback Mode menu. _playbackMode is
+        // the current item's mode, which play() and the restart flows change
+        // on their own (remux for an audio track, remux or transcode after a
+        // failure). getPlaybackMode() reports the user's mode, so only that
+        // one carries over to the next item, and an audio track switch goes
+        // back to it instead of staying in a fallback.
         // ────────────────────────────────────────────────────────────────────
-        this._initialPlaybackMode = 'auto';
+        this._userPlaybackMode = 'auto';
 
-        // Mode the user had when play() switched the current item to remux
-        // for its audio track (null when it didn't). getPlaybackMode() reports
-        // this one, so the switch doesn't carry over to the next item.
-        this._audioRemuxFrom = null;
+        // The mode the last restart of an item asked for ({ itemId, mode }), for
+        // a fresh play() of the same item (Retry, network recovery; see play())
+        this._itemFallbackMode = null;
 
         this._transcodingOffsetTicks = 0; // Offset for transcoded streams that start at 0
         this._pendingStartPositionTicks = null; // Target position before first frame
@@ -2770,17 +2771,28 @@ export class JellyfinPlayer extends EventEmitter {
             this._playbackMode = options.playbackMode || 'auto';
 
             // ────────────────────────────────────────────────────────────────
-            // Capture Original User Intent
+            // Capture User Intent
             // ────────────────────────────────────────────────────────────────
-            // We cache the initial requested playbackMode to prevent track-switch
-            // restarts from overriding the session setting permanently. We only
-            // capture this on fresh play requests (when _isRestarting is false).
+            // A fresh play request (when _isRestarting is false) asks for the
+            // user's mode. A restart's mode (the remux or transcode it falls
+            // back to) stays with the current item: a fresh play of the same
+            // item in the user's mode (Retry, network recovery) starts in it
+            // again instead of the direct play that failed. Any other item
+            // starts without it.
             // ────────────────────────────────────────────────────────────────
             if (!this._isRestarting) {
-                this._initialPlaybackMode = this._playbackMode;
+                const requestedMode = this._playbackMode;
+                const fallback = this._itemFallbackMode;
+                if (fallback && fallback.itemId === options.itemId && requestedMode === this._userPlaybackMode) {
+                    this._playbackMode = options.playbackMode = fallback.mode;
+                } else {
+                    this._itemFallbackMode = null;
+                }
+                this._userPlaybackMode = requestedMode;
                 // Fresh playback request resets the escalation safeguard
                 this._directPlayEscalated = false;
-                this._audioRemuxFrom = null;
+            } else {
+                this._itemFallbackMode = { itemId: options.itemId, mode: this._playbackMode };
             }
 
             // Determine if we need to force a remux for audio tracks on HTML5
@@ -2855,7 +2867,6 @@ export class JellyfinPlayer extends EventEmitter {
             if (!isAudioDirectPlayForced && needsDirectStreamForAudio && profilePlaybackMode === 'auto') {
                 log.info('Audio track selection requires remux: Upgrading profile mode to "remux" to ensure video Direct Stream.');
                 profilePlaybackMode = 'remux';
-                this._audioRemuxFrom = this._playbackMode;
                 this._playbackMode = 'remux';
             }
 
@@ -4026,18 +4037,19 @@ export class JellyfinPlayer extends EventEmitter {
             // ────────────────────────────────────────────────────────────────
             // Calculate Restart Playback Mode
             // ────────────────────────────────────────────────────────────────
-            // - If the user's initial mode was explicitly a forced mode
+            // - If the user's mode is explicitly a forced mode
             //   ('transcode' or 'remux'), we preserve it.
             // - Otherwise, we default to 'auto' to let the server decide.
             // - If the target codec is unsupported or audio requires remux,
             //   we ensure 'auto' mode so CodecProfiles / DirectStream profiles
             //   are evaluated by the server.
             // - If the target track can DirectPlay natively, we revert to the
-            //   user's initial playback mode (allowing return to DirectPlay).
+            //   user's playback mode (allowing return to DirectPlay).
             // ────────────────────────────────────────────────────────────────
-            const baseMode = (this._initialPlaybackMode === 'transcode' || this._initialPlaybackMode === 'remux')
-                ? this._initialPlaybackMode
-                : 'auto';
+            const baseMode =
+                this._userPlaybackMode === 'transcode' || this._userPlaybackMode === 'remux'
+                    ? this._userPlaybackMode
+                    : 'auto';
             const restartPlaybackMode = baseMode === 'transcode' ? 'transcode'
                 : (!isTargetCodecSupported || needsDirectStreamForAudio) ? 'auto'
                     : baseMode;
@@ -5982,10 +5994,11 @@ export class JellyfinPlayer extends EventEmitter {
      * @returns {string}
      */
     getPlaybackMode() {
-        // A remux play() chose for the current item's audio track is not the
-        // user's choice: PlayerPage passes this mode to the next item, and
-        // the Playback Mode menu shows it as the selection
-        return this._audioRemuxFrom || this._playbackMode;
+        // Not the current item's mode: play() and the restart flows switch an
+        // item to remux or transcode on their own. PlayerPage passes this
+        // mode to the next item, and the Playback Mode menu shows it as the
+        // selection.
+        return this._userPlaybackMode;
     }
 
     /**
@@ -6006,9 +6019,13 @@ export class JellyfinPlayer extends EventEmitter {
         // restarted into the same remux)
         if (mode === this.getPlaybackMode()) return;
 
-        // A mode picked here is the user's, even the remux the item already uses
-        this._audioRemuxFrom = null;
+        // A mode picked here is the user's, also for the next items, and replaces
+        // the mode a restart of the item fell back to
+        this._userPlaybackMode = mode;
+        this._itemFallbackMode = null;
 
+        // The item may already play in it (the remux play() chose for its
+        // audio track, the transcode a failed direct play fell back to)
         if (this._playbackMode === mode) return;
 
         this._playbackMode = mode;

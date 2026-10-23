@@ -13,6 +13,8 @@ import vm from 'node:vm';
  *   - the global bitrate limit does not force a transcode of the first item
  *   - a failed PlaybackInfo request is reported, not asked again as a transcode
  *   - confirming the mode the Playback Mode menu shows does not restart
+ *   - the remux or transcode a restart falls back to stays with its item (also
+ *     when the page starts that item again)
  * The JellyfinPlayer methods under test are taken from the source and run on
  * a stub player (the module itself needs a full DOM).
  * ============================================================================
@@ -199,8 +201,7 @@ function createPlayer({ methods = [], settings = {}, globals = {} } = {}) {
         _subtitleManager: { setMediaContext() {}, tick() {}, play() {}, pause() {}, resetActiveCues() {} },
         _currentPlayMethod: null,
         _playbackMode: 'auto',
-        _initialPlaybackMode: 'auto',
-        _audioRemuxFrom: null,
+        _userPlaybackMode: 'auto',
         _currentItem: null,
         _currentMediaSource: null,
         _currentPlayOptions: null,
@@ -542,4 +543,139 @@ test('JellyfinPlayer: picking another mode in the menu still restarts the item (
     await changing;
     assert.strictEqual(player.infoRequests[1].playbackMode, 'transcode');
     assert.strictEqual(player.getPlaybackMode(), 'transcode');
+});
+
+// ----------------------------------------------------------------------------
+// Automatic fallback modes
+// ----------------------------------------------------------------------------
+
+const FALLBACKS = [
+    ['a failed native audio track switch', { type: 'audiotrackswitchfailed', data: { listIndex: 1 } }, 'remux'],
+    ['a failed direct-play resume', { type: 'resumeseekfailed', data: { targetPositionTicks: 6000000000 } }, 'remux'],
+    ['a direct-play error', { type: 'error', data: { code: 3, message: 'MEDIA_ERR_DECODE' } }, 'transcode']
+];
+
+for (const [name, event, fallbackMode] of FALLBACKS) {
+    test(`JellyfinPlayer: the ${fallbackMode} after ${name} does not carry over to the next item`, async (t) => {
+        t.mock.timers.enable({ apis: ['setTimeout'] });
+        const player = createPlayer();
+        await playAndStart(player, pageOptions(player, 'A', { startPositionTicks: 6000000000 }));
+
+        player._handleBackendEvent(event);
+        await advance(t, 1000);
+        await waitFor(() => player.backend.loads.length === 2, 'the restart');
+        player.backend.loads[1].resolve();
+        await waitFor(() => !player._isRestarting, 'the end of the restart');
+        assert.strictEqual(player._playbackMode, fallbackMode, 'the item itself falls back');
+        assert.strictEqual(player.getPlaybackMode(), 'auto', 'the Playback Mode menu shows the fallback as chosen');
+
+        // PlayerPage: next episode
+        await player.stop();
+        await playAndStart(player, pageOptions(player, 'B'));
+        assert.strictEqual(
+            player.infoRequests[2].playbackMode,
+            undefined,
+            `the next item was forced to ${fallbackMode}`
+        );
+        assert.strictEqual(player._playbackMode, 'auto');
+    });
+}
+
+/** Item A whose direct play failed with a decode error and was escalated to a transcode. */
+async function escalateToTranscode(t, player) {
+    await playAndStart(player, pageOptions(player, 'A'));
+    player._handleBackendEvent({ type: 'error', data: { code: 3, message: 'MEDIA_ERR_DECODE' } });
+    await advance(t, 1000);
+    await waitFor(() => player.backend.loads.length === 2, 'the transcode');
+    player.backend.loads[1].resolve();
+    await waitFor(() => !player._isRestarting, 'the end of the restart');
+    assert.strictEqual(player.infoRequests[1].playbackMode, 'transcode');
+}
+
+test('JellyfinPlayer: Retry or network recovery of the same item keeps its automatic transcode', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const player = createPlayer();
+    await escalateToTranscode(t, player);
+
+    // PlayerPage._startAutoRecovery() stops the player, _finishAutoRecovery() starts the item again
+    await player.stop();
+    await playAndStart(player, pageOptions(player, 'A', { startPositionTicks: 36000000000 }));
+    assert.strictEqual(
+        player.infoRequests[2].playbackMode,
+        'transcode',
+        'recovery went back to the failed direct play'
+    );
+
+    // PlayerPage._retryPlayback() starts the item again without stop()
+    await playAndStart(player, pageOptions(player, 'A', { startPositionTicks: 36000000000 }));
+    assert.strictEqual(player.infoRequests[3].playbackMode, 'transcode', 'Retry went back to the failed direct play');
+    assert.strictEqual(player.getPlaybackMode(), 'auto');
+});
+
+test('JellyfinPlayer: the fallback of an item ends with another item or a mode picked by the user (guard)', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    let player = createModePlayer();
+    await escalateToTranscode(t, player);
+    await player.stop();
+    await playAndStart(player, pageOptions(player, 'B'));
+    await player.stop();
+    await playAndStart(player, pageOptions(player, 'A'));
+    assert.strictEqual(player.infoRequests[3].playbackMode, undefined, 'A started in its old fallback after B');
+
+    // The error screen's Playback Mode button: the user picks Direct Play, then Retry
+    player = createModePlayer();
+    await escalateToTranscode(t, player);
+    await player.stop();
+    await player.setPlaybackMode('directPlay');
+    await playAndStart(player, pageOptions(player, 'A'));
+    assert.strictEqual(player.infoRequests[2].playbackMode, 'directPlay');
+});
+
+test('JellyfinPlayer: a mode picked in the menu carries over, also after a fallback restart', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const player = createModePlayer();
+    await player.setPlaybackMode('remux');
+    await playAndStart(player, pageOptions(player, 'A', { startPositionTicks: 6000000000 }));
+
+    // The remux fails to resume: a transcode for this item
+    player._currentPlayMethod = 'Remux';
+    player._handleBackendEvent({ type: 'resumeseekfailed', data: { targetPositionTicks: 6000000000 } });
+    await advance(t, 1000);
+    await waitFor(() => player.backend.loads.length === 2, 'the restart');
+    player.backend.loads[1].resolve();
+    await waitFor(() => !player._isRestarting, 'the end of the restart');
+    assert.strictEqual(player._playbackMode, 'transcode');
+
+    await player.stop();
+    await playAndStart(player, pageOptions(player, 'B'));
+    assert.strictEqual(player.infoRequests[2].playbackMode, 'remux');
+});
+
+test('JellyfinPlayer: an audio track switch restarts in the mode picked in the menu', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const player = createPlayer({
+        methods: ['async setPlaybackMode(mode) {', 'async setAudioStreamIndex(index) {'],
+        globals: { prewarmManager: { invalidateCache() {} } }
+    });
+    player.getAudioTracks = () => [
+        { Index: 1, Type: 'Audio', Codec: 'aac' },
+        { Index: 2, Type: 'Audio', Codec: 'ac3' }
+    ];
+    await playAndStart(player, pageOptions(player, 'A'));
+
+    const picking = player.setPlaybackMode('remux');
+    await advance(t, 1000);
+    await waitFor(() => player.backend.loads.length === 2, 'the remux restart');
+    player.backend.loads[1].resolve();
+    await picking;
+
+    // The server copies the streams of the remux; a track switch needs a restart
+    player._currentPlayMethod = 'Remux';
+    const switching = player.setAudioStreamIndex(1);
+    await advance(t, 1000);
+    await waitFor(() => player.backend.loads.length === 3, 'the track switch restart');
+    player.backend.loads[2].resolve();
+    await switching;
+    assert.strictEqual(player.infoRequests[2].playbackMode, 'remux', 'the picked remux was dropped');
+    assert.strictEqual(player.getPlaybackMode(), 'remux');
 });
