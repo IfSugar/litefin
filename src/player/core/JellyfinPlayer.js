@@ -835,8 +835,10 @@ export function resolveSubtitleStream(mediaSource, options = {}) {
     // Smart mode shows full subtitles if the audio language differs from user preference.
     // When audio matches preferred language, it falls back to showing only forced subtitles.
     if (subtitleMode === 'Smart') {
-        // Condition: Spoken audio differs from user's preferred subtitle language
-        if (prefLang !== 'none' && !isLanguageMatch(audioLang, prefLang) && audioLang !== 'und') {
+        // Condition: Spoken audio differs from user's preferred subtitle language.
+        // An audio track without a language tag counts as differing, as on the
+        // Jellyfin server, which then picks the preferred-language subtitle too
+        if (prefLang !== 'none' && !isLanguageMatch(audioLang, prefLang)) {
             let best = subtitleStreams.find(
                 (s) => isLanguageMatch(s, prefLang) && (s.IsDefault || isForcedStream(s))
             );
