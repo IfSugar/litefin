@@ -572,6 +572,16 @@ export class HtmlVideoPlayer {
     }
 
     /**
+     * Create the HLS.js instance of a load (tests supply a stand-in here).
+     * @private
+     * @param {Object} config - HLS.js configuration
+     * @returns {Hls}
+     */
+    _createHlsPlayer(config) {
+        return new Hls(config);
+    }
+
+    /**
      * Play using HLS.js
      * @private
      */
@@ -597,7 +607,7 @@ export class HtmlVideoPlayer {
                 ? Number(configuredMaxMaxBuffer)
                 : 60;
 
-            const hls = new Hls({
+            const hls = this._createHlsPlayer({
                 startPosition: (options.playerStartPositionTicks || 0) / 10000000,
                 maxBufferLength: maxBufferLength,
                 maxMaxBufferLength: maxMaxBufferLength,
@@ -615,6 +625,8 @@ export class HtmlVideoPlayer {
             let initialBufferTimer = null;
             let resolved = false;
             let appendedSegmentsCount = 0;
+            // Set when HLS.js detaches the element: recoverMediaError() reloads it
+            let mediaReloaded = false;
 
             const resolveOnce = (value) => {
                 if (resolved) return;
@@ -635,9 +647,18 @@ export class HtmlVideoPlayer {
             // stop() / a newer play() abandons this start (also clears the 3 s timer)
             this._abortPendingLoad = () => rejectOnce(createAbortError());
 
+            // Start again once HLS.js has reset the MediaSource and buffered; fail
+            // with `failure` if that does not happen within 10 s.
+            const waitForRecovery = (failure) => {
+                bufferReady = false;
+                appendedSegmentsCount = 0;
+                initialBufferTimer = setTimeout(() => rejectOnce(failure), 10000);
+            };
+
             const startPlayback = () => {
                 // Restore visual presentation once Hls.js is ready to render playback
                 this._restoreVideoAfterResume(video);
+                mediaReloaded = false;
                 const playPromise = video.play();
                 if (playPromise !== undefined && typeof playPromise.then === 'function') {
                     playPromise.then(() => resolveOnce()).catch((err) => {
@@ -655,11 +676,15 @@ export class HtmlVideoPlayer {
                                 resolveOnce();
                             }
                         } else if (this._hlsPlayer === hls && this._leaveErrorToHls(video)) {
-                            // Start again once HLS.js has reset the MediaSource and buffered; fail
-                            // with the original error if that does not happen.
-                            bufferReady = false;
-                            appendedSegmentsCount = 0;
-                            initialBufferTimer = setTimeout(() => rejectOnce(err), 10000);
+                            waitForRecovery(err);
+                        } else if (err.name === 'AbortError' && mediaReloaded && this._hlsPlayer === hls && !resolved) {
+                            // HLS.js reset the decoder (a fatal media error): recoverMediaError()
+                            // reloads the element, which aborts the pending play(). JellyfinPlayer
+                            // takes an AbortError for a cancel and drops it, so this is no reason
+                            // to end the load; a start that does not follow is a decode error.
+                            const error = new Error('HLS media error (no playback after a decoder reset)');
+                            error.code = 3;
+                            waitForRecovery(error);
                         } else {
                             rejectOnce(err);
                         }
@@ -816,6 +841,9 @@ export class HtmlVideoPlayer {
 
             // Listen for the first segment buffered — triggers play()
             hls.on(Hls.Events.BUFFER_APPENDED, onBufferAppended);
+            hls.on(Hls.Events.MEDIA_DETACHING, () => {
+                mediaReloaded = true;
+            });
 
             log.debug('HLS Loading source:', options.url);
             hls.loadSource(options.url);

@@ -1,0 +1,262 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { setImmediate } from 'node:timers';
+
+/**
+ * ============================================================================
+ * HtmlVideoPlayer HLS.js Start and Recovery Test Suite
+ * ============================================================================
+ * The HTML5 backend (LG "Retry with HTML5") plays HLS through HLS.js. Its
+ * start gate, start watchdog and fatal-error recovery are driven here with a
+ * stand-in for HLS.js that fires the events HLS.js 1.7.3 fires, on a <video>
+ * whose play() settles like a real element's.
+ * ============================================================================
+ */
+
+function createEventTarget(base) {
+    const listeners = {};
+    return Object.assign(base, {
+        addEventListener: (type, fn) => (listeners[type] = listeners[type] || []).push(fn),
+        removeEventListener: (type, fn) => (listeners[type] = (listeners[type] || []).filter((f) => f !== fn)),
+        listenerCount: (type) => (listeners[type] || []).length,
+        dispatchEvent: (event) => (listeners[event.type] || []).slice().forEach((fn) => fn({ target: base })),
+        fire: (type) => (listeners[type] || []).slice().forEach((fn) => fn({ target: base }))
+    });
+}
+
+const abortError = (message) => Object.assign(new Error(message), { name: 'AbortError' });
+
+/**
+ * A <video> whose play() settles on 'playing', and is rejected with a DOM
+ * AbortError by pause() or load(), like a real element's.
+ */
+function createVideo() {
+    const pendingPlays = [];
+    const rejectPendingPlays = (message) => pendingPlays.splice(0).forEach(({ reject }) => reject(abortError(message)));
+    const video = createEventTarget({
+        style: {},
+        children: [],
+        parentNode: null,
+        audioTracks: [],
+        textTracks: [],
+        readyState: 4,
+        currentTime: 0,
+        duration: 3600,
+        muted: false,
+        paused: true,
+        seeking: false,
+        autoplay: false,
+        error: null,
+        src: '',
+        playCalls: 0,
+        firstChild: null,
+        buffered: { length: 0, start: () => 0, end: () => 0 },
+        setAttribute() {},
+        removeAttribute(name) {
+            if (name === 'src') this.src = '';
+        },
+        load() {
+            this.paused = true;
+            this.error = null;
+            rejectPendingPlays('The play() request was interrupted by a new load request.');
+        },
+        pause() {
+            this.paused = true;
+            rejectPendingPlays('The play() request was interrupted by a call to pause().');
+        },
+        play() {
+            this.playCalls++;
+            this.paused = false;
+            return new Promise((resolve, reject) => pendingPlays.push({ resolve, reject }));
+        },
+        canPlayType: () => ''
+    });
+    const fire = video.fire;
+    video.fire = (type) => {
+        if (type === 'playing') pendingPlays.splice(0).forEach(({ resolve }) => resolve());
+        fire(type);
+    };
+    return video;
+}
+
+globalThis.window = { innerWidth: 1920, innerHeight: 1080, screen: { width: 1920, height: 1080 } };
+globalThis.localStorage = { getItem: () => null, setItem: () => {}, removeItem: () => {}, key: () => null, length: 0 };
+globalThis.document = createEventTarget({
+    documentElement: { clientWidth: 1920, clientHeight: 1080 },
+    body: { appendChild: () => {} },
+    createElement: (tag) => (tag === 'video' ? createVideo() : { style: {}, canPlayType: () => '', appendChild() {} })
+});
+globalThis.fetch = async () => ({ ok: true, text: async () => '#EXTM3U\n' });
+
+const { HtmlVideoPlayer } = await import('../src/player/core/HtmlVideoPlayer.js');
+const { default: Hls } = await import('hls.js');
+
+/**
+ * Stand-in for an HLS.js instance. recoverMediaError() mirrors HLS.js 1.7.3:
+ * detachMedia() removes the element's src and calls load(), then the element
+ * is attached again.
+ */
+class FakeHls {
+    constructor(config) {
+        this.config = config;
+        this.handlers = {};
+        this.audioTracks = [];
+        this.subtitleTracks = [];
+        this.levels = [];
+        this.calls = [];
+        this.media = null;
+    }
+    on(event, fn) {
+        (this.handlers[event] = this.handlers[event] || []).push(fn);
+    }
+    off(event, fn) {
+        this.handlers[event] = (this.handlers[event] || []).filter((f) => f !== fn);
+    }
+    trigger(event, data = {}) {
+        (this.handlers[event] || []).slice().forEach((fn) => fn(event, data));
+    }
+    loadSource(url) {
+        this.url = url;
+    }
+    attachMedia(media) {
+        this.media = media;
+        media.src = 'blob:hls';
+    }
+    detachMedia() {
+        const media = this.media;
+        if (!media) return;
+        media.removeAttribute('src');
+        media.load();
+        this.trigger(Hls.Events.MEDIA_DETACHING, {});
+        this.media = null;
+        this.trigger(Hls.Events.MEDIA_DETACHED, {});
+    }
+    recoverMediaError() {
+        this.calls.push('recoverMediaError');
+        const media = this.media;
+        this.detachMedia();
+        if (media) this.attachMedia(media);
+    }
+    swapAudioCodec() {
+        this.calls.push('swapAudioCodec');
+    }
+    startLoad() {
+        this.calls.push('startLoad');
+    }
+    destroy() {
+        this.calls.push('destroy');
+        this.detachMedia();
+    }
+}
+
+/** HLS.js appends a segment's video and audio separately, then reports it buffered. */
+function bufferSegment(hls, sn) {
+    const frag = { sn, type: 'main' };
+    hls.trigger(Hls.Events.BUFFER_APPENDED, { type: 'video', frag, parent: 'main' });
+    hls.trigger(Hls.Events.BUFFER_APPENDED, { type: 'audio', frag, parent: 'main' });
+    hls.trigger(Hls.Events.FRAG_BUFFERED, { frag, id: 'main' });
+}
+
+const mediaSource = {
+    MediaStreams: [
+        { Index: 0, Type: 'Video', Codec: 'h264' },
+        { Index: 1, Type: 'Audio', Codec: 'aac', IsDefault: true }
+    ]
+};
+
+const hlsItem = (extra = {}) => ({
+    url: 'http://srv/videos/a/master.m3u8',
+    isHls: true,
+    mediaSource,
+    item: { Type: 'Movie' },
+    ...extra
+});
+
+/** A player whose HLS loads run on FakeHls instances (collected in hlsInstances). */
+function createPlayer(t) {
+    t.mock.method(Hls, 'isSupported', () => true);
+    const events = [];
+    const container = {
+        clientWidth: 1920,
+        clientHeight: 1080,
+        style: {},
+        children: [],
+        appendChild(child) {
+            child.parentNode = this;
+            this.children.push(child);
+        },
+        removeChild(child) {
+            child.parentNode = null;
+            this.children = this.children.filter((c) => c !== child);
+        }
+    };
+    const player = new HtmlVideoPlayer({ container, onEvent: (e) => events.push(e.type) });
+    const hlsInstances = [];
+    player._createHlsPlayer = (config) => {
+        const hls = new FakeHls(config);
+        hlsInstances.push(hls);
+        return hls;
+    };
+    return { player, events, hlsInstances };
+}
+
+const flush = () => new Promise((resolve) => setImmediate(resolve));
+
+/** Track how a load ended: 'pending', 'started' or the rejection. */
+function watch(promise) {
+    const state = { outcome: 'pending' };
+    promise.then(
+        () => (state.outcome = 'started'),
+        (err) => (state.outcome = err)
+    );
+    return state;
+}
+
+const fatalMediaError = { fatal: true, type: Hls.ErrorTypes.MEDIA_ERROR, details: 'bufferAppendError' };
+
+// ----------------------------------------------------------------------------
+// A decoder reset while the start's play() is pending
+// ----------------------------------------------------------------------------
+
+test('HtmlVideoPlayer: playback starts after HLS.js resets the decoder during the start', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const { player, hlsInstances } = createPlayer(t);
+    const video = player._ensureVideoElement();
+    const load = watch(player.play(hlsItem({ playMethod: 'DirectStream' })));
+    const hls = hlsInstances[0];
+    hls.trigger(Hls.Events.MANIFEST_PARSED, {});
+    bufferSegment(hls, 1);
+    assert.strictEqual(video.playCalls, 1);
+
+    // HLS.js gives up appending: recoverMediaError() reloads the element,
+    // which aborts the pending play()
+    hls.trigger(Hls.Events.ERROR, fatalMediaError);
+    assert.deepStrictEqual(hls.calls, ['recoverMediaError']);
+    await flush();
+    assert.strictEqual(load.outcome, 'pending', `load ended with "${load.outcome.message}": no playback, no error`);
+
+    // HLS.js buffers again
+    bufferSegment(hls, 1);
+    assert.strictEqual(video.playCalls, 2, 'playback not started again after the reset');
+    video.fire('playing');
+    await flush();
+    assert.strictEqual(load.outcome, 'started');
+});
+
+test('HtmlVideoPlayer: a start that does not follow a decoder reset fails with a decode error', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const { player, hlsInstances } = createPlayer(t);
+    const load = watch(player.play(hlsItem({ playMethod: 'DirectStream' })));
+    const hls = hlsInstances[0];
+    hls.trigger(Hls.Events.MANIFEST_PARSED, {});
+    bufferSegment(hls, 1);
+    hls.trigger(Hls.Events.ERROR, fatalMediaError);
+    await flush();
+
+    t.mock.timers.tick(10000);
+    await flush();
+    // JellyfinPlayer drops an AbortError as a cancel: no error and no fallback
+    assert.ok(load.outcome instanceof Error, 'load still pending');
+    assert.notStrictEqual(load.outcome.name, 'AbortError');
+    assert.strictEqual(load.outcome.code, 3);
+});
