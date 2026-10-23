@@ -53,7 +53,8 @@ const STOP_REPORT_TIMEOUT_MS = 10000;
  * the player anyway; the report (and its retry) carries on in the background.
  * On a LAN it takes ~0.1 s, so the details page still sees the new resume
  * position. With a stalled server, waiting the full timeout held the spinner
- * up for 10 s (LG C4).
+ * up for 10 s (LG C4). A Live TV channel switch waits as long for the old
+ * live stream to close.
  */
 const STOP_REPORT_EXIT_WAIT_MS = 2500;
 
@@ -64,9 +65,14 @@ class PlayerPage extends Page {
         // Player instance
         this._player = null;
 
-        // In-flight PlaybackStopped report of a session replaced by a restart;
-        // the new session's PlaybackStart waits for it (see _onPlayerRestarting)
+        // In-flight PlaybackStopped report of a session replaced by a restart
+        // or left for another item; the next session's PlaybackStart waits for
+        // it (see _onPlayerRestarting, _reportPlaybackStoppedOnSwitch)
         this._pendingStopReport = null;
+
+        // PlaybackStart waiting for _pendingStopReport. A stop report for its
+        // session sent meanwhile cancels it (see _reportPlaybackStart).
+        this._waitingStartReport = null;
 
         // Current item being played
         this._item = null;
@@ -79,6 +85,9 @@ class PlayerPage extends Page {
 
         // Track reporting state
         this._hasReportedStart = false;
+        // A restart of a playing session whose new session has not reported
+        // its start yet (see _onPlayerRestarting)
+        this._unstartedRestart = null;
         this._isPaused = false;
         this._resumeProfileSelectionActive = false;
         this._resumePlaybackAfterProfileSelection = false;
@@ -89,6 +98,10 @@ class PlayerPage extends Page {
         // Cached media source for stop reporting
         // (player clears this internally after stop, so we need a copy)
         this._cachedMediaSource = null;
+
+        // Close request of the live stream a stop report just closed
+        // (see _reportPlaybackStoppedOnSwitch)
+        this._liveStreamClose = null;
 
         // Concurrency lock for item switching
         this._isSwitching = false;
@@ -116,6 +129,9 @@ class PlayerPage extends Page {
         this._preSelectedMediaSourceId = undefined;
         this._preSelectedAudio = undefined;
         this._preSelectedSubtitle = undefined;
+
+        // Version and tracks handed over by the play request, taken from state by onInit()
+        this._initialSelection = null;
 
         /*
          * ====================================================================
@@ -296,6 +312,26 @@ class PlayerPage extends Page {
         const resume = this.params.resume === 'true';
         const startPositionTicks = this.params.startPositionTicks ? parseInt(this.params.startPositionTicks, 10) : null;
 
+        // Take the play request's hand-over state now, before anything waits:
+        // left behind (Back during the loading spinner), the next playback would
+        // get this item's queue context and audio/subtitle/version choice.
+        const contextType = state.get('player:contextType');
+        const contextId = state.get('player:contextId');
+        // For BoxSet queues, the sort order is forwarded from DetailsPage so the
+        // full queue is ordered the same way the collection display grid is ordered.
+        const boxsetSortBy = state.get('player:boxsetSortBy');
+        this._initialSelection = {
+            mediaSourceId: state.get('player:initialMediaSourceId'),
+            audioIndex: state.get('player:initialAudioIndex'),
+            subtitleIndex: state.get('player:initialSubtitleIndex')
+        };
+        state.set('player:contextType', null);
+        state.set('player:contextId', null);
+        state.set('player:boxsetSortBy', null);
+        state.set('player:initialMediaSourceId', null);
+        state.set('player:initialAudioIndex', null);
+        state.set('player:initialSubtitleIndex', null);
+
         try {
             // Show loading overlay immediately with a solid opaque black background
             this._showLoading(true);
@@ -347,6 +383,13 @@ class PlayerPage extends Page {
 
             // Load item details (and wait for font if needed)
             const [itemResult] = await Promise.all(fetchTasks);
+
+            // Back during the loading spinner: the page is gone, don't start
+            // the queue or the player for it
+            if (this._isDestroyed || this._isExiting) {
+                log.info('Player left while the item was loading — not starting playback');
+                return;
+            }
 
             /*
              * -----------------------------------------------------------------
@@ -407,9 +450,6 @@ class PlayerPage extends Page {
             }
 
             // Initialize Play Queue
-            const contextType = state.get('player:contextType');
-            const contextId = state.get('player:contextId');
-
             /*
              * Save the active container context locally on the page instance before
              * the state is purged. This ensures the stop and exit logic can resolve
@@ -419,11 +459,14 @@ class PlayerPage extends Page {
             this._contextType = contextType || null;
             this._contextId = contextId || null;
 
-            // For BoxSet queues, the sort order is forwarded from DetailsPage so the
-            // full queue is ordered the same way the collection display grid is ordered.
-            const boxsetSortBy = state.get('player:boxsetSortBy');
             log.debug('Initializing PlayQueue with context:', { contextType, contextId, boxsetSortBy });
             await playQueue.init(this._item, contextType, contextId, boxsetSortBy);
+
+            // Back while the queue was loading (up to 2 s)
+            if (this._isDestroyed || this._isExiting) {
+                log.info('Player left while the queue was loading — not starting playback');
+                return;
+            }
 
             // Sync the active item to the instance that PlayQueue just minted.
             // This prevents duplicate-fetch bugs with plugins like Local Intros.
@@ -435,11 +478,6 @@ class PlayerPage extends Page {
                 Object.assign(queueItem, this._item);
                 this._item = queueItem;
             }
-
-            // Clear context state so it doesn't leak to next playback
-            state.set('player:contextType', null);
-            state.set('player:contextId', null);
-            state.set('player:boxsetSortBy', null);
 
             // Calculate resume position if needed
             if (startPositionTicks !== null && !isNaN(startPositionTicks)) {
@@ -494,6 +532,9 @@ class PlayerPage extends Page {
             // Handle remote pause/play/stop commands from Jellyfin dashboard
             // IMPORTANT: These must also report state changes to the server!
 
+            // Handlers wrapped in lockCheck() are added with this.on(), which
+            // removes the wrapper on destroy(): eventBus.off() with the unwrapped
+            // handler would leave every closed player page subscribed
             const lockCheck = (fn) => {
                 return (...args) => {
                     if (this._resumeProfileSelectionActive) return;
@@ -541,7 +582,7 @@ class PlayerPage extends Page {
                     }
                 }
             };
-            eventBus.on('remote:pause', lockCheck(this._onRemotePause));
+            this.on('remote:pause', lockCheck(this._onRemotePause));
 
             this._onRemotePlay = () => {
                 log.info('Remote: Play/Resume');
@@ -574,7 +615,7 @@ class PlayerPage extends Page {
                     }
                 }
             };
-            eventBus.on('remote:play', lockCheck(this._onRemotePlay));
+            this.on('remote:play', lockCheck(this._onRemotePlay));
 
             this._onRemotePlayPause = () => {
                 log.info('Remote: PlayPause');
@@ -608,14 +649,14 @@ class PlayerPage extends Page {
                     }
                 }
             };
-            eventBus.on('remote:playpause', lockCheck(this._onRemotePlayPause));
+            this.on('remote:playpause', lockCheck(this._onRemotePlayPause));
 
             this._onRemoteStop = () => {
                 log.info('Remote: Stop');
                 // _stopAndExit already handles reporting stopped to server
                 this._stopAndExit();
             };
-            eventBus.on('remote:stop', lockCheck(this._onRemoteStop));
+            this.on('remote:stop', lockCheck(this._onRemoteStop));
 
             this._onRemoteSeek = (positionTicks) => {
                 log.info('Remote: Seek to', positionTicks);
@@ -628,7 +669,7 @@ class PlayerPage extends Page {
                     log.warn('Player has no seek method');
                 }
             };
-            eventBus.on('remote:seek', lockCheck(this._onRemoteSeek));
+            this.on('remote:seek', lockCheck(this._onRemoteSeek));
 
             // Volume controls - these don't need server reporting (volume is local)
             // Note: On Tizen, volume may be controlled via system API not player API
@@ -648,7 +689,7 @@ class PlayerPage extends Page {
                     log.warn('No volume control available');
                 }
             };
-            eventBus.on('remote:volume', lockCheck(this._onRemoteVolume));
+            this.on('remote:volume', lockCheck(this._onRemoteVolume));
 
             this._onRemoteVolumeUp = () => {
                 log.info('Remote: VolumeUp');
@@ -674,7 +715,7 @@ class PlayerPage extends Page {
                     }
                 }
             };
-            eventBus.on('remote:volumeup', lockCheck(this._onRemoteVolumeUp));
+            this.on('remote:volumeup', lockCheck(this._onRemoteVolumeUp));
 
             this._onRemoteVolumeDown = () => {
                 log.info('Remote: VolumeDown');
@@ -696,7 +737,7 @@ class PlayerPage extends Page {
                     }
                 }
             };
-            eventBus.on('remote:volumedown', lockCheck(this._onRemoteVolumeDown));
+            this.on('remote:volumedown', lockCheck(this._onRemoteVolumeDown));
 
             this._onRemoteMute = (muted) => {
                 log.info('Remote: Mute', muted);
@@ -712,7 +753,7 @@ class PlayerPage extends Page {
                 // Report mute state to server
                 this._reportPlaybackProgress('timeupdate');
             };
-            eventBus.on('remote:mute', lockCheck(this._onRemoteMute));
+            this.on('remote:mute', lockCheck(this._onRemoteMute));
 
             this._onRemoteToggleMute = () => {
                 log.info('Remote: ToggleMute');
@@ -740,20 +781,20 @@ class PlayerPage extends Page {
                 // Report mute state to server
                 this._reportPlaybackProgress('timeupdate');
             };
-            eventBus.on('remote:togglemute', lockCheck(this._onRemoteToggleMute));
+            this.on('remote:togglemute', lockCheck(this._onRemoteToggleMute));
 
             // Next/Previous track handlers
             this._onRemoteNext = async () => {
                 log.info('Remote: NextTrack');
                 this._playNextItem();
             };
-            eventBus.on('remote:next', lockCheck(this._onRemoteNext));
+            this.on('remote:next', lockCheck(this._onRemoteNext));
 
             this._onRemotePrevious = async () => {
                 log.info('Remote: PreviousTrack');
                 this._playPreviousItem();
             };
-            eventBus.on('remote:previous', lockCheck(this._onRemotePrevious));
+            this.on('remote:previous', lockCheck(this._onRemotePrevious));
 
             // Repeat and Shuffle
             this._onRemoteRepeatMode = (mode) => {
@@ -782,7 +823,7 @@ class PlayerPage extends Page {
                     this._osd.handleInput(direction);
                 }
             };
-            eventBus.on('remote:navigate', lockCheck(this._onRemoteNavigate));
+            this.on('remote:navigate', lockCheck(this._onRemoteNavigate));
 
             this._onRemoteSelect = () => {
                 log.info('Remote: Select');
@@ -790,7 +831,7 @@ class PlayerPage extends Page {
                     this._osd.handleInput('enter');
                 }
             };
-            eventBus.on('remote:select', lockCheck(this._onRemoteSelect));
+            this.on('remote:select', lockCheck(this._onRemoteSelect));
 
             this._onRemoteAudioTrack = (index) => {
                 log.info('Remote: SetAudioStreamIndex', index);
@@ -799,7 +840,7 @@ class PlayerPage extends Page {
                     this._refreshSubtitleStyles(); // In case track change affects OSD state
                 }
             };
-            eventBus.on('remote:audiotrack', lockCheck(this._onRemoteAudioTrack));
+            this.on('remote:audiotrack', lockCheck(this._onRemoteAudioTrack));
 
             this._onRemoteSubtitle = (index) => {
                 log.info('Remote: SetSubtitleStreamIndex', index);
@@ -807,7 +848,7 @@ class PlayerPage extends Page {
                     this._player.setSubtitleStreamIndex(index);
                 }
             };
-            eventBus.on('remote:subtitle', lockCheck(this._onRemoteSubtitle));
+            this.on('remote:subtitle', lockCheck(this._onRemoteSubtitle));
 
             // ---------------------------------------------------------------
             // Remote queue manipulation
@@ -848,10 +889,10 @@ class PlayerPage extends Page {
 
             // Channel Up/Down for Live TV
             this._onChannelUp = () => this._handleChannelChange(1);
-            eventBus.on('key:channelUp', lockCheck(this._onChannelUp));
+            this.on('key:channelUp', lockCheck(this._onChannelUp));
 
             this._onChannelDown = () => this._handleChannelChange(-1);
-            eventBus.on('key:channelDown', lockCheck(this._onChannelDown));
+            this.on('key:channelDown', lockCheck(this._onChannelDown));
 
             // ================================================================
             // MAGIC CURSOR SUPPORT (WebOS / Tizen Pointer)
@@ -1407,6 +1448,12 @@ class PlayerPage extends Page {
             log.error('pluginManager.prepareItemPlayback failed:', err);
         }
 
+        // Left while the plugins prepared the item (see onInit)
+        if (this._isDestroyed || this._isExiting) {
+            log.info('Player left while the item was prepared — not starting playback');
+            return;
+        }
+
         // Re-sync this._item with the PlayQueue's current pointer.
         // If a plugin (like Local Intros) prepended items, the "main" item is now
         // at a later index, and the current pointer (0) is the first intro.
@@ -1450,6 +1497,11 @@ class PlayerPage extends Page {
             } catch (err) {
                 log.warn('Failed to backfill item metadata in _startPlayback:', err);
             }
+            // Left while the item details loaded
+            if (this._isDestroyed || this._isExiting) {
+                log.info('Player left while the item details loaded — not starting playback');
+                return;
+            }
         }
 
         // Reset version and track selections if the item has changed (e.g. queue advance/prev)
@@ -1460,19 +1512,20 @@ class PlayerPage extends Page {
             this._preSelectedSubtitle = undefined;
         }
 
-        // 1. Check for pre-selected tracks/version from DetailsPage (stored in state)
+        // 1. Check for pre-selected tracks/version from DetailsPage (taken from state by onInit)
         // Store these on the page instance once so they persist across error/retry attempts
+        const initialSelection = this._initialSelection || {};
         if (this._preSelectedMediaSourceId === undefined) {
-            this._preSelectedMediaSourceId = state.get('player:initialMediaSourceId') || null;
-            state.set('player:initialMediaSourceId', null);
+            this._preSelectedMediaSourceId = initialSelection.mediaSourceId || null;
+            initialSelection.mediaSourceId = null;
         }
         if (this._preSelectedAudio === undefined) {
-            this._preSelectedAudio = state.get('player:initialAudioIndex') ?? null;
-            state.set('player:initialAudioIndex', null);
+            this._preSelectedAudio = initialSelection.audioIndex ?? null;
+            initialSelection.audioIndex = null;
         }
         if (this._preSelectedSubtitle === undefined) {
-            this._preSelectedSubtitle = state.get('player:initialSubtitleIndex') ?? null;
-            state.set('player:initialSubtitleIndex', null);
+            this._preSelectedSubtitle = initialSelection.subtitleIndex ?? null;
+            initialSelection.subtitleIndex = null;
         }
 
         const preSelectedMediaSourceId = this._preSelectedMediaSourceId;
@@ -2447,7 +2500,7 @@ class PlayerPage extends Page {
 
             if (this._player?.stop) this._player.stop();
 
-            this._reportPlaybackStopped(mediaSource, positionTicks, false, durationTicks, outgoingItem).then(() => {
+            this._reportPlaybackStoppedOnSwitch(mediaSource, positionTicks, durationTicks, outgoingItem).then(() => {
                 // Settle and restart
                 setTimeout(async () => {
                     this._resumePosition = 0;
@@ -2550,8 +2603,9 @@ class PlayerPage extends Page {
                 await this._player.stop();
             }
 
-            // Report stopped (async) with captured duration and explicit outgoing item
-            await this._reportPlaybackStopped(mediaSource, positionTicks, false, durationTicks, outgoingItem);
+            // Report stopped with captured duration and explicit outgoing item. Only a
+            // live stream is waited for, to close; the next start report waits for the rest.
+            await this._reportPlaybackStoppedOnSwitch(mediaSource, positionTicks, durationTicks, outgoingItem);
 
             // Now advance the queue cursor cleanly to the next item
             const nextItem = playQueue.advance();
@@ -2697,7 +2751,7 @@ class PlayerPage extends Page {
                         await this._player.stop();
                     }
 
-                    await this._reportPlaybackStopped(mediaSource, positionTicks, false, durationTicks, outgoingItem);
+                    await this._reportPlaybackStoppedOnSwitch(mediaSource, positionTicks, durationTicks, outgoingItem);
 
                     // Brief settle delay (same as _playNextItem)
                     await new Promise((resolve) => setTimeout(resolve, 500));
@@ -2770,7 +2824,7 @@ class PlayerPage extends Page {
                     await this._player.stop();
                 }
 
-                await this._reportPlaybackStopped(mediaSource, positionTicks, false, durationTicks, outgoingItem);
+                await this._reportPlaybackStoppedOnSwitch(mediaSource, positionTicks, durationTicks, outgoingItem);
 
                 await new Promise((resolve) => setTimeout(resolve, 500));
 
@@ -2987,7 +3041,7 @@ class PlayerPage extends Page {
                 await this._player.stop();
             }
 
-            await this._reportPlaybackStopped(mediaSource, positionTicks, false, durationTicks, outgoingItem);
+            await this._reportPlaybackStoppedOnSwitch(mediaSource, positionTicks, durationTicks, outgoingItem);
 
             /* Brief settle delay — same as _playNextItem/_playPreviousItem. */
             await new Promise((resolve) => setTimeout(resolve, 500));
@@ -3465,15 +3519,31 @@ class PlayerPage extends Page {
         const durationTicks =
             this._player?.getDurationTicks?.() || mediaSource?.RunTimeTicks || this._item?.RunTimeTicks || 0;
         if (mediaSource?.PlaySessionId && this._item && !this._item.isIntro) {
+            // A restart before the previous restart's session played
+            const restarted = this._unstartedRestart?.itemId === this._item.Id ? this._unstartedRestart : null;
             const report = this._reportPlaybackStopped(mediaSource, positionTicks, false, durationTicks).catch(
                 (err) => {
                     log.warn('Failed to report playback stopped during restart:', err);
                 }
             );
-            this._pendingStopReport = report;
-            report.then(() => {
-                if (this._pendingStopReport === report) this._pendingStopReport = null;
+            // The previous item's stop report may still be in flight as well
+            const pending = this._pendingStopReport ? Promise.all([this._pendingStopReport, report]) : report;
+            this._pendingStopReport = pending;
+            pending.then(() => {
+                if (this._pendingStopReport === pending) this._pendingStopReport = null;
             });
+
+            // The new session reports its start only once it plays, but the
+            // server may already be transcoding it. Leaving it before then
+            // (Back, Next, another restart) still stops it, at the position
+            // the user was at (see _reportPlaybackStopped).
+            if (this._hasReportedStart || restarted) {
+                this._unstartedRestart = {
+                    itemId: this._item.Id,
+                    playSessionId: mediaSource.PlaySessionId,
+                    positionTicks: restarted ? restarted.positionTicks : positionTicks
+                };
+            }
         }
 
         // Reset start-report guard so the upcoming 'playing' event
@@ -3483,6 +3553,8 @@ class PlayerPage extends Page {
     }
 
     async _reportPlaybackStart() {
+        // The restarted session plays: it is reported like any other now
+        this._unstartedRestart = null;
         if (!this._player || !this._item) return;
 
         // Skip reporting start completely if running in private/ghost mode
@@ -3528,11 +3600,24 @@ class PlayerPage extends Page {
                 NowPlayingQueue: this._buildNowPlayingQueue()
             };
 
-            // A restart's stop report for the previous session goes first
+            // A stop report still in flight for the previous session goes
+            // first. If Back, Next or another restart sends this session's stop
+            // report meanwhile, the start is dropped: sent after the stop, it
+            // would show the item as playing on the server after the user left.
             if (this._pendingStopReport) {
+                const waiting = {};
+                this._waitingStartReport = waiting;
                 await this._pendingStopReport;
+                if (this._waitingStartReport !== waiting || this._isExiting) {
+                    log.info('Playback session stopped while its start report waited — not reporting the start');
+                    return;
+                }
+                this._waitingStartReport = null;
             }
 
+            // That wait can take seconds, with progress reports held meanwhile
+            // (see _reportPlaybackProgress): report the state as it is now
+            Object.assign(info, this._getPlayerState(), { IsPaused: Boolean(this._isPaused) });
             await api.reportPlaybackStart(info);
         } catch (error) {
             log.warn('Failed to report playback start:', error);
@@ -4017,6 +4102,14 @@ class PlayerPage extends Page {
             this._isPaused = true;
         } else if (eventName === 'unpause') {
             this._isPaused = false;
+        }
+
+        // The session's start report still waits for the previous session's
+        // stop report (see _reportPlaybackStart): progress sent now would reach
+        // the server before both. The start report carries the state instead.
+        if (this._pendingStopReport) {
+            log.debug('Progress report held until the playback start is reported');
+            return;
         }
 
         try {
@@ -4696,8 +4789,8 @@ class PlayerPage extends Page {
     }
 
     /**
-     * Wait for a stop report before leaving the player, but at most
-     * STOP_REPORT_EXIT_WAIT_MS; the report carries on in the background.
+     * Wait for a stop report before leaving the player (or a Live TV channel),
+     * but at most STOP_REPORT_EXIT_WAIT_MS; the report carries on in the background.
      * @private
      * @param {Promise} report - The pending _reportPlaybackStopped() call
      * @returns {Promise<void>}
@@ -4719,8 +4812,42 @@ class PlayerPage extends Page {
         clearTimeout(timer);
         if (!finished) {
             log.warn(
-                `Stop report not answered within ${STOP_REPORT_EXIT_WAIT_MS} ms — leaving the player, it continues in the background`
+                `Stop report not answered within ${STOP_REPORT_EXIT_WAIT_MS} ms — going on, it continues in the background`
             );
+        }
+    }
+
+    /**
+     * Report playback stopped for the item being left (Next, Previous,
+     * auto-advance…) without waiting for the server: on a stalled one, the
+     * report can take its full timeout. The next session's PlaybackStart waits
+     * for it, and for an earlier one still in flight, so the server still sees
+     * the stop first.
+     * Only a live stream (Live TV) is waited for, at most STOP_REPORT_EXIT_WAIT_MS:
+     * it has to be closed before the next channel opens one, as a single tuner
+     * or a one-stream IPTV account stays busy until then.
+     * @private
+     * @param {Object} mediaSource - Media source captured before player.stop()
+     * @param {number} positionTicks - Position captured before player.stop()
+     * @param {number} durationTicks - Duration captured before player.stop()
+     * @param {Object} [item] - The item being left (default: the current item)
+     * @returns {Promise<void>}
+     */
+    async _reportPlaybackStoppedOnSwitch(mediaSource, positionTicks, durationTicks, item = null) {
+        this._liveStreamClose = null;
+        const report = this._reportPlaybackStopped(mediaSource, positionTicks, false, durationTicks, item).catch(
+            (err) => {
+                log.warn('Failed to report playback stopped:', err);
+            }
+        );
+        const closing = this._liveStreamClose;
+        const pending = this._pendingStopReport ? Promise.all([this._pendingStopReport, report]) : report;
+        this._pendingStopReport = pending;
+        pending.then(() => {
+            if (this._pendingStopReport === pending) this._pendingStopReport = null;
+        });
+        if (closing) {
+            await this._awaitStopReportBeforeExit(Promise.all([report, closing]));
         }
     }
 
@@ -4762,10 +4889,24 @@ class PlayerPage extends Page {
          * and sending 0 ticks would clobber the user's saved resume position!
          * ---------------------------------------------------------------------
          */
+        let restartPositionTicks = null;
         if (!this._hasReportedStart) {
-            log.info('Skipping PlaybackStopped report: playback never successfully started');
-            return;
+            // Except for a session started by a restart of a playing session
+            // (see _onPlayerRestarting): its transcode would run until
+            // Jellyfin's ping timeout. It is stopped at the restart position.
+            const restart = this._unstartedRestart;
+            const playSessionId = (capturedMediaSource ?? this._player?.getCurrentMediaSource?.())?.PlaySessionId;
+            if (!restart || restart.itemId !== item.Id || !playSessionId || playSessionId === restart.playSessionId) {
+                log.info('Skipping PlaybackStopped report: playback never successfully started');
+                return;
+            }
+            log.info('Reporting the stop of a restarted session that never played');
+            restartPositionTicks = restart.positionTicks;
+            this._unstartedRestart = null;
         }
+
+        // A start report for this session still waiting must not follow its stop
+        this._waitingStartReport = null;
 
         try {
             // 1. Capture data
@@ -4774,7 +4915,8 @@ class PlayerPage extends Page {
 
             // Ensure position is a rounded integer. We grab the reported position
             // from the player backend or the fallback parameters.
-            let rawPosition = capturedPosition ?? this._player?.getCurrentPositionTicks?.() ?? 0;
+            let rawPosition =
+                restartPositionTicks ?? capturedPosition ?? this._player?.getCurrentPositionTicks?.() ?? 0;
 
             /*
              * -----------------------------------------------------------------
@@ -4876,8 +5018,9 @@ class PlayerPage extends Page {
             // 2.6 Close Live Stream if applicable
             if (mediaSource?.LiveStreamId) {
                 log.info('Closing Live Stream:', mediaSource.LiveStreamId);
-                // Call asynchronously to avoid blocking the stopped report
-                api.closeLiveStream(mediaSource.LiveStreamId).catch((err) => {
+                // Call asynchronously to avoid blocking the stopped report; a
+                // channel switch waits for it (see _reportPlaybackStoppedOnSwitch)
+                this._liveStreamClose = api.closeLiveStream(mediaSource.LiveStreamId).catch((err) => {
                     log.warn('Failed to close live stream:', err);
                 });
             }
@@ -5278,8 +5421,12 @@ class PlayerPage extends Page {
             // (and the spinner) for the round trip. Back waits for it at most
             // STOP_REPORT_EXIT_WAIT_MS, so a stalled server cannot hold the page.
             // App exit (_handleAppExit) still uses a synchronous XHR.
+            // The previous item's report may still be in flight (Next, then Back)
             await this._awaitStopReportBeforeExit(
-                this._reportPlaybackStopped(mediaSource, positionTicks, false, durationTicks)
+                Promise.all([
+                    this._pendingStopReport,
+                    this._reportPlaybackStopped(mediaSource, positionTicks, false, durationTicks)
+                ])
             );
         } catch (error) {
             log.warn('Error during stop:', error);
@@ -5606,6 +5753,7 @@ class PlayerPage extends Page {
     // ========================================================================
 
     destroy() {
+        this._isDestroyed = true;
         document.body.classList.remove('resume-profile-selection-active');
         this._resumeProfileSelectionActive = false;
         this._resumePlaybackAfterProfileSelection = false;
@@ -5682,28 +5830,10 @@ class PlayerPage extends Page {
         }
 
         // Remove remote control event listeners
-        if (this._onRemotePause) eventBus.off('remote:pause', this._onRemotePause);
-        if (this._onRemotePlay) eventBus.off('remote:play', this._onRemotePlay);
-        if (this._onRemotePlayPause) eventBus.off('remote:playpause', this._onRemotePlayPause);
-        if (this._onRemoteStop) eventBus.off('remote:stop', this._onRemoteStop);
-        if (this._onRemoteSeek) eventBus.off('remote:seek', this._onRemoteSeek);
-        if (this._onRemoteVolume) eventBus.off('remote:volume', this._onRemoteVolume);
-        if (this._onRemoteVolumeUp) eventBus.off('remote:volumeup', this._onRemoteVolumeUp);
-        if (this._onRemoteVolumeDown) eventBus.off('remote:volumedown', this._onRemoteVolumeDown);
-        if (this._onRemoteMute) eventBus.off('remote:mute', this._onRemoteMute);
-        if (this._onRemoteToggleMute) eventBus.off('remote:togglemute', this._onRemoteToggleMute);
-        if (this._onRemoteNext) eventBus.off('remote:next', this._onRemoteNext);
-        if (this._onRemotePrevious) eventBus.off('remote:previous', this._onRemotePrevious);
         if (this._onRemoteRepeatMode) eventBus.off('remote:repeatmode', this._onRemoteRepeatMode);
         if (this._onRemoteShuffleMode) eventBus.off('remote:shufflemode', this._onRemoteShuffleMode);
-        if (this._onRemoteNavigate) eventBus.off('remote:navigate', this._onRemoteNavigate);
-        if (this._onRemoteSelect) eventBus.off('remote:select', this._onRemoteSelect);
-        if (this._onRemoteAudioTrack) eventBus.off('remote:audiotrack', this._onRemoteAudioTrack);
-        if (this._onRemoteSubtitle) eventBus.off('remote:subtitle', this._onRemoteSubtitle);
         if (this._onRemoteQueueUpdate) eventBus.off('remote:queueupdate', this._onRemoteQueueUpdate);
         if (this._onRemoteUserDataChanged) eventBus.off('remote:userdatachanged', this._onRemoteUserDataChanged);
-        if (this._onChannelUp) eventBus.off('key:channelUp', this._onChannelUp);
-        if (this._onChannelDown) eventBus.off('key:channelDown', this._onChannelDown);
 
         // Clean up global lock listeners
         if (this._onGlobalKeyDown) {
@@ -5926,7 +6056,7 @@ class PlayerPage extends Page {
                 this._player?.getDurationTicks?.() || mediaSource?.RunTimeTicks || this._item?.RunTimeTicks || 0;
 
             await this._player.stop();
-            await this._reportPlaybackStopped(mediaSource, positionTicks, false, durationTicks);
+            await this._reportPlaybackStoppedOnSwitch(mediaSource, positionTicks, durationTicks);
         }
 
         // Briefly settle hardware to prevent decoder state overlaps
