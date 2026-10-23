@@ -167,9 +167,9 @@ export class PrewarmManager {
                 backendType = 'webos';
             }
 
-            // The user's bitrate limit, as JellyfinPlayer starts with it; the profile adds
-            // the device default (40 Mbps without UHD) when there is none
-            const manualBitrate = PlayerSettings.get('maxBitrateInternet') || null;
+            // No quality picked in the OSD, as for a new item in JellyfinPlayer: the device
+            // profile applies the global limit (maxBitrateInternet) or the device default
+            const manualBitrate = null;
 
             // Resolve target MediaSource object for track requirement analysis
             const targetSource = targetMediaSourceId && item.MediaSources

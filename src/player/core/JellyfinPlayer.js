@@ -1426,10 +1426,10 @@ export class JellyfinPlayer extends EventEmitter {
         this._currentPlayOptions = null;
         this._isPlaying = false;
         this._isPaused = false;
-        // Initialize with global limit if set, otherwise null (Auto/Max)
-        // User requested: Global limit acts as default manual override.
-        // "Auto" (null) means Unlimited/Direct Play.
-        this._manualBitrate = PlayerSettings.get('maxBitrateInternet') || null;
+        // Quality picked in the OSD (null: Auto). Only that forces a transcode;
+        // the global limit (maxBitrateInternet) is the MaxStreamingBitrate the
+        // device profiles send for every item.
+        this._manualBitrate = null;
         this._isRestarting = false; // Flag to suppress stop events during manual quality change
         this._playRequestId = 0; // Advanced by play(), stop() and destroy(); see play()
         this._lastReportedPlayError = null; // Last error play() emitted (restart flows skip re-reporting it)
