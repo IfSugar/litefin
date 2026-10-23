@@ -3713,8 +3713,20 @@ export class WebOSPlayer {
         if ((formatted.code === 3 || formatted.code === 4) && !this._hlsPlayer && isHlsStream && this._canUseHlsJs(this._currentPlayOptions) && !this._hlsFallbackAttempted) {
             log.warn('WebOSPlayer: Native HLS pipeline threw decode error. Attempting seamless Hls.js fallback...');
             this._hlsFallbackAttempted = true;
-            this._playWithHlsJs(video, this._currentPlayOptions)
+            // Continue where playback failed, not at the item's start position. The position is
+            // in the stream's own time, like playerStartPositionTicks, so a transcoding offset
+            // the options carry still applies on top. Before the first frame the position is
+            // not reliable yet (webOS can report 0 while the resume seek is pending). A live
+            // item starts at the live edge, as in play().
+            const options = this._currentPlayOptions;
+            const isLive = options?.item?.Type === 'TvChannel' || options?.mediaSource?.LiveStreamId;
+            const position = this._started && !isLive ? video.currentTime : 0;
+            const fallbackOptions =
+                position > 0 ? { ...options, playerStartPositionTicks: Math.round(position * 10000000) } : options;
+            this._playWithHlsJs(video, fallbackOptions)
                 .catch(err => {
+                    // stop() or a newer play() cancelled it: that item is gone
+                    if (err?.superseded) return;
                     log.error('WebOSPlayer: Fallback to Hls.js also failed:', err);
                     this.onEvent({
                         type: 'error',
