@@ -1248,8 +1248,8 @@ class PersonPage extends Page {
                     const btnBottomY = targetEl.offsetTop + targetEl.offsetHeight;
 
                     bar.style.left = `${btnCenterX}px`;
-                    // Floating text sits specifically at 90px from the container top
-                    bar.style.top = tooltipMode === 'floating' ? '90px' : `${btnBottomY}px`;
+                    // Both styles hang from the focused button, so a wrapped second row gets its own label
+                    bar.style.top = `${btnBottomY}px`;
                     txt.textContent = text;
                     bar.classList.add('visible');
                     return;

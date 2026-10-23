@@ -1229,8 +1229,8 @@ class SeerrDetailsPage extends Page {
                     const btnBottomY = targetEl.offsetTop + targetEl.offsetHeight;
 
                     tooltipBar.style.left = `${btnCenterX}px`;
-                    // Floating text sits specifically at 90px from the container top
-                    tooltipBar.style.top = tooltipMode === 'floating' ? '90px' : `${btnBottomY}px`;
+                    // Both styles hang from the focused button, so a wrapped second row gets its own label
+                    tooltipBar.style.top = `${btnBottomY}px`;
                     tooltipText.textContent = text;
                     tooltipBar.classList.add('visible');
                     return;
