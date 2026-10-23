@@ -21,6 +21,8 @@ import vm from 'node:vm';
  *     restart, so the page still sets up its OSD
  *   - a slow transcode seek is not taken for a stuck one (also across a new
  *     seek, a pause and Play)
+ *   - a spot the server never delivers ends with an error after one reload
+ *     and one transcode retry, instead of retrying for good
  * The JellyfinPlayer methods under test are taken from the source and run on
  * a stub player (the module itself needs a full DOM).
  * ============================================================================
@@ -1215,4 +1217,94 @@ test('JellyfinPlayer: a stuck seek outside a transcode is still reloaded at once
         assert.deepStrictEqual(reloadsOf(player), [SEEK_TARGET]);
         t.mock.timers.reset();
     }
+});
+
+// ----------------------------------------------------------------------------
+// A spot the server never delivers
+// ----------------------------------------------------------------------------
+
+/**
+ * Item A playing as a transcode, its element seeking at SEEK_TARGET for good
+ * (as past the end of a file's picture on an LG C4), and past the 30 s a
+ * transcode seek gets, so each stuck report is acted on at once.
+ */
+async function startUndeliverableSpot(t) {
+    t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+    const player = createPlayer({
+        methods: ['seek(positionTicks, options = {}) {'],
+        globals: {
+            MediaHelper: {
+                getPlayMethod: () => 'Transcode',
+                buildStreamUrl: ({ itemId, startPositionTicks }) => ({
+                    url: `http://srv/${itemId}`,
+                    transcodingOffsetTicks: 0,
+                    playerStartPositionTicks: startPositionTicks
+                }),
+                fetchWithTimeout: MediaHelper.fetchWithTimeout
+            }
+        }
+    });
+    await playAndStart(player, pageOptions(player, 'A', { playbackMode: 'transcode' }));
+    player.backend.video = { seeking: true };
+    player.seek(SEEK_TARGET);
+    await advance(t, 31000, 1000);
+    player.events.length = 0;
+    return player;
+}
+
+/** Report the seek stuck, and let a reload or restart it causes load. */
+async function reportStuck(t, player) {
+    const count = player.backend.loads.length;
+    player._handleBackendEvent(seekStuck);
+    await advance(t, 2000, 250);
+    if (player.backend.loads.length > count) {
+        player.backend.loads[count].resolve();
+        await flush();
+    }
+}
+
+test('JellyfinPlayer: a spot that never plays gets one reload and one transcode retry, then the error', async (t) => {
+    const player = await startUndeliverableSpot(t);
+
+    await reportStuck(t, player);
+    assert.strictEqual(player.backend.loads.length, 2, 'the stuck seek was not reloaded');
+    await reportStuck(t, player);
+    assert.strictEqual(player.backend.loads.length, 3, 'the stuck reload was not escalated to a transcode retry');
+    assert.ok(!player.events.some((e) => e.type === 'error'), 'gave up before the transcode retry');
+
+    // The retry is stuck at the same spot too, and keeps being reported
+    for (let i = 0; i < 4; i++) {
+        await reportStuck(t, player);
+    }
+    assert.strictEqual(player.backend.loads.length, 3, 'the transcode retry was reloaded and restarted again');
+    const errors = player.events.filter((e) => e.type === 'error');
+    assert.strictEqual(errors.length, 1, 'no error, or more than one');
+    assert.strictEqual(errors[0].data.code, 'SEEK_STUCK');
+    assert.ok(
+        !/network|connection|offline/i.test(errors[0].data.message),
+        'the page would take it for a network error'
+    );
+});
+
+test('JellyfinPlayer: a transcode retry that plays leaves a later stuck seek its own reload and retry (guard)', async (t) => {
+    const player = await startUndeliverableSpot(t);
+    await reportStuck(t, player);
+    await reportStuck(t, player);
+    assert.strictEqual(player.backend.loads.length, 3);
+
+    // The retry lands at the target and plays on
+    const targetSec = SEEK_TARGET / 10000000;
+    player.backend.video.seeking = false;
+    player._handleBackendEvent({ type: 'timeupdate', data: { time: targetSec } });
+    player._handleBackendEvent({ type: 'timeupdate', data: { time: targetSec + 1 } });
+
+    // Much later, a seek elsewhere gets stuck
+    player.backend.video.seeking = true;
+    player.seek(SEEK_TARGET * 2);
+    await advance(t, 31000, 1000);
+    await reportStuck(t, player);
+    assert.strictEqual(player.backend.loads.length, 4, 'the later stuck seek was not reloaded');
+    await reportStuck(t, player);
+    assert.strictEqual(player.backend.loads.length, 5, 'the later stuck reload got no transcode retry');
+    assert.ok(!player.events.some((e) => e.type === 'error'), 'ended with an error before its own retry');
 });

@@ -1502,6 +1502,10 @@ export class JellyfinPlayer extends EventEmitter {
         // Play options of the reload a stuck seek gets (see the seekstuck handler)
         this._seekReloadOptions = null;
 
+        // Play options of a transcode retry that got stuck too and ended with an
+        // error: its later stuck reports are ignored (see resumeseekfailed)
+        this._seekGaveUpOptions = null;
+
         // ────────────────────────────────────────────────────────────────────
         // DirectPlay Failure Escalation Guard
         // ────────────────────────────────────────────────────────────────────
@@ -1898,6 +1902,11 @@ export class JellyfinPlayer extends EventEmitter {
                         return;
                     }
                     this._finishResumeWait(`Resume verified at ${effectiveCurrentTime}s. Dismissing loading screen.`);
+                    // A transcode retry that plays has done its job: a later stuck
+                    // seek in this session gets a reload and a retry of its own
+                    if (this._resumeRetryOptions && this._currentPlayOptions === this._resumeRetryOptions) {
+                        this._resumeRetryOptions = null;
+                    }
                     // allow timeupdate to proceed below
                 } else if (Date.now() - (this._resumeWaitStartTime || 0) > 3500 ||
                     (effectiveCurrentTime >= 2.0 && effectiveCurrentTime < (targetSec - 15))) {
@@ -2118,9 +2127,12 @@ export class JellyfinPlayer extends EventEmitter {
         // later seek and play (an LG C4 after a rejected seek in a native-HLS
         // remux). Reload the stream at the target in the same mode. If the
         // reloaded stream gets stuck too, the resumeseekfailed escalation
-        // takes over (remux → transcode).
+        // takes over (remux → transcode). The one fresh transcode a stuck
+        // transcode gets there is not reloaded: when it gets stuck as well,
+        // playback ends with an error (see resumeseekfailed).
         if (event.type === 'seekstuck') {
             if (this._isRestarting || !this._currentPlayOptions) return;
+            if (this._currentPlayOptions === this._seekGaveUpOptions) return;
             const targetTicks = event.data?.targetPositionTicks ?? this.getCurrentPositionTicks();
 
             // A transcode that has had less than TRANSCODE_SEEK_STUCK_MS for the
@@ -2169,9 +2181,20 @@ export class JellyfinPlayer extends EventEmitter {
                 }
             }
 
-            if (this._seekReloadOptions && this._currentPlayOptions === this._seekReloadOptions) {
-                log.warn('seekstuck: the reloaded stream got stuck too — escalating like a failed resume');
-                this._handleBackendEvent({ type: 'resumeseekfailed', data: { targetPositionTicks: targetTicks } });
+            // Each reload replaces the play options, so reloading the transcode
+            // retry would hide that it already was the retry: a spot the server
+            // can't deliver then alternated reload and retry for good, each
+            // starting another server job, behind a spinner
+            const isReload = this._seekReloadOptions && this._currentPlayOptions === this._seekReloadOptions;
+            const isTranscodeRetry = this._resumeRetryOptions && this._currentPlayOptions === this._resumeRetryOptions;
+            if (isReload || isTranscodeRetry) {
+                log.warn(
+                    `seekstuck: the ${isReload ? 'reloaded stream' : 'transcode retry'} got stuck too — escalating like a failed resume`
+                );
+                this._handleBackendEvent({
+                    type: 'resumeseekfailed',
+                    data: { targetPositionTicks: targetTicks, stuck: true }
+                });
                 return;
             }
 
@@ -2248,10 +2271,25 @@ export class JellyfinPlayer extends EventEmitter {
             // that video again (remux mode drops all CodecProfiles), which then
             // stalled into the remux watchdog → transcode → resumeseekfailed
             // loop. A transcode gets one fresh transcode at the target; if
-            // that fails to land too, playback continues where it is.
+            // that fails to land too, playback continues where it is. If its
+            // seek never completes (seekstuck), there is nothing to continue
+            // from: show the error instead of a spinner that never ends.
             // -----------------------------------------------------------------
             const isTranscoding = this._playbackMode === 'transcode' || this._currentPlayMethod === 'Transcode';
             if (isTranscoding && this._resumeRetryOptions && this._currentPlayOptions === this._resumeRetryOptions) {
+                if (event.data?.stuck) {
+                    log.error(
+                        `resumeseekfailed: the transcode retry is stuck at ${(effectiveTicks / 10000000).toFixed(2)} s too — giving up`
+                    );
+                    this._clearRemuxStuckWatchdog();
+                    this._seekGaveUpOptions = this._currentPlayOptions;
+                    this.emit(PlayerEvent.ERROR, {
+                        code: 'SEEK_STUCK',
+                        message: 'Playback could not continue from this point',
+                        type: 'playback'
+                    });
+                    return;
+                }
                 log.warn('resumeseekfailed: Transcoded resume already retried once — continuing from the current position');
                 return;
             }
