@@ -1434,7 +1434,7 @@ export class JellyfinPlayer extends EventEmitter {
         this._playRequestId = 0; // Advanced by play(), stop() and destroy(); see play()
         this._lastReportedPlayError = null; // Last error play() emitted (restart flows skip re-reporting it)
         this._playbackMode = 'auto'; // Current playback mode ('auto', 'directPlay', 'transcode', 'remux', 'transcodeVideo', 'transcodeAudio')
-        
+
         // ────────────────────────────────────────────────────────────────────
         // Initial Playback Mode Store
         // ────────────────────────────────────────────────────────────────────
@@ -1450,7 +1450,7 @@ export class JellyfinPlayer extends EventEmitter {
         // for its audio track (null when it didn't). getPlaybackMode() reports
         // this one, so the switch doesn't carry over to the next item.
         this._audioRemuxFrom = null;
-        
+
         this._transcodingOffsetTicks = 0; // Offset for transcoded streams that start at 0
         this._pendingStartPositionTicks = null; // Target position before first frame
         this._resumeLastTime = null; // Last landed position while waiting for a resume to advance
@@ -1583,8 +1583,8 @@ export class JellyfinPlayer extends EventEmitter {
 
         const sharedOptions = {
             container: this.container,
-            settings:  PlayerSettings,
-            onEvent:   this._handleBackendEvent.bind(this)
+            settings: PlayerSettings,
+            onEvent: this._handleBackendEvent.bind(this)
         };
 
         // ----------------------------------------------------------------
@@ -1598,12 +1598,12 @@ export class JellyfinPlayer extends EventEmitter {
             if (isExoSupported) {
                 log.info('Using ExoPlayer backend (forced by setting)');
                 this._backendType = 'exoplayer';
-                this._backend    = new ExoVideoPlayer(sharedOptions);
+                this._backend = new ExoVideoPlayer(sharedOptions);
                 return;
             } else {
                 log.warn('Forced exoplayer backend requested, but native Android bridge is not available in this build — falling back to HTML5');
                 this._backendType = 'html5';
-                this._backend    = new HtmlVideoPlayer(sharedOptions);
+                this._backend = new HtmlVideoPlayer(sharedOptions);
                 return;
             }
         }
@@ -1618,12 +1618,12 @@ export class JellyfinPlayer extends EventEmitter {
             if (isMoviAvailable && platformInfo.hasWebCodecsSupport && !platformInfo.isTizen && !platformInfo.isWebOS) {
                 log.info('Using MoviPlayer backend (forced by setting)');
                 this._backendType = 'movi';
-                this._backend    = new MoviVideoPlayer(sharedOptions);
+                this._backend = new MoviVideoPlayer(sharedOptions);
                 return;
             } else {
                 log.warn('Forced movi backend requested, but MoviPlayer is not included or supported in this build — falling back to HTML5');
                 this._backendType = 'html5';
-                this._backend    = new HtmlVideoPlayer(sharedOptions);
+                this._backend = new HtmlVideoPlayer(sharedOptions);
                 return;
             }
         }
@@ -1637,7 +1637,7 @@ export class JellyfinPlayer extends EventEmitter {
             }
             log.info('Using Tizen AVPlay backend (forced by setting)');
             this._backendType = 'tizen';
-            this._backend    = new TizenAVPlayer(sharedOptions);
+            this._backend = new TizenAVPlayer(sharedOptions);
             return;
         }
 
@@ -1647,7 +1647,7 @@ export class JellyfinPlayer extends EventEmitter {
         if (backendSetting === 'html5') {
             log.info('Using HTML5 Video backend (forced by setting)');
             this._backendType = 'html5';
-            this._backend    = new HtmlVideoPlayer(sharedOptions);
+            this._backend = new HtmlVideoPlayer(sharedOptions);
             return;
         }
 
@@ -1657,7 +1657,7 @@ export class JellyfinPlayer extends EventEmitter {
         if (backendSetting === 'webos') {
             log.info('Using WebOS backend (forced by setting)');
             this._backendType = 'webos';
-            this._backend    = new WebOSPlayer(sharedOptions);
+            this._backend = new WebOSPlayer(sharedOptions);
             return;
         }
 
@@ -1676,12 +1676,12 @@ export class JellyfinPlayer extends EventEmitter {
             if (isExoSupported) {
                 log.info('Android platform detected with native ExoPlayer bridge — using ExoPlayer backend');
                 this._backendType = 'exoplayer';
-                this._backend    = new ExoVideoPlayer(sharedOptions);
+                this._backend = new ExoVideoPlayer(sharedOptions);
                 return;
             } else {
                 log.warn('Android platform detected without native ExoPlayer bridge (e.g. mobile web browser) — falling back to HTML5');
                 this._backendType = 'html5';
-                this._backend    = new HtmlVideoPlayer(sharedOptions);
+                this._backend = new HtmlVideoPlayer(sharedOptions);
                 return;
             }
         }
@@ -1694,7 +1694,7 @@ export class JellyfinPlayer extends EventEmitter {
         if (platformInfo.isWebOS) {
             log.info('WebOS platform detected — using WebOS backend');
             this._backendType = 'webos';
-            this._backend    = new WebOSPlayer(sharedOptions);
+            this._backend = new WebOSPlayer(sharedOptions);
             return;
         }
 
@@ -1704,7 +1704,7 @@ export class JellyfinPlayer extends EventEmitter {
         if (this.useTizenPlayer && hasAvPlay) {
             log.info('Using Tizen AVPlay backend (auto-detected)');
             this._backendType = 'tizen';
-            this._backend    = new TizenAVPlayer(sharedOptions);
+            this._backend = new TizenAVPlayer(sharedOptions);
             return;
         }
 
@@ -1727,7 +1727,7 @@ export class JellyfinPlayer extends EventEmitter {
             // Bind player backend type to movi
             this._backendType = 'movi';
             // Instantiate hardware-accelerated MoviVideoPlayer instance with shared options
-            this._backend    = new MoviVideoPlayer(sharedOptions);
+            this._backend = new MoviVideoPlayer(sharedOptions);
             return;
         }
 
@@ -1736,7 +1736,7 @@ export class JellyfinPlayer extends EventEmitter {
         // ----------------------------------------------------------------
         log.info('Using HTML5 Video backend (fallback)');
         this._backendType = 'html5';
-        this._backend    = new HtmlVideoPlayer(sharedOptions);
+        this._backend = new HtmlVideoPlayer(sharedOptions);
     }
 
     /**
@@ -1788,7 +1788,7 @@ export class JellyfinPlayer extends EventEmitter {
         // Only clear _isSeeking on explicit SEEKED or PLAYING events, never on TIME_UPDATE.
         // Clearing on TIME_UPDATE causes premature un-gating of subtitle ticking before
         // the hardware demuxer has settled on the post-seek keyframe PTS.
-        if (event.type === PlayerEvent.SEEKED || 
+        if (event.type === PlayerEvent.SEEKED ||
             event.type === PlayerEvent.PLAYING) {
             this._isSeeking = false;
             const clearTimer = typeof clearTimeout !== 'undefined'
@@ -1876,8 +1876,8 @@ export class JellyfinPlayer extends EventEmitter {
                     }
                     this._finishResumeWait(`Resume verified at ${effectiveCurrentTime}s. Dismissing loading screen.`);
                     // allow timeupdate to proceed below
-                } else if (Date.now() - (this._resumeWaitStartTime || 0) > 3500 || 
-                           (effectiveCurrentTime >= 2.0 && effectiveCurrentTime < (targetSec - 15))) {
+                } else if (Date.now() - (this._resumeWaitStartTime || 0) > 3500 ||
+                    (effectiveCurrentTime >= 2.0 && effectiveCurrentTime < (targetSec - 15))) {
                     // Fallback: 3.5s elapsed without landing near target, OR the decoder has
                     // already started advancing forward past 2.0s while still far from target.
                     // The resume seek was lost or discarded by the underlying platform demuxer.
@@ -1897,9 +1897,9 @@ export class JellyfinPlayer extends EventEmitter {
                     // Still waiting to reach target time. Suppress early timeupdates.
                     return;
                 }
-            } else if (event.type === PlayerEvent.PLAY || 
-                       event.type === PlayerEvent.PLAYING || 
-                       event.type === PlayerEvent.TIME_UPDATE) {
+            } else if (event.type === PlayerEvent.PLAY ||
+                event.type === PlayerEvent.PLAYING ||
+                event.type === PlayerEvent.TIME_UPDATE) {
                 // Suppress events while the buffer is jumping
                 return;
             }
@@ -1942,7 +1942,7 @@ export class JellyfinPlayer extends EventEmitter {
             } catch (e) {
                 console.error('Error ticking subtitle manager:', e.message || e, e.stack);
             }
-            
+
             // Re-emit normalized timeupdate with absolute ticks for UI/OSD and playback reporting
             this.emit(PlayerEvent.TIME_UPDATE, this.getCurrentPositionTicks());
             return;
@@ -2022,7 +2022,7 @@ export class JellyfinPlayer extends EventEmitter {
                 // Build clean restart options carrying active audio and subtitle tracks
                 const restartOptions = {
                     ...this._currentPlayOptions,
-                    audioStreamIndex:   targetIndex,
+                    audioStreamIndex: targetIndex,
                     subtitleStreamIndex: this._currentSubtitleStreamIndex,
                     secondarySubtitleStreamIndex: this._currentSecondarySubtitleStreamIndex,
                     startPositionTicks: currentTicks,
@@ -2044,7 +2044,7 @@ export class JellyfinPlayer extends EventEmitter {
                 };
 
                 this._currentPlayOptions = restartOptions;
-                this._lastPlayOptions    = restartOptions;
+                this._lastPlayOptions = restartOptions;
                 this._audioRestartInProgress = true;
                 this._isRestarting = true;
 
@@ -2147,8 +2147,8 @@ export class JellyfinPlayer extends EventEmitter {
             // Otherwise, fall back from DirectPlay to 'remux' first.
             // -----------------------------------------------------------------
             const isAlreadyRemux = this._playbackMode === 'remux' ||
-                                   this._currentPlayMethod === 'DirectStream' ||
-                                   this._currentPlayMethod === 'Remux';
+                this._currentPlayMethod === 'DirectStream' ||
+                this._currentPlayMethod === 'Remux';
 
             // -----------------------------------------------------------------
             // Never step down the ladder. A transcode exists because the TV
@@ -2748,7 +2748,7 @@ export class JellyfinPlayer extends EventEmitter {
          * The old 'Use Tizen Player' log is omitted here as backendType unifies all platforms.
          */
         log.info('Backend Type:', this._backendType);
-        
+
         // Update server URL/Auth if provided in play options
         if (options.serverUrl) this.serverUrl = options.serverUrl;
         if (options.authToken) this.authToken = options.authToken;
@@ -2766,7 +2766,7 @@ export class JellyfinPlayer extends EventEmitter {
             log.debug(`Requesting PlaybackInfo from ${this.serverUrl}...`);
 
             this._playbackMode = options.playbackMode || 'auto';
-            
+
             // ────────────────────────────────────────────────────────────────
             // Capture Original User Intent
             // ────────────────────────────────────────────────────────────────
@@ -2784,7 +2784,7 @@ export class JellyfinPlayer extends EventEmitter {
             // Determine if we need to force a remux for audio tracks on HTML5
             const isHtml5Backend = !(this._backend instanceof TizenAVPlayer);
             const supportsNativeAudio = this._backend && typeof this._backend.supportsNativeAudioTracks === 'function' && this._backend.supportsNativeAudioTracks();
-            
+
             // Auto-resolve best DirectPlay audio track if not explicitly requested
             if ((options.audioStreamIndex === undefined || options.audioStreamIndex === null) && options.item && options.item.MediaSources) {
                 const fallbackSource = options.item.MediaSources[0];
@@ -2823,12 +2823,12 @@ export class JellyfinPlayer extends EventEmitter {
                         firstAudioIndex = audioStreams[0].Index;
                     }
                 }
-                
+
                 // Compare indices (cast to number to avoid type mismatches)
                 const reqIndex = Number(options.audioStreamIndex);
                 isCustomAudioTrack = (reqIndex !== Number(defaultIndex));
                 isFirstAudioTrack = (firstAudioIndex !== undefined && reqIndex === Number(firstAudioIndex));
-                
+
                 log.info(`[AudioSelection] Requested: ${reqIndex}, Default: ${defaultIndex}, First: ${firstAudioIndex}, Custom: ${isCustomAudioTrack}, IsFirst: ${isFirstAudioTrack}`);
             }
 
@@ -2845,7 +2845,12 @@ export class JellyfinPlayer extends EventEmitter {
 
             // Determine effective playback mode for profiling
             let profilePlaybackMode = this._playbackMode;
-            if (needsDirectStreamForAudio && (profilePlaybackMode === 'auto' || profilePlaybackMode === 'directPlay')) {
+            const forceDirectPlay = PlayerSettings.get('forceDirectPlay');
+            // If direct play is forced for audio specifically or for everything, audio demuxing must not downgrade direct play
+            const isAudioDirectPlayForced = (forceDirectPlay === 'all' || forceDirectPlay === 'audio' || forceDirectPlay === true);
+            // Unless the user explicitly forced Direct Play for audio or all formats in preferences,
+            // audio tracks requiring server demuxing are upgraded to remux mode.
+            if (!isAudioDirectPlayForced && needsDirectStreamForAudio && profilePlaybackMode === 'auto') {
                 log.info('Audio track selection requires remux: Upgrading profile mode to "remux" to ensure video Direct Stream.');
                 profilePlaybackMode = 'remux';
                 this._audioRemuxFrom = this._playbackMode;
@@ -2862,15 +2867,16 @@ export class JellyfinPlayer extends EventEmitter {
             // On an interlaced fallback retry, a pre-built html5 profile is passed in
             // via options._deviceProfile so we don't rebuild with the wrong settings.
             const deviceProfile = options._deviceProfile || buildJellyfinProfile({
-                 manualBitrate: this._manualBitrate, 
-                 playbackMode: profilePlaybackMode,
-                 backend: this._backendType
+                manualBitrate: this._manualBitrate,
+                playbackMode: profilePlaybackMode,
+                backend: this._backendType
             });
             log.info('Built DeviceProfile:', deviceProfile.Name);
 
             // If we still need to force remux but didn't use the 'remux' mode in profile
             // (e.g. user set bitrate limits), still clear DirectPlayProfiles as a safeguard.
-            if (needsDirectStreamForAudio) {
+            // When Force Direct Play (audio or all) is enabled, direct play profiles must remain intact.
+            if (needsDirectStreamForAudio && !isAudioDirectPlayForced) {
                 deviceProfile.DirectPlayProfiles = [];
             }
 
@@ -2895,7 +2901,7 @@ export class JellyfinPlayer extends EventEmitter {
             if (isSuperseded()) return this._abandonSupersededPlay('PlaybackInfo');
             log.debug('PlaybackInfo keys:', Object.keys(playbackInfo));
             if (playbackInfo.MediaSources && playbackInfo.MediaSources.length > 0) {
-                 log.debug('MediaSource[0] keys:', Object.keys(playbackInfo.MediaSources[0]));
+                log.debug('MediaSource[0] keys:', Object.keys(playbackInfo.MediaSources[0]));
             }
 
 
@@ -2943,16 +2949,16 @@ export class JellyfinPlayer extends EventEmitter {
             if (wasForcedRemux && playMethod === 'Transcode') {
                 playMethod = this._resolveForcedRemuxPlayMethod(mediaSource, playMethod);
                 if (playMethod !== 'Transcode') {
-                     // MediaHelper.getPlayMethod() still reads this source as a
-                     // transcode; Playback Info uses getCurrentPlayMethod()
-                     mediaSource.SupportsDirectStream = true;
+                    // MediaHelper.getPlayMethod() still reads this source as a
+                    // transcode; Playback Info uses getCurrentPlayMethod()
+                    mediaSource.SupportsDirectStream = true;
                 }
             }
             if (this._playbackMode === 'transcode') {
                 playMethod = 'Transcode';
                 mediaSource.SupportsDirectStream = false;
                 mediaSource.SupportsDirectPlay = false;
-                
+
                 // Force MediaHelper to evaluate this as a full transcode for UI overlays
                 if (!mediaSource.TranscodingInfo) {
                     mediaSource.TranscodingInfo = {
@@ -2965,7 +2971,7 @@ export class JellyfinPlayer extends EventEmitter {
                     mediaSource.TranscodingInfo.IsVideoDirect = false;
                     mediaSource.TranscodingInfo.IsAudioDirect = false;
                 }
-                
+
                 log.info('[PlaybackMode] Enforcing Transcode label due to strict transcode mode.');
             }
 
@@ -3123,7 +3129,7 @@ export class JellyfinPlayer extends EventEmitter {
             // null media source.
             // ================================================================
             const isAudioItemForChapters = this._currentItem?.MediaType === 'Audio' ||
-                                 this._currentItem?.Type === 'AudioBook';
+                this._currentItem?.Type === 'AudioBook';
 
             let chapters = [];
             if (!isAudioItemForChapters) {
@@ -3183,17 +3189,17 @@ export class JellyfinPlayer extends EventEmitter {
             // This tells it what item/source we're playing and what backend we're using
             const backend = this._backend || this._videoPlayer;
             this._subtitleManager.setMediaContext({
-                itemId:       options.itemId,
+                itemId: options.itemId,
                 mediaSourceId: mediaSource.Id,
-                mediaStreams:  mediaSource.MediaStreams || [],
+                mediaStreams: mediaSource.MediaStreams || [],
                 mediaAttachments: mediaSource.MediaAttachments || [],
                 // Use the resolved _backendType string so SubtitleManager knows
                 // whether it should attempt embedded-native subtitle routing
                 // (Tizen only) or always defer to external text/ASS/PGS paths.
-                backendType:   this._backendType,
-                videoElement:  (backend && backend.getVideoElement) ? backend.getVideoElement() : null,
-                playMethod:    this._currentPlayMethod,
-                isHdr:         this.isCurrentMediaHDR()
+                backendType: this._backendType,
+                videoElement: (backend && backend.getVideoElement) ? backend.getVideoElement() : null,
+                playMethod: this._currentPlayMethod,
+                isHdr: this.isCurrentMediaHDR()
             });
 
             // Initialize current stream indices from options
@@ -3308,14 +3314,14 @@ export class JellyfinPlayer extends EventEmitter {
              * -------------------------------------------------------------------------
              */
             const isAudioItemSetup = options.item?.MediaType === 'Audio' ||
-                                      options.item?.Type === 'AudioBook';
+                options.item?.Type === 'AudioBook';
 
             const awaitTracks = PlayerSettings.get('awaitTracksBeforePlayback');
 
             if (awaitTracks && !isAudioItemSetup && this._currentSubtitleStreamIndex !== undefined && this._currentSubtitleStreamIndex !== -1) {
                 log.info('[Play-Flow] Awaiting subtitle track setup pre-flight...');
                 this._playSetupInProgress = true;
-                
+
                 let preFlightTimeoutId = null;
                 try {
                     /*
@@ -3331,7 +3337,7 @@ export class JellyfinPlayer extends EventEmitter {
                      * -----------------------------------------------------------------
                      */
                     const subtitlePromise = this.setSubtitleStreamIndex(this._currentSubtitleStreamIndex);
-                    
+
                     const timeoutPromise = new Promise((_, reject) => {
                         preFlightTimeoutId = setTimeout(() => {
                             reject(new Error('Pre-flight subtitle loading timed out (15s threshold exceeded)'));
@@ -3746,7 +3752,7 @@ export class JellyfinPlayer extends EventEmitter {
             this._currentPlayOptions = null;
             this._directPlayEscalated = false;
         }
-        
+
         this._isPlaying = false;
         this._isPaused = false;
         this._isSeeking = false;
@@ -3958,8 +3964,8 @@ export class JellyfinPlayer extends EventEmitter {
         // required to request the new track stream index from the server.
         // ────────────────────────────────────────────────────────────────────
         const isTranscoding = this._currentPlayMethod === 'Transcode' ||
-                              this._currentPlayMethod === 'DirectStream' ||
-                              this._currentPlayMethod === 'Remux';
+            this._currentPlayMethod === 'DirectStream' ||
+            this._currentPlayMethod === 'Remux';
         const requiresRestart = isTranscoding || !isTargetCodecSupported || (this._backendType !== 'tizen' && this._backendType !== 'movi' && this._backendType !== 'exoplayer' && !supportsNativeAudio);
 
         log.info(`setAudioStreamIndex: index=${index} playMethod=${this._currentPlayMethod} requiresRestart=${requiresRestart} isTargetCodecSupported=${isTargetCodecSupported}`);
@@ -3968,7 +3974,7 @@ export class JellyfinPlayer extends EventEmitter {
             log.info(`Restarting playback for audio track: ${index} (method: ${this._currentPlayMethod ?? 'DirectPlay/HTML5'})`);
 
             const currentTicks = this.getCurrentPositionTicks();
-            
+
             // ────────────────────────────────────────────────────────────────
             // Determine if the requested audio track requires server remuxing
             // ────────────────────────────────────────────────────────────────
@@ -4028,7 +4034,7 @@ export class JellyfinPlayer extends EventEmitter {
                 : 'auto';
             const restartPlaybackMode = baseMode === 'transcode' ? 'transcode'
                 : (!isTargetCodecSupported || needsDirectStreamForAudio) ? 'auto'
-                : baseMode;
+                    : baseMode;
 
             const restartOptions = {
                 ...this._currentPlayOptions,
@@ -4158,7 +4164,7 @@ export class JellyfinPlayer extends EventEmitter {
         // =====================================================================
         const burnIn = PlayerSettings.get('subtitleBurnIn');
         const isTranscodingSession = this._currentPlayMethod === 'Transcode' ||
-                                     this._currentPlayMethod === 'DirectStream';
+            this._currentPlayMethod === 'DirectStream';
 
         // In 'allcomplex' / 'auto' mode:
         //
@@ -4177,14 +4183,14 @@ export class JellyfinPlayer extends EventEmitter {
             const track = this.getSubtitleTracks().find(t => t.Index === index);
             const codec = (track?.Codec || '').toLowerCase();
             return codec === 'pgs' || codec === 'pgssub' ||
-                   codec === 'vobsub' || codec === 'dvdsub' || codec === 'dvd_subtitle' ||
-                   codec === 'ass' || codec === 'ssa';
+                codec === 'vobsub' || codec === 'dvdsub' || codec === 'dvd_subtitle' ||
+                codec === 'ass' || codec === 'ssa';
         })();
 
         // Complex in allcomplex: always restart (even from direct play)
         // Simple text in allcomplex + transcoding: restart (subtitle locked in stream URL)
         const isComplexBurnIn = (_isAllComplex && isComplexCodec) ||
-                               (_isAllComplex && isTranscodingSession);
+            (_isAllComplex && isTranscodingSession);
 
         const needsBurnInRestart = burnIn === 'all' || isComplexBurnIn;
 
@@ -4250,7 +4256,7 @@ export class JellyfinPlayer extends EventEmitter {
         // new SubtitleStreamIndex so the server re-encodes / remuxes the correct track.
         if (delivery === DeliveryMethod.EMBEDDED_NATIVE) {
             const isTranscoding = this._currentPlayMethod === 'Transcode' ||
-                                  this._currentPlayMethod === 'DirectStream';
+                this._currentPlayMethod === 'DirectStream';
 
             if (isTranscoding && this._currentPlayOptions && !this._burnInRestartInProgress && !this._playSetupInProgress) {
                 // Same restart pattern as burn-in — we reuse the burn-in guard flag
@@ -4373,8 +4379,8 @@ export class JellyfinPlayer extends EventEmitter {
 
         const currentSource = this._currentMediaSource || this._currentItem?.MediaSources?.[0];
         const baseSource = baseItem?.MediaSources?.find((ms) => ms.Id === currentSource?.Id) ||
-                           baseItem?.MediaSources?.[0] ||
-                           currentSource;
+            baseItem?.MediaSources?.[0] ||
+            currentSource;
         const baselineStreams = baseSource?.MediaStreams || baseItem?.MediaStreams || currentSource?.MediaStreams || [];
 
         // Snapshot existing audio track identity
@@ -4427,7 +4433,7 @@ export class JellyfinPlayer extends EventEmitter {
             try {
                 freshItem = await api.getItem(itemId, { Fields: 'MediaStreams,MediaSources' });
                 freshSource = freshItem?.MediaSources?.find((ms) => ms.Id === currentSource?.Id) ||
-                              freshItem?.MediaSources?.[0];
+                    freshItem?.MediaSources?.[0];
                 freshStreams = freshSource?.MediaStreams || freshItem?.MediaStreams || [];
 
                 // Look for subtitle streams not present in the pre-download baseline
@@ -4512,7 +4518,7 @@ export class JellyfinPlayer extends EventEmitter {
                 // Audio track shifted! Find the matching stream in fresh inventory
                 const matchedAudio = candidateAudios.find(
                     (s) => (s.Language || 'und').toLowerCase() === audioSnapshot.language &&
-                           (s.Codec || '').toLowerCase() === audioSnapshot.codec
+                        (s.Codec || '').toLowerCase() === audioSnapshot.codec
                 ) || candidateAudios.find(
                     (s) => (s.Language || 'und').toLowerCase() === audioSnapshot.language
                 );
@@ -4530,7 +4536,7 @@ export class JellyfinPlayer extends EventEmitter {
         // ====================================================================
         if (newSubtitleTrack) {
             log.info(`[Subtitle Downloader] Applying new subtitle track: index=${newSubtitleTrack.Index}`);
-            
+
             // Invalidate prewarm cache so next plays fetch fresh metadata
             prewarmManager.invalidateCache();
 
@@ -4605,7 +4611,7 @@ export class JellyfinPlayer extends EventEmitter {
 
         const currentSource = this._currentMediaSource || this._currentItem?.MediaSources?.[0];
         const freshSource = freshItem?.MediaSources?.find((ms) => ms.Id === currentSource?.Id) ||
-                            freshItem?.MediaSources?.[0];
+            freshItem?.MediaSources?.[0];
         const freshStreams = freshSource?.MediaStreams || freshItem?.MediaStreams || [];
 
         // ====================================================================
@@ -4791,16 +4797,6 @@ export class JellyfinPlayer extends EventEmitter {
     }
 
     /**
-     * Direct property getter for the active backend type.
-     *
-     * @returns {'movi'|'html5'|'tizen'|'webos'|'exoplayer'} Active backend identifier
-     */
-    get backendType() {
-        // Expose underlying backend type property
-        return this._backendType || 'html5';
-    }
-
-    /**
      * Evaluates whether a specific playback speed rate is natively supported
      * by the active player backend without hardware down-snapping, buffer stalls,
      * or audio pipeline exceptions.
@@ -4858,7 +4854,7 @@ export class JellyfinPlayer extends EventEmitter {
 
     getCurrentChapterIndex(timeTicks) {
         if (!this._chapters || this._chapters.length === 0) return -1;
-        
+
         const currentTicks = timeTicks !== undefined ? timeTicks : this.getCurrentPositionTicks();
         // log.debug('Chapter Debug: Current Ticks', currentTicks);
 
@@ -4882,19 +4878,19 @@ export class JellyfinPlayer extends EventEmitter {
         // we look ahead by 3s (slightly more than the 2.5s hack) to see "where we effectively are".
         let lookAhead = 0;
         if (this._backendType === 'tizen') {
-             lookAhead = 30000000; // 3 seconds in ticks
+            lookAhead = 30000000; // 3 seconds in ticks
         }
-        
+
         const index = this.getCurrentChapterIndex(this.getCurrentPositionTicks() + lookAhead);
         log.debug('Chapter Debug (Next): Current Index', index, 'Total', this._chapters ? this._chapters.length : 0);
 
         if (index === -1) {
-             if (this._chapters && this._chapters.length > 0) {
-                 this._lastChapterSeekTime = Date.now();
-                 this.seek(this._chapters[0].StartPositionTicks);
-                 return;
-             }
-             return;
+            if (this._chapters && this._chapters.length > 0) {
+                this._lastChapterSeekTime = Date.now();
+                this.seek(this._chapters[0].StartPositionTicks);
+                return;
+            }
+            return;
         }
 
         if (index >= this._chapters.length - 1) {
@@ -4923,7 +4919,7 @@ export class JellyfinPlayer extends EventEmitter {
         // the current chapter and getting stuck in a loop, we look ahead by 3s (matching nextChapter).
         let lookAhead = 0;
         if (this._backendType === 'tizen') {
-             lookAhead = 30000000; // 3 seconds in ticks
+            lookAhead = 30000000; // 3 seconds in ticks
         }
 
         const index = this.getCurrentChapterIndex(this.getCurrentPositionTicks() + lookAhead);
@@ -4934,7 +4930,7 @@ export class JellyfinPlayer extends EventEmitter {
         const currentTicks = this.getCurrentPositionTicks();
         const currentChapter = this._chapters[index];
         const chapterStart = currentChapter.StartPositionTicks || 0;
-        
+
         const diff = currentTicks - chapterStart;
         log.debug('Chapter Debug: Diff from start', diff);
 
@@ -4957,9 +4953,9 @@ export class JellyfinPlayer extends EventEmitter {
             this._lastChapterSeekTime = now;
             this.seek(prevChapter.StartPositionTicks);
         } else {
-             // First chapter, just seek to start
-             this._lastChapterSeekTime = now;
-             this.seek(0);
+            // First chapter, just seek to start
+            this._lastChapterSeekTime = now;
+            this.seek(0);
         }
     }
 
@@ -5158,7 +5154,7 @@ export class JellyfinPlayer extends EventEmitter {
 
         const backendTime = this._backend?.getCurrentTime ? this._backend.getCurrentTime() : 0;
         const backendTicks = Math.round(backendTime * 10000000);
-        
+
         // If playback hasn't fully started yet (time is 0), but we requested a specific
         // start position, return it so the UI (OSD) shows the correct time immediately
         // instead of flashing 00:00.
@@ -5240,7 +5236,7 @@ export class JellyfinPlayer extends EventEmitter {
             const hlsDur = this._backend.getHlsManifestDuration();
             if (hlsDur !== null) {
                 log.debug(`[Duration] Using HLS manifest duration: ${hlsDur.toFixed(1)}s`);
-                
+
                 const ticks = Math.floor(hlsDur * 10000000);
                 // Cache it on the MediaSource so subsequent calls skip this lookup
                 if (this._currentMediaSource) {
@@ -5481,7 +5477,7 @@ export class JellyfinPlayer extends EventEmitter {
                         log.info(
                             '[Prewarm] Prewarmed PlaybackInfo cached DirectPlay, but active track requires Remux. Discarding in favor of fresh direct-stream request.'
                         );
-                    } else if ( remuxMkvToMp4Setting && isPrewarmedMkv && this._playbackMode === 'transcode' && (firstSource.SupportsDirectPlay || firstSource.SupportsDirectStream)) {
+                    } else if (remuxMkvToMp4Setting && isPrewarmedMkv && this._playbackMode === 'transcode' && (firstSource.SupportsDirectPlay || firstSource.SupportsDirectStream)) {
                         log.info(
                             '[Prewarm] Prewarmed PlaybackInfo cached DirectPlay/DirectStream, but active mode requires Transcode. Discarding in favor of fresh transcode request.'
                         );
@@ -5509,12 +5505,12 @@ export class JellyfinPlayer extends EventEmitter {
          * for Video items where subtitle selection makes sense.
          */
         const isAudioItem = (options.item?.MediaType === 'Audio') ||
-                            (options.item?.Type === 'Audio') ||
-                            (options.item?.Type === 'MusicAlbum') ||
-                            (options.item?.Type === 'MusicArtist') ||
-                            (options.item?.Type === 'Artist') ||
-                            (options.item?.Type === 'AudioBook') ||
-                            (options.item?.Type === 'PodcastEpisode');
+            (options.item?.Type === 'Audio') ||
+            (options.item?.Type === 'MusicAlbum') ||
+            (options.item?.Type === 'MusicArtist') ||
+            (options.item?.Type === 'Artist') ||
+            (options.item?.Type === 'AudioBook') ||
+            (options.item?.Type === 'PodcastEpisode');
 
         // Deep clone the device profile so we can mutilate it to trick the server without affecting future calls
         const clonedProfile = JSON.parse(JSON.stringify(deviceProfile || buildJellyfinProfile(maxBitrate)));
@@ -5532,53 +5528,7 @@ export class JellyfinPlayer extends EventEmitter {
         };
 
         // ---------------------------------------------------------------------
-        // 1. Audio Track Capability & Passthrough Override Evaluation
-        // ---------------------------------------------------------------------
-        // Locate candidate audio streams to check for TrueHD or DTS.
-        // TV internal speakers cannot decode TrueHD or DTS without an external
-        // sound system (AVR / soundbar via eARC). Even when Force Direct Play is
-        // enabled, unless the user explicitly turned on the TrueHD or DTS override in
-        // player settings, the server must transcode the audio track (DirectStream/Remux)
-        // rather than failing silently or causing hardware decoder faults.
-        // ---------------------------------------------------------------------
-        const activeSource = options.mediaSource ||
-            (options.item?.MediaSources
-                ? options.item.MediaSources.find(m => m.Id === options.mediaSourceId) || options.item.MediaSources[0]
-                : null);
-        const candidateAudioStreams = (activeSource?.MediaStreams || []).filter(s => s.Type === 'Audio');
-
-        const reqAudioIndex = options.audioStreamIndex !== undefined && options.audioStreamIndex !== null
-            ? Number(options.audioStreamIndex)
-            : undefined;
-        const targetAudioStream = reqAudioIndex !== undefined
-            ? candidateAudioStreams.find(s => s.Index === reqAudioIndex)
-            : (candidateAudioStreams.find(s => s.IsDefault) || candidateAudioStreams[0]);
-        const physicalDefaultStream = candidateAudioStreams.find(s => s.IsDefault) || candidateAudioStreams[0];
-
-        // Query whether explicit TrueHD or DTS passthrough overrides are enabled
-        const hasTrueHdOverride = isTrueHdSupported();
-        const hasDtsOverride = isDtsSupported();
-
-        const targetCodec = (targetAudioStream?.Codec || '').toLowerCase();
-        const defaultCodec = (physicalDefaultStream?.Codec || '').toLowerCase();
-
-        const isTargetTrueHd = targetCodec === 'truehd' || targetCodec === 'mlp';
-        const isTargetDts = targetCodec.includes('dts') || targetCodec === 'dca';
-        const isDefaultTrueHd = defaultCodec === 'truehd' || defaultCodec === 'mlp';
-        const isDefaultDts = defaultCodec.includes('dts') || defaultCodec === 'dca';
-
-        // Track requires audio transcoding if TrueHD is present without TrueHD override,
-        // or if DTS is present without DTS override, or if not natively playable.
-        const audioRequiresTranscode =
-            (isTargetTrueHd && !hasTrueHdOverride) ||
-            (isTargetDts && !hasDtsOverride) ||
-            (isDefaultTrueHd && !hasTrueHdOverride) ||
-            (isDefaultDts && !hasDtsOverride) ||
-            (activeSource && options.audioStreamIndex !== undefined && options.audioStreamIndex !== null &&
-                doesAudioTrackRequireDirectStream(activeSource, options.audioStreamIndex, this._backendType));
-
-        // ---------------------------------------------------------------------
-        // 2. Playback Mode Priority: In-Player Selection vs Settings Defaults
+        // Playback Mode Priority: In-Player Selection vs Settings Defaults
         // ---------------------------------------------------------------------
         // User selections made inside the active player session (via the OSD
         // Playback Mode menu or Quality menu manual bitrate cap) MUST take
@@ -5600,10 +5550,6 @@ export class JellyfinPlayer extends EventEmitter {
             // Manual bitrate cap requires transcoding
             currentMode = 'transcode';
             log.info(`[PlaybackMode] Manual bitrate limit active (${manualBitrate} bps): using transcode mode`);
-        } else if (audioRequiresTranscode) {
-            // TrueHD / DTS present without sound system override, or track requires remux
-            currentMode = 'remux';
-            log.info('[PlaybackMode] Audio track (TrueHD/DTS) lacks hardware override: upgrading to remux to transcode audio');
         } else {
             // Default policy from global user settings
             const forceTranscodeSetting = PlayerSettings.get('forceTranscode');
@@ -5611,59 +5557,33 @@ export class JellyfinPlayer extends EventEmitter {
 
             if (forceTranscodeSetting) {
                 currentMode = 'transcode';
-            } else if (forceDirectPlaySetting) {
+            } else if (forceDirectPlaySetting === 'all' || forceDirectPlaySetting === true) {
                 currentMode = 'directPlay';
+            } else if (forceDirectPlaySetting === 'video') {
+                currentMode = 'forceDirectPlayVideo';
+            } else if (forceDirectPlaySetting === 'audio') {
+                currentMode = 'forceDirectPlayAudio';
             }
         }
 
         switch (currentMode) {
             case 'directPlay':
-                // Check if audio overrides permit TrueHD and DTS in DirectPlayProfiles
-                const allowTrueHdDirect = isTrueHdSupported();
-                const allowDtsDirect = isDtsSupported();
-
-                // If audio requires transcoding (TrueHD or DTS without override),
-                // fall back to remux mode to stream-copy video and transcode audio.
-                if (audioRequiresTranscode) {
-                    log.info('[PlaybackMode] DirectPlay requested but audio codec lacks override: falling back to Remux');
-                    requestBody.EnableDirectPlay = false;
-                    requestBody.EnableDirectStream = true;
-                    requestBody.EnableTranscoding = true;
-                    requestBody.AllowVideoStreamCopy = true;
-                    requestBody.AllowAudioStreamCopy = true;
-                    requestBody.DeviceProfile.CodecProfiles = [];
-                    requestBody.DeviceProfile.ContainerProfiles = [];
-                    requestBody.DeviceProfile.DirectPlayProfiles = [];
-                    break;
-                }
-
-                // Build filtered audio codec string omitting TrueHD and DTS unless their overrides are active
-                const directPlayAudioList = [
-                    'aac', 'mp3', 'mpa', 'wav', 'wma', 'wv', 'flac', 'ogg', 'oga', 'vorbis', 'ac3', 'eac3', 'opus', 'alac'
-                ];
-                if (allowDtsDirect) {
-                    directPlayAudioList.push('dts', 'dtshd');
-                }
-                if (allowTrueHdDirect) {
-                    directPlayAudioList.push('truehd');
-                }
-                const directPlayAudioString = directPlayAudioList.join(',');
-
+                // Enforce strict Direct Play: direct play all audio and video formats natively
                 requestBody.EnableDirectPlay = true;
-                requestBody.EnableDirectStream = true;
+                requestBody.EnableDirectStream = false;
                 requestBody.EnableTranscoding = false;
-                requestBody.AllowVideoStreamCopy = true;
-                requestBody.AllowAudioStreamCopy = true;
-                
-                // Construct DirectPlay profiles with strict audio codec guards
+                requestBody.AllowVideoStreamCopy = false;
+                requestBody.AllowAudioStreamCopy = false;
+
+                // Nuclear option: declare support for all formats so server streams raw file
                 requestBody.DeviceProfile.DirectPlayProfiles = [{
                     Container: 'm4v,3gp,ts,mpegts,mov,xvid,vob,mkv,wmv,asf,ogm,ogv,m2v,avi,mpg,mpeg,mp4,webm,wtv,dvr-ms,m2ts,rmvb,mxf',
-                    AudioCodec: directPlayAudioString,
+                    AudioCodec: 'aac,mp3,mpa,wav,wma,wv,flac,ogg,oga,vorbis,ac3,eac3,dts,dtshd,opus,truehd,alac',
                     VideoCodec: 'h264,h265,hevc,vp8,vp9,mpeg1video,mpeg2video,mpeg4,wmv2,wmv3,vcl,theora,vc1,mpeg,h263,msmpeg4,av1',
                     Type: 'Video'
                 }, {
-                    Container: 'aac,mp3,mpa,wav,wma,wv,flac,ogg,oga,vorbis,ac3,eac3,opus,alac' + (allowDtsDirect ? ',dts,dtshd' : '') + (allowTrueHdDirect ? ',truehd' : ''),
-                    AudioCodec: directPlayAudioString,
+                    Container: 'aac,mp3,mpa,wav,wma,wv,flac,ogg,oga,vorbis,ac3,eac3,dts,dtshd,opus,truehd,alac',
+                    AudioCodec: 'aac,mp3,mpa,wav,wma,wv,flac,ogg,oga,vorbis,ac3,eac3,dts,dtshd,opus,truehd,alac',
                     Type: 'Audio'
                 }];
                 // Clear any transcoding profiles and ALL codec limits to prevent false transcode
@@ -5671,9 +5591,94 @@ export class JellyfinPlayer extends EventEmitter {
                 requestBody.DeviceProfile.DirectStreamProfiles = [];
                 requestBody.DeviceProfile.CodecProfiles = [];
                 requestBody.DeviceProfile.ContainerProfiles = [];
-                
-                log.info('PlaybackInfo API Override: Enforcing Direct Play with codec override guards');
+
+                log.info('PlaybackInfo API Override: Enforcing STRICT Direct Play (Safeguarded DeviceProfile)');
                 break;
+            case 'forceDirectPlayVideo': {
+                // Enforce Direct Play for video codecs only:
+                // Video is always stream-copied or direct-played without server re-encoding.
+                // EnableTranscoding and EnableDirectStream remain enabled so that
+                // if the audio track is unsupported, the server remuxes/transcodes audio only.
+                requestBody.EnableDirectPlay = true;
+                requestBody.EnableDirectStream = true;
+                requestBody.EnableTranscoding = true;
+                requestBody.AllowVideoStreamCopy = true;
+                requestBody.AllowAudioStreamCopy = true;
+
+                // Expand video codecs and containers in DirectPlayProfiles to include all common video formats
+                const allVideoContainers = 'm4v,3gp,ts,mpegts,mov,xvid,vob,mkv,wmv,asf,ogm,ogv,m2v,avi,mpg,mpeg,mp4,webm,wtv,dvr-ms,m2ts,rmvb,mxf';
+                const allVideoCodecs = 'h264,h265,hevc,vp8,vp9,mpeg1video,mpeg2video,mpeg4,wmv2,wmv3,vcl,theora,vc1,mpeg,h263,msmpeg4,av1';
+
+                if (Array.isArray(requestBody.DeviceProfile.DirectPlayProfiles)) {
+                    // Extract existing supported audio codecs from the profile
+                    const supportedAudioCodecs = requestBody.DeviceProfile.DirectPlayProfiles
+                        .filter(p => p.Type === 'Video' && p.AudioCodec)
+                        .map(p => p.AudioCodec)
+                        .join(',');
+                    const audioCodecsList = supportedAudioCodecs || 'aac,mp3,ac3,eac3,flac,vorbis,opus';
+
+                    requestBody.DeviceProfile.DirectPlayProfiles = [{
+                        Container: allVideoContainers,
+                        AudioCodec: audioCodecsList,
+                        VideoCodec: allVideoCodecs,
+                        Type: 'Video'
+                    }, {
+                        Container: 'aac,mp3,mpa,wav,wma,wv,flac,ogg,oga,vorbis,ac3,eac3,dts,dtshd,opus,truehd,alac',
+                        AudioCodec: 'aac,mp3,mpa,wav,wma,wv,flac,ogg,oga,vorbis,ac3,eac3,dts,dtshd,opus,truehd,alac',
+                        Type: 'Audio'
+                    }];
+                }
+
+                // Strip video codec restrictions from CodecProfiles so video is always stream-copied
+                if (Array.isArray(requestBody.DeviceProfile.CodecProfiles)) {
+                    requestBody.DeviceProfile.CodecProfiles = requestBody.DeviceProfile.CodecProfiles.filter(p => p.Type !== 'Video' && p.Type !== 'VideoAudio');
+                }
+
+                log.info('PlaybackInfo API Override: Enforcing Video Direct Play Only (Audio transcode allowed)');
+                break;
+            }
+            case 'forceDirectPlayAudio': {
+                // Enforce Direct Play for audio codecs only:
+                // Audio is always stream-copied or direct-played without server re-encoding.
+                // EnableTranscoding and EnableDirectStream remain enabled so that
+                // if the video track is unsupported, the server transcodes video only.
+                requestBody.EnableDirectPlay = true;
+                requestBody.EnableDirectStream = true;
+                requestBody.EnableTranscoding = true;
+                requestBody.AllowVideoStreamCopy = true;
+                requestBody.AllowAudioStreamCopy = true;
+
+                const allAudioCodecs = 'aac,mp3,mpa,wav,wma,wv,flac,ogg,oga,vorbis,ac3,eac3,dts,dtshd,opus,truehd,alac';
+                const allContainersList = 'm4v,3gp,ts,mpegts,mov,xvid,vob,mkv,wmv,asf,ogm,ogv,m2v,avi,mpg,mpeg,mp4,webm,wtv,dvr-ms,m2ts,rmvb,mxf';
+
+                if (Array.isArray(requestBody.DeviceProfile.DirectPlayProfiles)) {
+                    // Extract existing supported video codecs from the profile
+                    const supportedVideoCodecs = requestBody.DeviceProfile.DirectPlayProfiles
+                        .filter(p => p.Type === 'Video' && p.VideoCodec)
+                        .map(p => p.VideoCodec)
+                        .join(',');
+                    const videoCodecsList = supportedVideoCodecs || 'h264,hevc,vp9,av1';
+
+                    requestBody.DeviceProfile.DirectPlayProfiles = [{
+                        Container: allContainersList,
+                        AudioCodec: allAudioCodecs,
+                        VideoCodec: videoCodecsList,
+                        Type: 'Video'
+                    }, {
+                        Container: allAudioCodecs,
+                        AudioCodec: allAudioCodecs,
+                        Type: 'Audio'
+                    }];
+                }
+
+                // Strip audio codec restrictions from CodecProfiles so audio is always stream-copied
+                if (Array.isArray(requestBody.DeviceProfile.CodecProfiles)) {
+                    requestBody.DeviceProfile.CodecProfiles = requestBody.DeviceProfile.CodecProfiles.filter(p => p.Type !== 'Audio');
+                }
+
+                log.info('PlaybackInfo API Override: Enforcing Audio Direct Play Only (Video transcode allowed)');
+                break;
+            }
             case 'remux':
                 requestBody.EnableDirectPlay = false;
                 requestBody.EnableDirectStream = true;
@@ -5681,7 +5686,7 @@ export class JellyfinPlayer extends EventEmitter {
                 requestBody.EnableTranscoding = true;
                 requestBody.AllowVideoStreamCopy = true;
                 requestBody.AllowAudioStreamCopy = true;
-                
+
                 // Clear ALL codec limits to prevent "VideoBitDepthNotSupported" etc which block generic remux
                 requestBody.DeviceProfile.CodecProfiles = [];
                 requestBody.DeviceProfile.ContainerProfiles = [];
@@ -5836,7 +5841,7 @@ export class JellyfinPlayer extends EventEmitter {
                         let errorText = '';
                         try {
                             errorText = await response.text();
-                        } catch (e) {}
+                        } catch (e) { }
                         return { response, errorText };
                     }
                     return { response, body: await response.json() };
@@ -5870,9 +5875,9 @@ export class JellyfinPlayer extends EventEmitter {
      */
     async setMaxBitrate(bitrate) {
         if (!this._currentItem) return;
-        
+
         log.info('Setting manual bitrate:', bitrate);
-        
+
         // Update state (0 means null/Auto)
         this._manualBitrate = bitrate > 0 ? bitrate : null;
 
@@ -5892,14 +5897,14 @@ export class JellyfinPlayer extends EventEmitter {
 
         // Restart playback
         this._isRestarting = true;
-        
+
         try {
             // Trigger loading state immediately
             this.emit(PlayerEvent.RESTARTING);
 
             await this.stop();
             // _manualBitrate is preserved because _isRestarting was true
-            
+
             // Tizen: Give AVPlay time to cleanup
             await this._playAfterRestartPause(playOptions, 500);
 
@@ -5951,17 +5956,17 @@ export class JellyfinPlayer extends EventEmitter {
 
         // A mode picked here is the user's, even the remux the item already uses
         this._audioRemuxFrom = null;
-        
+
         if (this._playbackMode === mode) return;
 
         this._playbackMode = mode;
         log.info(`Playback mode set to: ${mode}`);
-        
+
         // Re-initialize playback if active
         // Check for specific backend states that imply activity
         if (this._isPlaying || this._isPaused || this._state === 'buffering') {
             log.info('Restarting playback to apply new mode');
-            
+
             if (this._lastPlayOptions) {
                 const currentTicks = this.getCurrentPositionTicks();
                 const newOptions = {
@@ -5972,10 +5977,10 @@ export class JellyfinPlayer extends EventEmitter {
                     startPositionTicks: currentTicks,
                     playbackMode: mode
                 };
-                
+
                 // Reuse restart logic pattern from setMaxBitrate
                 this._isRestarting = true;
-                
+
                 try {
                     this.emit(PlayerEvent.RESTARTING);
                     await this.stop();
@@ -5992,27 +5997,27 @@ export class JellyfinPlayer extends EventEmitter {
                     // checking play():
                     // it does NOT seem to reset _isRestarting explicitly.
                     // Wait, stop() checks _isRestarting.
-                    
+
                     // Actually, looking at setMaxBitrate, it sets `this._isRestarting = true;`.
                     // Then calls `stop()`. `stop()` sees true, so it doesn't emit STOP events.
                     // Then `play()` is called. `play()` calls `stop()` again (first thing).
                     // `stop()` sees true again.
                     // Then `play()` proceeds.
-                    
+
                     // The issue is: when does `_isRestarting` go back to false?
                     // `setMaxBitrate` does NOT set it back to false in try block!
                     // This looks like a bug in `setMaxBitrate` potentially, or I missed where it is reset.
                     // I should check `_resetState` or `play`.
-                    
+
                     // If `_isRestarting` stays true, subsequent stops won't emit events?
                     // Let's check `_resetState`.
                 } catch (e) {
                     log.error('Failed to restart after mode change:', e);
                     this._isRestarting = false;
                 }
-                
+
                 // We should probably reset it here if success?
-                this._isRestarting = false; 
+                this._isRestarting = false;
             }
         }
     }

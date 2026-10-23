@@ -4825,11 +4825,16 @@ class SettingsPage extends Page {
                         <span class="setting-description" data-i18n="ForceDirectPlayDescription">${i18n.t('ForceDirectPlayDescription') || 'Forces direct play for all media formats. May cause playback failure if the device does not support the format natively.'}</span>
                     </div>
                     <div class="setting-control">
-                        <button class="toggle-switch ${PlayerSettings.get('forceDirectPlay') ? 'active' : ''}" 
-                                id="toggle-force-direct-play" 
-                                data-setting="forceDirectPlay"
-                                tabindex="0">
-                        </button>
+                        ${this._renderDropdown(
+                'force-direct-play-select',
+                [
+                    { value: 'off', label: i18n.t('ForceDirectPlayDisabled') || 'Disabled' },
+                    { value: 'video', label: i18n.t('ForceDirectPlayVideoOnly') || 'Force Direct Play Video Codecs Only' },
+                    { value: 'audio', label: i18n.t('ForceDirectPlayAudioOnly') || 'Force Direct Play Audio Codecs Only' },
+                    { value: 'all', label: i18n.t('ForceDirectPlayAll') || 'Force Direct Play Everything' }
+                ],
+                PlayerSettings.get('forceDirectPlay') || 'off'
+            )}
                     </div>
                 </div>
 
@@ -10276,7 +10281,6 @@ class SettingsPage extends Page {
             // Always remux MKV containers to MP4 — strips MKV from DirectPlayProfiles
             // so the server falls back to lossless DirectStream into MP4
             'toggle-remux-mkv-to-mp4',
-            'toggle-force-direct-play',
             // Auto-fallback to transcoding if DirectPlay / Remux fails
             'toggle-auto-transcode-on-error',
             'toggle-background-service',
@@ -12295,6 +12299,7 @@ class SettingsPage extends Page {
             'vp9-force-select': { type: 'player', key: 'enableVP9' },
             'dts-force-select': { type: 'player', key: 'enableDts' },
             'truehd-force-select': { type: 'player', key: 'enableTrueHd' },
+            'force-direct-play-select': { type: 'player', key: 'forceDirectPlay' },
             /* Transcode target codec — used by all three device profiles (Tizen, WebOS, Web) */
             'transcode-audio-codec-select': { type: 'player', key: 'transcodeAudioCodec' },
             /* Maximum audio channels — used by all three device profiles (Tizen, WebOS, Web) */
@@ -12866,7 +12871,9 @@ class SettingsPage extends Page {
                                 /* MP2 force-state is baked into the cached caps object — must re-probe */
                                 settingConfig.key === 'enableMp2' ||
                                 /* Changing the target transcode codec requires a fresh profile build */
-                                settingConfig.key === 'transcodeAudioCodec'
+                                settingConfig.key === 'transcodeAudioCodec' ||
+                                /* Force Direct Play setting alters playback profile capabilities */
+                                settingConfig.key === 'forceDirectPlay'
                             ) {
                                 clearCapabilitiesCache();
                             }

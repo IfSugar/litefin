@@ -496,8 +496,12 @@ const DEFAULTS = {
     // Force all content to transcode (emergency/debug fallback)
     forceTranscode: false,
 
-    // Force all content to direct play (override for testing native decoding)
-    forceDirectPlay: false,
+    // Force direct play behavior mode:
+    // 'off'   - Standard automatic server profiling and playback
+    // 'video' - Force direct play video codecs only (audio transcode allowed)
+    // 'audio' - Force direct play audio codecs only (video transcode allowed)
+    // 'all'   - Force direct play everything (strict direct play, no transcoding)
+    forceDirectPlay: 'off',
 
     // -------------------------------------------------------------------------
     // DIRECTPLAY / REMUX FAILURE AUTO-TRANSCODE ESCALATION
@@ -949,6 +953,31 @@ export const PlayerSettings = {
         }
 
         // =====================================================================
+        // FORCE DIRECT PLAY GRANULAR SELECTION & BACKWARD COMPATIBILITY
+        // =====================================================================
+        // Retain existing user preference values without altering saved state.
+        // Legacy boolean 'true' values automatically resolve to 'all' so users
+        // who previously had the feature enabled continue to force direct play
+        // for all codecs and containers seamlessly.
+        // =====================================================================
+        if (key === 'forceDirectPlay') {
+            // Check for previous boolean true or current 'all' configuration
+            if (stored === 'true' || stored === true || stored === 'all') {
+                return 'all';
+            }
+            // Check for explicit video-only force direct play
+            if (stored === 'video') {
+                return 'video';
+            }
+            // Check for explicit audio-only force direct play
+            if (stored === 'audio') {
+                return 'audio';
+            }
+            // Default inactive state
+            return 'off';
+        }
+
+        // =====================================================================
         // ASS RENDERER HARDWARE CAPABILITY FALLBACK
         // =====================================================================
         // If libass-wasm was previously stored or selected, but the current
@@ -1010,11 +1039,29 @@ export const PlayerSettings = {
             return;
         }
 
-        storage.setItem(STORAGE_PREFIX + key, String(value));
-        log.debug(`Saved ${key}: ${value}`);
+        // Normalize forceDirectPlay values to ensure consistent storage strings
+        let normalizedValue = value;
+        if (key === 'forceDirectPlay') {
+            // Map legacy boolean true or explicit 'all' to canonical 'all'
+            if (value === true || value === 'true' || value === 'all') {
+                normalizedValue = 'all';
+            } else if (value === 'video') {
+                // Video codecs direct play only
+                normalizedValue = 'video';
+            } else if (value === 'audio') {
+                // Audio codecs direct play only
+                normalizedValue = 'audio';
+            } else {
+                // Disabled / Off
+                normalizedValue = 'off';
+            }
+        }
+
+        storage.setItem(STORAGE_PREFIX + key, String(normalizedValue));
+        log.debug(`Saved ${key}: ${normalizedValue}`);
 
         // Notify subscribers that a setting has changed
-        eventBus.emit(`pref:${key}`, value);
+        eventBus.emit(`pref:${key}`, normalizedValue);
     },
 
     /**
