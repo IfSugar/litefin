@@ -704,10 +704,13 @@ export const MediaHelper = {
      *
      * Polls every 500 ms for at most 15 s of wall-clock time; each request
      * times out after 5 s, so a stalled server cannot stretch the budget.
+     * A client error (4xx: unknown item or play session, no access) does not
+     * go away by asking again: polling stops at once and the load reports it.
+     * Server errors (5xx) and network failures are retried within the budget.
      *
      * @param {string} url - HLS playlist URL
      * @param {Function} [shouldAbort] - Optional callback; return true to stop polling
-     * @returns {Promise<void>} Resolves when manifest is ready or timeout reached
+     * @returns {Promise<void>} Resolves when manifest is ready, on a client error or when the budget runs out
      */
     async pollHlsManifest(url, shouldAbort) {
         if (!url || !url.includes('.m3u8')) return;
@@ -725,11 +728,17 @@ export const MediaHelper = {
 
             try {
                 const requestTimeout = Math.max(1, Math.min(MANIFEST_REQUEST_TIMEOUT_MS, deadline - Date.now()));
-                const text = await MediaHelper.fetchWithTimeout(url, { method: 'GET' }, requestTimeout, (response) =>
-                    response.ok ? response.text() : ''
+                const answer = await MediaHelper.fetchWithTimeout(url, { method: 'GET' }, requestTimeout, (response) =>
+                    response.ok ? response.text().then((text) => ({ text })) : { status: response.status }
                 );
-                if (text && text.includes('#EXTM3U')) {
+                if (answer.text && answer.text.includes('#EXTM3U')) {
                     log.info(`HLS manifest ready after ${Date.now() - startedAt}ms`);
+                    return;
+                }
+                // 408 and 429 ask the client to try again later
+                const status = answer.status;
+                if (status >= 400 && status < 500 && status !== 408 && status !== 429) {
+                    log.warn(`HLS manifest request failed with HTTP ${status} — not polling further`);
                     return;
                 }
             } catch (e) {
