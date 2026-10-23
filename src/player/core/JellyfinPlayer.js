@@ -1431,6 +1431,9 @@ export class JellyfinPlayer extends EventEmitter {
         // device profiles send for every item.
         this._manualBitrate = null;
         this._isRestarting = false; // Flag to suppress stop events during manual quality change
+        // Play options of the restart flow that owns _isRestarting and its guard flags; a
+        // stop() or a newer restart takes the restart over (see _playAfterRestartPause())
+        this._restartOwner = null;
         this._playRequestId = 0; // Advanced by play(), stop() and destroy(); see play()
         this._lastReportedPlayError = null; // Last error play() emitted (restart flows skip re-reporting it)
         this._playbackMode = 'auto'; // Current playback mode ('auto', 'directPlay', 'transcode', 'remux', 'transcodeVideo', 'transcodeAudio')
@@ -2048,6 +2051,7 @@ export class JellyfinPlayer extends EventEmitter {
                 this._lastPlayOptions = restartOptions;
                 this._audioRestartInProgress = true;
                 this._isRestarting = true;
+                this._restartOwner = restartOptions;
 
                 this.emit(PlayerEvent.RESTARTING);
 
@@ -2058,14 +2062,16 @@ export class JellyfinPlayer extends EventEmitter {
                 // server transcode to wind down first.
                 (async () => {
                     try {
-                        await this.stop();
+                        await this.stop({ restart: true });
                         await this._playAfterRestartPause(restartOptions, 0);
-                        this._isRestarting = false;
                     } catch (e) {
                         log.error('audiotrackswitchfailed restart failed:', e);
-                        this._isRestarting = false;
                     } finally {
-                        this._audioRestartInProgress = false;
+                        // Unless a newer restart has taken over meanwhile
+                        if (this._restartOwner === restartOptions) {
+                            this._isRestarting = false;
+                            this._audioRestartInProgress = false;
+                        }
                     }
                     this.emit(PlayerEvent.MEDIA_STREAMS_CHANGE, { audioStreamIndex: targetIndex });
                 })();
@@ -2104,11 +2110,12 @@ export class JellyfinPlayer extends EventEmitter {
             this._currentPlayOptions = restartOptions;
             this._lastPlayOptions = restartOptions;
             this._isRestarting = true;
+            this._restartOwner = restartOptions;
             this.emit(PlayerEvent.RESTARTING);
 
             (async () => {
                 try {
-                    await this.stop();
+                    await this.stop({ restart: true });
                     const started = await this._playAfterRestartPause(restartOptions, 0);
                     // A reloaded remux that does not start is escalated by the watchdog,
                     // as after a failed resume
@@ -2119,7 +2126,10 @@ export class JellyfinPlayer extends EventEmitter {
                     log.error('seekstuck reload failed:', e);
                     this._clearRemuxStuckWatchdog();
                 } finally {
-                    this._isRestarting = false;
+                    // Unless a newer restart has taken over meanwhile
+                    if (this._restartOwner === restartOptions) {
+                        this._isRestarting = false;
+                    }
                 }
             })();
             return;
@@ -2188,12 +2198,13 @@ export class JellyfinPlayer extends EventEmitter {
                 this._currentPlayOptions = restartOptions;
                 this._lastPlayOptions = restartOptions;
                 this._isRestarting = true;
+                this._restartOwner = restartOptions;
 
                 this.emit(PlayerEvent.RESTARTING);
 
                 (async () => {
                     try {
-                        await this.stop();
+                        await this.stop({ restart: true });
                         const started = await this._playAfterRestartPause(restartOptions, 500);
 
                         // -------------------------------------------------------------
@@ -2209,7 +2220,10 @@ export class JellyfinPlayer extends EventEmitter {
                         log.error('resumeseekfailed restart failed:', e);
                         this._clearRemuxStuckWatchdog();
                     } finally {
-                        this._isRestarting = false;
+                        // Unless a newer restart has taken over meanwhile
+                        if (this._restartOwner === restartOptions) {
+                            this._isRestarting = false;
+                        }
                     }
                 })();
             }
@@ -2254,11 +2268,12 @@ export class JellyfinPlayer extends EventEmitter {
                 this._currentPlayOptions = restartOptions;
                 this._lastPlayOptions = restartOptions;
                 this._isRestarting = true;
+                this._restartOwner = restartOptions;
                 this.emit(PlayerEvent.RESTARTING);
 
                 (async () => {
                     try {
-                        await this.stop();
+                        await this.stop({ restart: true });
                         const request = this._playRequestId;
                         if (typeof this._backend?.destroy === 'function') {
                             this._backend.destroy();
@@ -2281,7 +2296,7 @@ export class JellyfinPlayer extends EventEmitter {
                         restartOptions._deviceProfile = html5Profile;
 
                         // The new backend stays in place either way; the old one is destroyed
-                        if (request !== this._playRequestId) {
+                        if (request !== this._playRequestId || this._restartOwner !== restartOptions) {
                             log.info('[BackendFallback] Playback was stopped or replaced meanwhile — not restarting');
                             return;
                         }
@@ -2293,7 +2308,10 @@ export class JellyfinPlayer extends EventEmitter {
                             this.emit(PlayerEvent.ERROR, event.data);
                         }
                     } finally {
-                        this._isRestarting = false;
+                        // Unless a newer restart has taken over meanwhile
+                        if (this._restartOwner === restartOptions) {
+                            this._isRestarting = false;
+                        }
                     }
                 })();
                 return;
@@ -2342,6 +2360,7 @@ export class JellyfinPlayer extends EventEmitter {
                 this._currentPlayOptions = restartOptions;
                 this._lastPlayOptions = restartOptions;
                 this._isRestarting = true;
+                this._restartOwner = restartOptions;
 
                 // Signal UI that recovery/restart is taking place
                 this.emit(PlayerEvent.RESTARTING);
@@ -2349,7 +2368,7 @@ export class JellyfinPlayer extends EventEmitter {
                 (async () => {
                     try {
                         // Tear down existing backend decoder cleanly
-                        await this.stop();
+                        await this.stop({ restart: true });
                         // Brief stabilization pause, then re-launch with strict transcode parameters
                         await this._playAfterRestartPause(restartOptions, 500);
                     } catch (escalateErr) {
@@ -2359,7 +2378,10 @@ export class JellyfinPlayer extends EventEmitter {
                             this.emit(PlayerEvent.ERROR, event.data);
                         }
                     } finally {
-                        this._isRestarting = false;
+                        // Unless a newer restart has taken over meanwhile
+                        if (this._restartOwner === restartOptions) {
+                            this._isRestarting = false;
+                        }
                     }
                 })();
                 return;
@@ -2663,19 +2685,23 @@ export class JellyfinPlayer extends EventEmitter {
         this._currentPlayOptions = transcodeOptions;
         this._lastPlayOptions = transcodeOptions;
         this._isRestarting = true;
+        this._restartOwner = transcodeOptions;
 
         this.emit(PlayerEvent.RESTARTING);
 
         (async () => {
             try {
                 // Teardown backend session cleanly before transcode re-initialization
-                await this.stop();
+                await this.stop({ restart: true });
                 // Start playback in full transcode mode
                 await this._playAfterRestartPause(transcodeOptions, 500);
             } catch (e) {
                 log.error('[JellyfinPlayer] Transcode escalation restart failed:', e);
             } finally {
-                this._isRestarting = false;
+                // Unless a newer restart has taken over meanwhile
+                if (this._restartOwner === transcodeOptions) {
+                    this._isRestarting = false;
+                }
             }
         })();
     }
@@ -2711,7 +2737,10 @@ export class JellyfinPlayer extends EventEmitter {
         if (pauseMs > 0) {
             await new Promise(resolve => setTimeout(resolve, pauseMs));
         }
-        if (request !== this._playRequestId) {
+        // A stop() or a newer restart takes the restart over (see _restartOwner), also
+        // while the restart's own stop() still waited for an asynchronous backend
+        // (ExoPlayer, AVPlay), before `request` was read
+        if (request !== this._playRequestId || this._restartOwner !== options) {
             log.info('Restart abandoned: playback was stopped or replaced while it was pending');
             return false;
         }
@@ -2759,6 +2788,13 @@ export class JellyfinPlayer extends EventEmitter {
         this._currentPlayOptions = options;
         // Store initial options for potential reload
         this._lastPlayOptions = options;
+
+        // A remux watchdog belongs to the session it was armed for (Next while a
+        // restart loaded left one that restarted the next item); play() arms it
+        // again below when this session needs it
+        if (this._remuxWatchdogActive) {
+            this._clearRemuxStuckWatchdog();
+        }
 
         // Reset fallback attempt flag on fresh playback sessions
         if (!options._backendFallbackAttempted) {
@@ -3650,11 +3686,12 @@ export class JellyfinPlayer extends EventEmitter {
                 this._currentPlayOptions = restartOptions;
                 this._lastPlayOptions = restartOptions;
                 this._isRestarting = true;
+                this._restartOwner = restartOptions;
 
                 this.emit(PlayerEvent.RESTARTING);
 
                 try {
-                    await this.stop();
+                    await this.stop({ restart: true });
                     await this._playAfterRestartPause(restartOptions, 500);
                     return;
                 } catch (escalateErr) {
@@ -3665,7 +3702,10 @@ export class JellyfinPlayer extends EventEmitter {
                     }
                     throw escalateErr;
                 } finally {
-                    this._isRestarting = false;
+                    // Unless a newer restart has taken over meanwhile
+                    if (this._restartOwner === restartOptions) {
+                        this._isRestarting = false;
+                    }
                 }
             }
 
@@ -3747,8 +3787,21 @@ export class JellyfinPlayer extends EventEmitter {
 
     /**
      * Stop playback
+     * @param {Object} [options]
+     * @param {boolean} [options.restart] - The restart flow's own stop(): the item, its
+     *   quality and speed stay for the session the restart starts, and no STOP events
+     *   are sent. Any other stop() (Back, next item, destroy) resets them and also ends
+     *   a restart that is still pending or loading.
      */
-    async stop() {
+    async stop(options = {}) {
+        const isRestartStop = Boolean(options.restart);
+        if (!isRestartStop) {
+            this._isRestarting = false;
+            this._audioRestartInProgress = false;
+            this._burnInRestartInProgress = false;
+            this._restartOwner = null;
+        }
+
         // Ends any play() request still loading (see play())
         this._playRequestId = (this._playRequestId || 0) + 1;
         this._clearResumeAdvanceWait();
@@ -3761,7 +3814,7 @@ export class JellyfinPlayer extends EventEmitter {
         }
 
         // Only clear state if NOT restarting
-        if (!this._isRestarting) {
+        if (!isRestartStop) {
             this._pendingStartPositionTicks = null;
             this._clearRemuxStuckWatchdog();
             this._currentItem = null;
@@ -3783,7 +3836,7 @@ export class JellyfinPlayer extends EventEmitter {
         }
 
         // Only emit stop events if we are NOT restarting
-        if (!this._isRestarting) {
+        if (!isRestartStop) {
             this._manualBitrate = null;
             this._transcodingOffsetTicks = 0;
             this._playbackSpeed = 1; // Reset speed on stop
@@ -4071,19 +4124,20 @@ export class JellyfinPlayer extends EventEmitter {
             // Set guard BEFORE play() to block re-entrant restarts
             this._audioRestartInProgress = true;
             this._isRestarting = true;
+            this._restartOwner = restartOptions;
             try {
                 this.emit(PlayerEvent.RESTARTING);
-                await this.stop();
+                await this.stop({ restart: true });
                 await this._playAfterRestartPause(restartOptions, 500);
-                // Reset the restarting flag on success so subsequent stop() calls
-                // emit proper STOP events and clear state normally.
-                this._isRestarting = false;
             } catch (e) {
                 log.error('Failed to restart playback for audio track switch:', e);
-                this._isRestarting = false;
             } finally {
-                // Always clear the guard when done, success or failure
-                this._audioRestartInProgress = false;
+                // Clear the flag and the guard when done, success or failure, unless
+                // a newer restart has taken over meanwhile
+                if (this._restartOwner === restartOptions) {
+                    this._isRestarting = false;
+                    this._audioRestartInProgress = false;
+                }
             }
 
             this.emit(PlayerEvent.MEDIA_STREAMS_CHANGE, { audioStreamIndex: index });
@@ -4235,18 +4289,22 @@ export class JellyfinPlayer extends EventEmitter {
             // setSubtitleStreamIndex call from play() skips this path
             this._burnInRestartInProgress = true;
             this._isRestarting = true;
+            this._restartOwner = restartOptions;
             try {
                 this.emit(PlayerEvent.RESTARTING);
-                await this.stop();
+                await this.stop({ restart: true });
                 await this._playAfterRestartPause(restartOptions, 500);
             } catch (e) {
                 // play() reports its own failure (error event); only clean up here
                 log.error('Failed to restart playback for subtitle burn-in:', e);
             } finally {
                 // Always clear both flags, so subsequent stop() calls behave normally
-                // and later errors still escalate even if the restart failed
-                this._isRestarting = false;
-                this._burnInRestartInProgress = false;
+                // and later errors still escalate even if the restart failed (unless
+                // a newer restart has taken over meanwhile)
+                if (this._restartOwner === restartOptions) {
+                    this._isRestarting = false;
+                    this._burnInRestartInProgress = false;
+                }
             }
 
             // Notify OSD of the track change
@@ -4294,17 +4352,19 @@ export class JellyfinPlayer extends EventEmitter {
 
                 this._burnInRestartInProgress = true;
                 this._isRestarting = true;
+                this._restartOwner = restartOptions;
                 try {
                     this.emit(PlayerEvent.RESTARTING);
-                    await this.stop();
+                    await this.stop({ restart: true });
                     await this._playAfterRestartPause(restartOptions, 500);
-                    // Reset on success so subsequent stop() calls behave normally
-                    this._isRestarting = false;
                 } catch (e) {
                     log.error('Failed to restart for embedded subtitle switch during transcode:', e);
-                    this._isRestarting = false;
                 } finally {
-                    this._burnInRestartInProgress = false;
+                    // Unless a newer restart has taken over meanwhile
+                    if (this._restartOwner === restartOptions) {
+                        this._isRestarting = false;
+                        this._burnInRestartInProgress = false;
+                    }
                 }
 
                 this.emit(PlayerEvent.MEDIA_STREAMS_CHANGE, { subtitleStreamIndex: index });
@@ -5956,13 +6016,14 @@ export class JellyfinPlayer extends EventEmitter {
 
         // Restart playback
         this._isRestarting = true;
+        this._restartOwner = playOptions;
 
         try {
             // Trigger loading state immediately
             this.emit(PlayerEvent.RESTARTING);
 
-            await this.stop();
-            // _manualBitrate is preserved because _isRestarting was true
+            await this.stop({ restart: true });
+            // _manualBitrate is preserved: this is the restart's own stop()
 
             // Tizen: Give AVPlay time to cleanup
             await this._playAfterRestartPause(playOptions, 500);
@@ -5975,8 +6036,11 @@ export class JellyfinPlayer extends EventEmitter {
             // play() never clears this flag. Left set, it disabled every later
             // recovery path (escalation, resume fallback, remux watchdog),
             // silenced every later play() error, and stop() stopped emitting
-            // STOP events, for the rest of the session.
-            this._isRestarting = false;
+            // STOP events, for the rest of the session. Unless a newer restart
+            // has taken over meanwhile.
+            if (this._restartOwner === playOptions) {
+                this._isRestarting = false;
+            }
         }
     }
 
@@ -6049,10 +6113,11 @@ export class JellyfinPlayer extends EventEmitter {
 
                 // Reuse restart logic pattern from setMaxBitrate
                 this._isRestarting = true;
+                this._restartOwner = newOptions;
 
                 try {
                     this.emit(PlayerEvent.RESTARTING);
-                    await this.stop();
+                    await this.stop({ restart: true });
                     // Give backend time to cleanup
                     await this._playAfterRestartPause(newOptions, 500);
                     // _isRestarting reset in play() success path implicitly? 
@@ -6082,11 +6147,12 @@ export class JellyfinPlayer extends EventEmitter {
                     // Let's check `_resetState`.
                 } catch (e) {
                     log.error('Failed to restart after mode change:', e);
-                    this._isRestarting = false;
                 }
 
-                // We should probably reset it here if success?
-                this._isRestarting = false;
+                // Unless a newer restart has taken over meanwhile
+                if (this._restartOwner === newOptions) {
+                    this._isRestarting = false;
+                }
             }
         }
     }

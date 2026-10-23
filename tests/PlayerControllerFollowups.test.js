@@ -15,6 +15,7 @@ import vm from 'node:vm';
  *   - confirming the mode the Playback Mode menu shows does not restart
  *   - the remux or transcode a restart falls back to stays with its item (also
  *     when the page starts that item again)
+ *   - Back or Next while a restart loads ends the restart
  * The JellyfinPlayer methods under test are taken from the source and run on
  * a stub player (the module itself needs a full DOM).
  * ============================================================================
@@ -60,6 +61,22 @@ const playerEventSource = source
     )
     .replace('export const', 'const');
 
+/** Module-level constants the methods use, as declared in the source. */
+const constantsSource = [
+    'PLAYBACK_INFO_TIMEOUT_MS',
+    'REMUX_WATCHDOG_FIRST_CHECK_MS',
+    'REMUX_WATCHDOG_RECHECK_MS',
+    'REMUX_WATCHDOG_MAX_MS',
+    'REMUX_STUCK_BUFFER_AHEAD_S',
+    'RESUME_ADVANCE_WAIT_MS'
+]
+    .map((name) => {
+        const match = source.match(new RegExp(`\\nconst ${name} = [^;]+;`));
+        assert.ok(match, `constant not found: ${name}`);
+        return match[0];
+    })
+    .join('\n');
+
 const quietLog = { info() {}, debug() {}, warn() {}, error() {} };
 
 /** Globals the extracted methods use, with the real MediaHelper where it matters. */
@@ -99,7 +116,6 @@ function playerGlobals(settings, globals) {
             }),
             fetchWithTimeout: MediaHelper.fetchWithTimeout
         },
-        PLAYBACK_INFO_TIMEOUT_MS: 30000,
         ...globals
     };
 }
@@ -142,7 +158,7 @@ function createBackend() {
 /** Real methods every stub player gets (play() and what it calls). */
 const PLAYER_METHODS = [
     'async play(options) {',
-    'async stop() {',
+    'async stop(options = {}) {',
     '_handleBackendEvent(event) {',
     'getPlaybackMode() {',
     'getMaxBitrate() {',
@@ -171,7 +187,9 @@ function createPlayer({ methods = [], settings = {}, globals = {} } = {}) {
         })
     );
     const loaded = vm.runInContext(
-        `${playerEventSource}\n({ PlayerEvent, methods: {\n${PLAYER_METHODS.concat(methods).map(extractMethod).join(',\n')}\n} })`,
+        `${playerEventSource}\n${constantsSource}\n({ PlayerEvent, methods: {\n${PLAYER_METHODS.concat(methods)
+            .map(extractMethod)
+            .join(',\n')}\n} })`,
         context
     );
     const backend = createBackend();
@@ -678,4 +696,162 @@ test('JellyfinPlayer: an audio track switch restarts in the mode picked in the m
     await switching;
     assert.strictEqual(player.infoRequests[2].playbackMode, 'remux', 'the picked remux was dropped');
     assert.strictEqual(player.getPlaybackMode(), 'remux');
+});
+
+// ----------------------------------------------------------------------------
+// Back / Next while a restart loads
+// ----------------------------------------------------------------------------
+
+const WATCHDOG_METHODS = [
+    '_armRemuxStuckWatchdog(targetTicks) {',
+    '_scheduleRemuxWatchdogCheck(delayMs) {',
+    '_getBackendBufferState() {',
+    '_clearRemuxStuckWatchdog() {',
+    '_handleRemuxWatchdogTimeout() {'
+];
+
+/**
+ * Item A plays as a remux resumed at 1 h (remux watchdog armed) at 1.5x; the
+ * user lowers the quality and the restart's PlaybackInfo is slow.
+ * Returns once that restart is loading, with `release()` to answer it.
+ */
+async function startSlowQualityRestart(t) {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const player = createPlayer({ methods: ['async setMaxBitrate(bitrate) {', ...WATCHDOG_METHODS] });
+    delete player._armRemuxStuckWatchdog;
+    delete player._clearRemuxStuckWatchdog;
+
+    await playAndStart(player, pageOptions(player, 'A', { playbackMode: 'remux', startPositionTicks: 36000000000 }));
+    assert.ok(player._remuxWatchdogActive, 'watchdog armed for A');
+    player._playbackSpeed = 1.5;
+
+    let release;
+    const answer = player._getPlaybackInfo.bind(player);
+    player._getPlaybackInfo = async function (options) {
+        if (options.itemId === 'A') {
+            await new Promise((resolve) => (release = resolve));
+        }
+        return answer(options);
+    };
+    const restart = player.setMaxBitrate(4000000);
+    await advance(t, 1000);
+    await waitFor(() => typeof release === 'function', 'the restart PlaybackInfo');
+    return { player, restart, release: () => release() };
+}
+
+test('JellyfinPlayer: Next while a quality restart loads does not hand the restart over to the next item', async (t) => {
+    const { player, restart, release } = await startSlowQualityRestart(t);
+
+    // PlayerPage._playNextItem(): stop(), then the next item
+    player.events.length = 0;
+    await player.stop();
+    const stopEvents = player.events.filter((e) => e.type === 'stop' || e.type === 'playbackstop').length;
+    await playAndStart(player, pageOptions(player, 'B'));
+    release();
+    await restart;
+    // Long past the first check of A's remux watchdog
+    await advance(t, 10000, 1000);
+
+    const problems = [];
+    if (stopEvents !== 2) problems.push(`Next sent ${stopEvents} of STOP and PLAYBACK_STOP`);
+    if (player.profiles[player.profiles.length - 1].manualBitrate !== null) {
+        problems.push("B was built with A's 4 Mbps quality");
+    }
+    if (player.backend.speeds.includes(1.5)) problems.push("B was set to A's 1.5x speed");
+    if (player.backend.loads.length !== 2) {
+        const load = player.backend.loads[2].options;
+        problems.push(`A's remux watchdog restarted B at A's position ${load.startPositionTicks}`);
+    }
+    assert.deepStrictEqual(problems, []);
+    assert.strictEqual(player._isRestarting, false);
+    assert.strictEqual(player.getMaxBitrate(), 0);
+});
+
+test('JellyfinPlayer: after Back from a loading restart, the next item is a fresh start that can escalate', async (t) => {
+    const { player, restart, release } = await startSlowQualityRestart(t);
+    await player.stop();
+    assert.strictEqual(player._isRestarting, false, 'the restart still runs after Back');
+
+    // The next item's direct play fails while the abandoned restart still waits for its PlaybackInfo
+    const playing = player.play(pageOptions(player, 'B'));
+    await waitFor(() => player.backend.loads.length === 2, 'the load of B');
+    player.backend.loads[1].reject(new Error('MEDIA_ERR_DECODE: pipeline rejected stream'));
+    await advance(t, 1000);
+    await waitFor(() => player.backend.loads.length === 3, 'the transcode of B');
+    assert.strictEqual(player.backend.loads[2].options.item.Id, 'B');
+    assert.strictEqual(player.infoRequests[player.infoRequests.length - 1].playbackMode, 'transcode');
+    player.backend.loads[2].resolve();
+    await playing;
+
+    release();
+    await restart;
+    assert.strictEqual(player.backend.loads.length, 3, 'the abandoned restart loaded A');
+});
+
+test("JellyfinPlayer: Back while a restart's own stop() waits for an asynchronous backend ends the restart", async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const player = createPlayer({ methods: ['async setMaxBitrate(bitrate) {'] });
+    await playAndStart(player, pageOptions(player, 'A'));
+    // ExoVideoPlayer and TizenAVPlayer: stop() resolves only after the native player stopped
+    const stopBackend = player.backend.stop.bind(player.backend);
+    player.backend.stop = async () => {
+        await stopBackend();
+        await new Promise((resolve) => setTimeout(resolve, 50));
+    };
+
+    const quality = player.setMaxBitrate(4000000);
+    await flush();
+    const back = player.stop();
+    await advance(t, 2000, 50);
+    await back;
+    assert.strictEqual(player.backend.loads.length, 1, 'the restart loaded A again after Back');
+    assert.strictEqual(player.infoRequests.length, 1);
+    await quality;
+    assert.strictEqual(player._isRestarting, false);
+});
+
+test("JellyfinPlayer: an abandoned restart of the previous item leaves the next item's restart running", async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const player = createPlayer({ methods: ['async setMaxBitrate(bitrate) {'] });
+    await playAndStart(player, pageOptions(player, 'A'));
+
+    // A's quality restart waits for a slow PlaybackInfo
+    let releaseA;
+    const answer = player._getPlaybackInfo.bind(player);
+    player._getPlaybackInfo = async function (options) {
+        if (options.itemId === 'A') {
+            await new Promise((resolve) => (releaseA = resolve));
+        }
+        return answer(options);
+    };
+    const restartA = player.setMaxBitrate(4000000);
+    await advance(t, 1000);
+    await waitFor(() => typeof releaseA === 'function', "A's restart PlaybackInfo");
+
+    // Next, then a quality change on B while A's restart still waits
+    await player.stop();
+    await playAndStart(player, pageOptions(player, 'B'));
+    const restartB = player.setMaxBitrate(2000000);
+    await advance(t, 1000);
+    await waitFor(() => player.backend.loads.length === 3, "B's restart load");
+
+    releaseA();
+    await restartA;
+    assert.strictEqual(player._isRestarting, true, "A's restart flow cleared the flag of B's restart");
+    player.backend.loads[2].resolve();
+    await restartB;
+    assert.strictEqual(player._isRestarting, false);
+});
+
+test('JellyfinPlayer: a restart keeps the quality and speed of its item (guard)', async (t) => {
+    const { player, restart, release } = await startSlowQualityRestart(t);
+    release();
+    await waitFor(() => player.backend.loads.length === 2, 'the restart load');
+    player.backend.loads[1].resolve();
+    await restart;
+
+    assert.strictEqual(player.events.filter((e) => e.type === 'stop').length, 0);
+    assert.strictEqual(player.profiles[player.profiles.length - 1].manualBitrate, 4000000);
+    assert.deepStrictEqual(player.backend.speeds, [1.5]);
+    assert.strictEqual(player._isRestarting, false);
 });
