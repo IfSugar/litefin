@@ -2729,7 +2729,7 @@ export class JellyfinPlayer extends EventEmitter {
      *
      * @param {Object} options - The restart's play options
      * @param {number} pauseMs - Pause before play()
-     * @returns {Promise<boolean|void>} play()'s result, or false when abandoned
+     * @returns {Promise<boolean>} play()'s result, or false when abandoned
      * @private
      */
     async _playAfterRestartPause(options, pauseMs) {
@@ -2756,8 +2756,9 @@ export class JellyfinPlayer extends EventEmitter {
      * @param {number} [options.startPositionTicks=0] - Start position in ticks
      * @param {number} [options.audioStreamIndex] - Audio track index
      * @param {number} [options.subtitleStreamIndex] - Subtitle track index
-     * @returns {Promise<boolean|void>} false when stop() or a newer play() superseded
-     *   this request before it started; callers must then not continue with it
+     * @returns {Promise<boolean>} false when stop() or a newer play() superseded
+     *   this request before it started; callers must then not continue with it.
+     *   Otherwise true (also when this request's own escalation started playback).
      */
     async play(options) {
         // ────────────────────────────────────────────────────────────────
@@ -3555,6 +3556,7 @@ export class JellyfinPlayer extends EventEmitter {
                 this._subtitleManager.setSecondaryTrack(this._currentSecondarySubtitleStreamIndex)
                     .catch(err => log.warn('[Play-Flow] Secondary subtitle re-application failed:', err));
             }
+            return true;
         } catch (error) {
             // A replaced request has nothing left to report or escalate: its
             // failure (a timed-out PlaybackInfo after Back, a destroyed
@@ -3587,7 +3589,8 @@ export class JellyfinPlayer extends EventEmitter {
                     'Playback play() promise interrupted during restart/reload — suppressing error modal:',
                     error?.message || error
                 );
-                return;
+                // Not a cancel: this is still the current request (see isSuperseded above)
+                return true;
             }
 
             // ────────────────────────────────────────────────────────────────
@@ -3692,8 +3695,9 @@ export class JellyfinPlayer extends EventEmitter {
 
                 try {
                     await this.stop({ restart: true });
-                    await this._playAfterRestartPause(restartOptions, 500);
-                    return;
+                    // The escalation's outcome is this request's: false when Back or
+                    // a newer play() cancelled it, so the caller does not report a start
+                    return await this._playAfterRestartPause(restartOptions, 500);
                 } catch (escalateErr) {
                     log.error('[JellyfinPlayer] DirectPlay setup transcode escalation failed:', escalateErr);
                     if (escalateErr !== this._lastReportedPlayError) {

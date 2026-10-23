@@ -16,6 +16,7 @@ import vm from 'node:vm';
  *   - the remux or transcode a restart falls back to stays with its item (also
  *     when the page starts that item again)
  *   - Back or Next while a restart loads ends the restart
+ *   - play() resolves false only when the request was cancelled
  * The JellyfinPlayer methods under test are taken from the source and run on
  * a stub player (the module itself needs a full DOM).
  * ============================================================================
@@ -854,4 +855,52 @@ test('JellyfinPlayer: a restart keeps the quality and speed of its item (guard)'
     assert.strictEqual(player.profiles[player.profiles.length - 1].manualBitrate, 4000000);
     assert.deepStrictEqual(player.backend.speeds, [1.5]);
     assert.strictEqual(player._isRestarting, false);
+});
+
+// ----------------------------------------------------------------------------
+// play()'s result
+// ----------------------------------------------------------------------------
+
+/** play() of item A whose direct-play load fails, so play() escalates to a transcode itself. */
+async function playWithFailingLoad(t, player) {
+    const playing = player.play(pageOptions(player, 'A'));
+    await waitFor(() => player.backend.loads.length === 1, 'the load');
+    player.backend.loads[0].reject(new Error('MEDIA_ERR_DECODE: pipeline rejected stream'));
+    await advance(t, 1000);
+    return playing;
+}
+
+test("JellyfinPlayer: Back while play()'s own escalation loads makes play() resolve false", async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const player = createPlayer();
+    const answer = player._getPlaybackInfo.bind(player);
+    player._getPlaybackInfo = async function (options) {
+        if (this.infoRequests.length === 1) {
+            // The user presses Back while the transcode's PlaybackInfo loads
+            await player.stop();
+        }
+        return answer(options);
+    };
+
+    const result = await playWithFailingLoad(t, player);
+    assert.strictEqual(player.infoRequests[1].playbackMode, 'transcode', 'escalated to a transcode');
+    assert.strictEqual(
+        result,
+        false,
+        `play() resolved ${result}: PlayerPage reports a start for an item the user left`
+    );
+});
+
+test('JellyfinPlayer: play() resolves true when its own escalation starts playback', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const player = createPlayer();
+    const playing = playWithFailingLoad(t, player);
+    await waitFor(() => player.backend.loads.length === 2, 'the transcode load');
+    player.backend.loads[1].resolve();
+    assert.strictEqual(await playing, true);
+});
+
+test('JellyfinPlayer: play() resolves true once playback started', async () => {
+    const player = createPlayer();
+    assert.strictEqual(await playAndStart(player, pageOptions(player, 'A')), true);
 });
