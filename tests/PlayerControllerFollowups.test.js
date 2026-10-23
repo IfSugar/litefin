@@ -19,6 +19,8 @@ import vm from 'node:vm';
  *   - play() resolves false only when the request was cancelled
  *   - a restart during the page's first play() resolves that play() with the
  *     restart, so the page still sets up its OSD
+ *   - a slow transcode seek is not taken for a stuck one (also across a new
+ *     seek, a pause and Play)
  * The JellyfinPlayer methods under test are taken from the source and run on
  * a stub player (the module itself needs a full DOM).
  * ============================================================================
@@ -71,7 +73,8 @@ const constantsSource = [
     'REMUX_WATCHDOG_RECHECK_MS',
     'REMUX_WATCHDOG_MAX_MS',
     'REMUX_STUCK_BUFFER_AHEAD_S',
-    'RESUME_ADVANCE_WAIT_MS'
+    'RESUME_ADVANCE_WAIT_MS',
+    'TRANSCODE_SEEK_STUCK_MS'
 ]
     .map((name) => {
         const match = source.match(new RegExp(`\\nconst ${name} = [^;]+;`));
@@ -152,6 +155,10 @@ function createBackend() {
         setSpeed(speed) {
             backend.speeds.push(speed);
         },
+        seek() {},
+        // The <video> element, for a test that sets its `seeking`
+        video: null,
+        getVideoElement: () => backend.video,
         getCurrentTime: () => 0,
         supportsNativeAudioTracks: () => true
     };
@@ -1075,4 +1082,137 @@ test("JellyfinPlayer: restarts that replace each other during the page's play() 
     assert.strictEqual(await page.playing, true, 'the second restart came before the first one played');
     await quality;
     assert.strictEqual(player.backend.loads.length, 2, 'the replaced transcode restart loaded as well');
+});
+
+// ----------------------------------------------------------------------------
+// Stuck seeks in a transcode
+// ----------------------------------------------------------------------------
+
+const SEEK_TARGET = 36000000000;
+const seekStuck = { type: 'seekstuck', data: { targetPositionTicks: SEEK_TARGET } };
+
+/** Item A playing with the given play method; the test controls time (setTimeout and Date). */
+async function startSeekingPlayer(t, playMethod) {
+    t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+    const player = createPlayer({ methods: ['seek(positionTicks, options = {}) {'] });
+    await playAndStart(player, pageOptions(player, 'A'));
+    player._currentPlayMethod = playMethod;
+    // The element seeks until a test lets the seek land
+    player.backend.video = { seeking: true };
+    player.events.length = 0;
+    return player;
+}
+
+function reloadsOf(player) {
+    return player.backend.loads.slice(1).map((load) => load.options.startPositionTicks);
+}
+
+test('JellyfinPlayer: a transcode seek reported stuck after 8 s is reloaded only if still pending at 30 s', async (t) => {
+    const player = await startSeekingPlayer(t, 'Transcode');
+    player.seek(SEEK_TARGET);
+
+    // WebOSPlayer: 8 s of playback without new data while the server restarts FFmpeg
+    await advance(t, 8000, 1000);
+    player._handleBackendEvent(seekStuck);
+    await advance(t, 21000, 1000);
+    assert.deepStrictEqual(reloadsOf(player), [], 'reloaded a transcode seek that was still loading');
+    assert.ok(!player.events.some((e) => e.type === 'restarting'));
+
+    await advance(t, 2000, 1000);
+    await waitFor(() => player.backend.loads.length === 2, 'the reload');
+    assert.deepStrictEqual(reloadsOf(player), [SEEK_TARGET]);
+});
+
+test('JellyfinPlayer: a transcode seek that lands after the stuck report is not reloaded', async (t) => {
+    for (const landing of ['seeked', 'playing']) {
+        const player = await startSeekingPlayer(t, 'Transcode');
+        player.seek(SEEK_TARGET);
+        await advance(t, 8000, 1000);
+        player._handleBackendEvent(seekStuck);
+        await advance(t, 6000, 1000);
+        player._handleBackendEvent({ type: landing });
+
+        await advance(t, 30000, 1000);
+        assert.deepStrictEqual(reloadsOf(player), [], `reloaded after '${landing}'`);
+        t.mock.timers.reset();
+    }
+});
+
+test('JellyfinPlayer: a new seek restarts the wait of a stuck transcode seek', async (t) => {
+    const player = await startSeekingPlayer(t, 'Transcode');
+    player.seek(SEEK_TARGET);
+    await advance(t, 8000, 1000);
+    player._handleBackendEvent(seekStuck);
+    await advance(t, 4000, 1000);
+    // Back to the pending target (e.g. +10 s, then -10 s): WebOSPlayer skips a seek that
+    // close to the element's position, so no new 'seeking' and no new stuck report
+    player.seek(SEEK_TARGET);
+
+    await advance(t, 29000, 1000);
+    assert.deepStrictEqual(reloadsOf(player), [], 'reloaded before 30 s from the last seek');
+    await advance(t, 2000, 1000);
+    await waitFor(() => player.backend.loads.length === 2, 'the reload (the wait was dropped)');
+    assert.deepStrictEqual(reloadsOf(player), [SEEK_TARGET]);
+});
+
+test('JellyfinPlayer: a stuck transcode seek is not reloaded while paused, and gets 30 s from Play', async (t) => {
+    const player = await startSeekingPlayer(t, 'Transcode');
+    player.seek(SEEK_TARGET);
+    await advance(t, 8000, 1000);
+    player._handleBackendEvent(seekStuck);
+    await advance(t, 4000, 1000);
+    player._handleBackendEvent({ type: 'pause' });
+
+    await advance(t, 60000, 1000);
+    assert.deepStrictEqual(reloadsOf(player), [], 'reloaded (and resumed) while paused');
+
+    // The element resumes: the backend reports 'play'
+    player._handleBackendEvent({ type: 'play' });
+    await advance(t, 29000, 1000);
+    assert.deepStrictEqual(reloadsOf(player), [], 'reloaded before 30 s from Play');
+    await advance(t, 2000, 1000);
+    await waitFor(() => player.backend.loads.length === 2, 'the reload');
+    assert.deepStrictEqual(reloadsOf(player), [SEEK_TARGET]);
+});
+
+test('JellyfinPlayer: a paused seek gets its 30 s from Play, when webOS carries it out', async (t) => {
+    const player = await startSeekingPlayer(t, 'Transcode');
+    player._handleBackendEvent({ type: 'pause' });
+    player.seek(SEEK_TARGET);
+    await advance(t, 25000, 1000);
+
+    // Play; the seek is still pending and stalls for 8 s
+    // The element resumes: the backend reports 'play'
+    player._handleBackendEvent({ type: 'play' });
+    await advance(t, 8000, 1000);
+    player._handleBackendEvent(seekStuck);
+    await advance(t, 21000, 1000);
+    assert.deepStrictEqual(reloadsOf(player), [], 'the paused time counted for the seek');
+    await advance(t, 2000, 1000);
+    await waitFor(() => player.backend.loads.length === 2, 'the reload');
+});
+
+test('JellyfinPlayer: a stuck transcode seek that has landed by the deadline is not reloaded', async (t) => {
+    const player = await startSeekingPlayer(t, 'Transcode');
+    player.seek(SEEK_TARGET);
+    await advance(t, 8000, 1000);
+    player._handleBackendEvent(seekStuck);
+    await advance(t, 10000, 1000);
+    // The element finished the seek, but no 'seeked' or 'playing' reached the player
+    player.backend.video.seeking = false;
+
+    await advance(t, 20000, 1000);
+    assert.deepStrictEqual(reloadsOf(player), []);
+});
+
+test('JellyfinPlayer: a stuck seek outside a transcode is still reloaded at once (guard)', async (t) => {
+    for (const playMethod of ['Remux', 'DirectStream', 'DirectPlay']) {
+        const player = await startSeekingPlayer(t, playMethod);
+        player.seek(SEEK_TARGET);
+        await advance(t, 8000, 1000);
+        player._handleBackendEvent(seekStuck);
+        await waitFor(() => player.backend.loads.length === 2, `the reload of a ${playMethod} seek`);
+        assert.deepStrictEqual(reloadsOf(player), [SEEK_TARGET]);
+        t.mock.timers.reset();
+    }
 });

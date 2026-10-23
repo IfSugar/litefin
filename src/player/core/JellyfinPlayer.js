@@ -63,6 +63,14 @@ const REMUX_STUCK_BUFFER_AHEAD_S = 10;
  */
 const RESUME_ADVANCE_WAIT_MS = REMUX_WATCHDOG_MAX_MS;
 
+/**
+ * A transcode seeks by restarting FFmpeg at the target on the server, so no
+ * new data for a while is normal there: on a slow NAS well over the 8 s after
+ * which webOS reports a seek as stuck. A Transcode session is reloaded only
+ * when the seek is still pending this long after it started.
+ */
+const TRANSCODE_SEEK_STUCK_MS = 30000;
+
 // ────────────────────────────────────────────────────────────────────────────
 // Audio Capability Detection Helpers
 // ────────────────────────────────────────────────────────────────────────────
@@ -1463,6 +1471,8 @@ export class JellyfinPlayer extends EventEmitter {
         this._resumeAdvanceTimer = null; // Limit on that wait
         this._isSeeking = false; // Track seeking state to suppress loading screens during seek
         this._seekFailsafeTimeout = null; // Failsafe timer to clear _isSeeking if seeked event is lost
+        this._seekStartedAt = 0; // When the last seek() started (Date.now())
+        this._seekStuckWait = null; // A transcode's stuck seek waiting for TRANSCODE_SEEK_STUCK_MS
 
         // Secondary subtitle stream index (kept here for OSD queries)
         this._currentSecondarySubtitleStreamIndex = -1;
@@ -1804,6 +1814,11 @@ export class JellyfinPlayer extends EventEmitter {
                 clearTimer(this._seekFailsafeTimeout);
                 this._seekFailsafeTimeout = null;
             }
+            // The seek landed: a transcode's stuck report waiting for it is over
+            if (clearTimer && this._seekStuckWait) {
+                clearTimer(this._seekStuckWait.timer);
+                this._seekStuckWait = null;
+            }
 
             /*
              * ================================================================
@@ -1918,6 +1933,20 @@ export class JellyfinPlayer extends EventEmitter {
         } else if (event.type === PlayerEvent.PLAY || event.type === PlayerEvent.PLAYING) {
             this._isPaused = false;
             this._subtitleManager?.play();
+        }
+
+        // webOS carries out a seek on a paused element only once playback starts:
+        // a transcode's stuck-seek wait (see the seekstuck handler) counts from Play
+        if (event.type === PlayerEvent.PLAY && this._currentPlayMethod === 'Transcode') {
+            const backend = this._backend;
+            const video = backend && typeof backend.getVideoElement === 'function' ? backend.getVideoElement() : null;
+            if (video && video.seeking) {
+                this._seekStartedAt = Date.now();
+            }
+            const stuckWait = this._seekStuckWait;
+            if (stuckWait && !stuckWait.timer) {
+                stuckWait.timer = setTimeout(stuckWait.check, 0);
+            }
         }
 
         // =====================================================================
@@ -2091,6 +2120,52 @@ export class JellyfinPlayer extends EventEmitter {
         if (event.type === 'seekstuck') {
             if (this._isRestarting || !this._currentPlayOptions) return;
             const targetTicks = event.data?.targetPositionTicks ?? this.getCurrentPositionTicks();
+
+            // A transcode that has had less than TRANSCODE_SEEK_STUCK_MS for the
+            // seek is checked again then: 'seeked' or 'playing' meanwhile ends
+            // the wait, as do stop() and play(). A new seek, and Play while the
+            // seek is pending (the backend's 'play'), restart the time. Nothing is
+            // reloaded while paused (webOS carries out the seek only once
+            // playback starts) or once the backend no longer seeks. Reloading
+            // earlier only starts another server job at the target.
+            if (this._currentPlayMethod === 'Transcode') {
+                const pending = this._seekStuckWait;
+                if (pending && pending.request === this._playRequestId) {
+                    // A later seek's report: reload at its target when the wait ends
+                    pending.event = event;
+                    return;
+                }
+                const waitMs = TRANSCODE_SEEK_STUCK_MS - (Date.now() - (this._seekStartedAt || 0));
+                if (waitMs > 0) {
+                    log.info(
+                        `seekstuck: transcode seek still pending — checking again in ${Math.ceil(waitMs / 1000)} s`
+                    );
+                    const wait = { request: this._playRequestId, event, timer: null, check: null };
+                    wait.check = () => {
+                        wait.timer = null;
+                        if (this._seekStuckWait !== wait) return;
+                        const remainingMs = TRANSCODE_SEEK_STUCK_MS - (Date.now() - (this._seekStartedAt || 0));
+                        if (wait.request !== this._playRequestId) {
+                            this._seekStuckWait = null;
+                        } else if (remainingMs > 0) {
+                            wait.timer = setTimeout(wait.check, remainingMs);
+                        } else if (!this._isPaused) {
+                            this._seekStuckWait = null;
+                            const backend = this._backend;
+                            const video =
+                                backend && typeof backend.getVideoElement === 'function'
+                                    ? backend.getVideoElement()
+                                    : null;
+                            if (!video || video.seeking) {
+                                this._handleBackendEvent(wait.event);
+                            }
+                        }
+                    };
+                    wait.timer = setTimeout(wait.check, waitMs);
+                    this._seekStuckWait = wait;
+                    return;
+                }
+            }
 
             if (this._seekReloadOptions && this._currentPlayOptions === this._seekReloadOptions) {
                 log.warn('seekstuck: the reloaded stream got stuck too — escalating like a failed resume');
@@ -3924,6 +3999,7 @@ export class JellyfinPlayer extends EventEmitter {
         // High-Priority State Update: Indicate that seeking is actively occurring
         this._isSeeking = true;
         this._seekTargetTicks = positionTicks;
+        this._seekStartedAt = Date.now();
 
         // Failsafe seeking timer: If neither SEEKED nor PLAYING fires within 5 seconds
         // (e.g. edge-case decoder stalls on some TV firmware), ensure _isSeeking resets.
