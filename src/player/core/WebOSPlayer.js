@@ -1456,6 +1456,8 @@ export class WebOSPlayer {
             let playlistsLoaded = false;
             let resolved = false;
             let appendedSegmentsCount = 0;
+            // Set when Hls.js detaches the element: recoverMediaError() reloads it
+            let mediaReloaded = false;
 
             const resolveOnce = (value) => {
                 if (resolved) return;
@@ -1481,6 +1483,17 @@ export class WebOSPlayer {
             // Calculate target resume position in seconds
             const resumeSeconds = (options.playerStartPositionTicks || 0) / 10000000;
 
+            // Start again once Hls.js has reset the MediaSource and buffered; fail with
+            // `failure` if that does not happen within 10 s.
+            const waitForRecovery = (failure) => {
+                bufferReady = false;
+                appendedSegmentsCount = 0;
+                clearTimeout(initialBufferTimer);
+                initialBufferTimer = setTimeout(() => {
+                    if (!resolved) failHls(failure);
+                }, 10000);
+            };
+
             const startPlayback = () => {
                 // -----------------------------------------------------------------
                 // Visual presentation restoration:
@@ -1491,11 +1504,29 @@ export class WebOSPlayer {
                 if (!resumeSeconds || resumeSeconds <= 0) {
                     this._restoreVideoAfterResume(video);
                 }
+                mediaReloaded = false;
                 const playPromise = video.play();
                 if (playPromise !== undefined && typeof playPromise.then === 'function') {
                     playPromise
                         .then(() => resolveOnce())
-                        .catch(err => this._handleAutoplayError(err, video, options, resolveOnce, rejectOnce));
+                        .catch((err) => {
+                            if (err?.name === 'AbortError' && mediaReloaded && this._hlsPlayer === hls && !resolved) {
+                                /*
+                                 * Hls.js reset the decoder (a fatal media error): in hls.js 1.7
+                                 * recoverMediaError() reloads the element, which aborts the
+                                 * pending play() with a DOM AbortError. JellyfinPlayer takes
+                                 * that for a cancel and skipped what follows a start, so play
+                                 * again once Hls.js has buffered; no playback after the reset
+                                 * is a decode error.
+                                 */
+                                log.warn('WebOSPlayer: Hls.js reset the decoder during the start — waiting for it');
+                                const error = new Error('Hls.js media error (no playback after a decoder reset)');
+                                error.code = 3;
+                                waitForRecovery(error);
+                                return;
+                            }
+                            this._handleAutoplayError(err, video, options, resolveOnce, rejectOnce);
+                        });
                 } else {
                     // Chromium 38 (webOS 3) returns no promise: the start is done once the element
                     // plays. Resolving here cleared the load watchdog with nothing buffered yet,
@@ -1610,6 +1641,9 @@ export class WebOSPlayer {
             hls.on(Hls.Events.ERROR, errorHandling.onError);
             hls.on(Hls.Events.FRAG_LOADED, errorHandling.onFragLoaded);
             this._hlsElementErrorHandler = { hls, onError: errorHandling.onError };
+            hls.on(Hls.Events.MEDIA_DETACHING, () => {
+                mediaReloaded = true;
+            });
 
             // Listen for the first segment buffered — triggers play()
             hls.on(Hls.Events.BUFFER_APPENDED, onBufferAppended);
