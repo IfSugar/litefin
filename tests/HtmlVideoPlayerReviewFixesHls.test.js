@@ -426,3 +426,33 @@ test('HtmlVideoPlayer: an HLS.js item after a native item does not inherit autop
     await load;
     assert.strictEqual(player._videoElement.autoplay, false, 'the element starts the paused item by itself');
 });
+
+// ----------------------------------------------------------------------------
+// HLS manifest duration across items
+// ----------------------------------------------------------------------------
+
+test("HtmlVideoPlayer: an HLS item's manifest duration does not carry over to the next item", async (t) => {
+    const { player, hlsInstances } = createPlayer(t);
+    const playHls = async () => {
+        const load = player.play(hlsItem({ autoPlay: false }));
+        const hls = hlsInstances.at(-1);
+        hls.trigger(Hls.Events.MANIFEST_PARSED, {});
+        await load;
+        // The transcode finished: the playlist has its #EXT-X-ENDLIST
+        hls.trigger(Hls.Events.LEVEL_UPDATED, { details: { live: false, totalduration: 5400 } });
+        assert.strictEqual(player.getHlsManifestDuration(), 5400);
+    };
+
+    await playHls();
+    await player.stop();
+    assert.strictEqual(player.getHlsManifestDuration(), null, 'kept after stop()');
+
+    // The next item plays natively, without stop() in between
+    await playHls();
+    const native = player.play({ url: 'http://srv/Videos/b/stream.mp4', mediaSource });
+    assert.strictEqual(player.getHlsManifestDuration(), null, "taken as the native item's duration");
+    await flush();
+    player._videoElement.fire('canplay');
+    player._videoElement.fire('playing');
+    await native;
+});

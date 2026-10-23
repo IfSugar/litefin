@@ -355,6 +355,8 @@ export class HtmlVideoPlayer {
         this._currentPlayOptions = options;
         this._started = false;
         this._timeUpdated = false;
+        // JellyfinPlayer takes it as the duration of an item without RunTimeTicks
+        this._hlsManifestDuration = null;
 
         // Reset subtitle offset for new playback session
         this._subtitleOffset = 0;
@@ -1497,6 +1499,7 @@ export class HtmlVideoPlayer {
         this._currentPlayOptions = null;
         this._started = false;
         this._timeUpdated = false;
+        this._hlsManifestDuration = null;
     }
 
     /**
