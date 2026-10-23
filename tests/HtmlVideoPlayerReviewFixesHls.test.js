@@ -104,6 +104,7 @@ class FakeHls {
         this.subtitleTracks = [];
         this.levels = [];
         this.calls = [];
+        this.loadedUrls = [];
         this.media = null;
     }
     on(event, fn) {
@@ -117,6 +118,7 @@ class FakeHls {
     }
     loadSource(url) {
         this.url = url;
+        this.loadedUrls.push(url);
     }
     attachMedia(media) {
         this.media = media;
@@ -455,4 +457,88 @@ test("HtmlVideoPlayer: an HLS item's manifest duration does not carry over to th
     player._videoElement.fire('canplay');
     player._videoElement.fire('playing');
     await native;
+});
+
+// ----------------------------------------------------------------------------
+// A server that stops answering during the start
+// ----------------------------------------------------------------------------
+
+const networkError = (details) => ({ fatal: true, type: Hls.ErrorTypes.NETWORK_ERROR, details });
+
+test('HtmlVideoPlayer: a fatal manifest error is retried by requesting the manifest again', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const { player, hlsInstances } = createPlayer(t);
+    const item = hlsItem({ playMethod: 'Transcode' });
+    player.play(item).catch(() => {});
+    const hls = hlsInstances[0];
+
+    hls.trigger(Hls.Events.ERROR, networkError(Hls.ErrorDetails.MANIFEST_LOAD_TIMEOUT));
+    t.mock.timers.tick(1000);
+    // HLS.js 1.7: startLoad() with no levels only flags a start, no request and no event follow
+    assert.deepStrictEqual(hls.loadedUrls, [item.url, item.url], 'retried with startLoad()');
+    assert.deepStrictEqual(hls.calls, []);
+
+    // A fragment is still retried with startLoad()
+    hls.trigger(Hls.Events.ERROR, networkError(Hls.ErrorDetails.FRAG_LOAD_ERROR));
+    t.mock.timers.tick(2000);
+    assert.deepStrictEqual(hls.calls, ['startLoad']);
+    assert.strictEqual(hls.loadedUrls.length, 2);
+});
+
+test('HtmlVideoPlayer: an HLS.js start that gets nothing from the server fails as a network error after 60 s', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const { player, hlsInstances } = createPlayer(t);
+    const load = watch(player.play(hlsItem({ playMethod: 'Transcode' })));
+    const hls = hlsInstances[0];
+
+    t.mock.timers.tick(59999);
+    await flush();
+    assert.strictEqual(load.outcome, 'pending');
+    t.mock.timers.tick(1);
+    await flush();
+    assert.ok(load.outcome instanceof Error, 'spinner forever');
+    assert.strictEqual(load.outcome.isNetworkError, true, 'a transcode would be tried against a silent server');
+    assert.ok(hls.calls.includes('destroy'));
+});
+
+test('HtmlVideoPlayer: a slow cold transcode is not cut off while HLS.js requests its first segment', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const { player, hlsInstances } = createPlayer(t);
+    const load = watch(player.play(hlsItem({ playMethod: 'Transcode' })));
+    const hls = hlsInstances[0];
+    hls.trigger(Hls.Events.MANIFEST_LOADED, {});
+    hls.trigger(Hls.Events.LEVEL_LOADED, {});
+    hls.trigger(Hls.Events.MANIFEST_PARSED, {});
+
+    // The server answers the segment request once it is transcoded; HLS.js
+    // times each attempt out after 20 s and requests it again
+    for (let i = 0; i < 5; i++) {
+        hls.trigger(Hls.Events.FRAG_LOADING, { frag: { sn: 1, type: 'main' } });
+        t.mock.timers.tick(20000);
+    }
+    await flush();
+    assert.strictEqual(load.outcome, 'pending', 'start cut off while HLS.js was loading');
+
+    hls.trigger(Hls.Events.FRAG_LOADED, {});
+    bufferSegment(hls, 1);
+    player._videoElement.fire('playing');
+    await flush();
+    assert.strictEqual(load.outcome, 'started');
+});
+
+test('HtmlVideoPlayer: an HLS.js start stuck after data arrived fails, but not as a network error', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const { player, hlsInstances } = createPlayer(t);
+    const load = watch(player.play(hlsItem({ playMethod: 'DirectStream' })));
+    const hls = hlsInstances[0];
+    hls.trigger(Hls.Events.MANIFEST_LOADED, {});
+    hls.trigger(Hls.Events.MANIFEST_PARSED, {});
+    hls.trigger(Hls.Events.FRAG_LOADING, { frag: { sn: 1, type: 'main' } });
+    hls.trigger(Hls.Events.FRAG_LOADED, {});
+    bufferSegment(hls, 1); // play() never settles: the decoder does not start
+
+    t.mock.timers.tick(60000);
+    await flush();
+    assert.ok(load.outcome instanceof Error);
+    assert.strictEqual(load.outcome.isNetworkError, false, 'the server delivered: a transcode may help');
 });

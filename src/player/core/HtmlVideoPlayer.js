@@ -80,6 +80,20 @@ const STALL_KICK_WEBOS_S = 0.5;
 /** HLS.js fatal network errors retried (1 s, 2 s, 4 s apart) before giving up. */
 const HLS_MAX_NETWORK_RETRIES = 3;
 
+/** Fatal HLS.js errors of the manifest request: retried with loadSource(), not startLoad(). */
+const HLS_MANIFEST_ERRORS = [
+    Hls.ErrorDetails.MANIFEST_LOAD_ERROR,
+    Hls.ErrorDetails.MANIFEST_LOAD_TIMEOUT,
+    Hls.ErrorDetails.MANIFEST_PARSING_ERROR
+];
+
+/**
+ * HLS.js start watchdog: how long a start may wait for its playlists, and
+ * after each fragment request, before it fails. A stalled fragment request
+ * ends sooner, through HLS.js's own fatal timeout (20 s, retried).
+ */
+const HLS_START_LOAD_TIMEOUT_MS = 60000;
+
 /**
  * HLS start check (_onHlsStartTimeout): due this long after the HLS.js load
  * began, and not sooner than the second delay after the first buffered
@@ -125,6 +139,23 @@ function createAbortError() {
     // A cancel by stop() / a newer play(): JellyfinPlayer.play() resolves false for it,
     // and its callers stop there (unlike a DOM AbortError from an interrupted play())
     error.superseded = true;
+    return error;
+}
+
+/**
+ * Rejection for an HLS.js start that made no progress within the start watchdog.
+ * @param {boolean} noData - Not even a playlist arrived: the server is not
+ *   delivering, so it is a network error (a transcode would not help either)
+ * @returns {Error}
+ */
+function createLoadTimeoutError(noData) {
+    const seconds = HLS_START_LOAD_TIMEOUT_MS / 1000;
+    const error = new Error(
+        noData ? `No data arrived from the server for ${seconds} s` : `HLS.js start made no progress for ${seconds} s`
+    );
+    error.name = 'PlaybackLoadTimeoutError';
+    error.code = noData ? 2 : 0;
+    error.isNetworkError = noData;
     return error;
 }
 
@@ -679,11 +710,15 @@ export class HtmlVideoPlayer {
             // the first segment is over
             let startCheckDue = false;
             let segmentWaitOver = false;
+            // Start watchdog, and whether a playlist or fragment arrived
+            let startWatchdog = null;
+            let sawData = false;
 
             const resolveOnce = (value) => {
                 if (resolved) return;
                 resolved = true;
                 clearTimeout(initialBufferTimer);
+                clearTimeout(startWatchdog);
                 hls.off(Hls.Events.FRAG_BUFFERED, onFragBuffered);
                 resolve(value);
             };
@@ -692,6 +727,7 @@ export class HtmlVideoPlayer {
                 if (resolved) return;
                 resolved = true;
                 clearTimeout(initialBufferTimer);
+                clearTimeout(startWatchdog);
                 hls.off(Hls.Events.FRAG_BUFFERED, onFragBuffered);
                 reject(reason);
             };
@@ -901,10 +937,36 @@ export class HtmlVideoPlayer {
                 });
             };
 
-            const errorHandling = this._createHlsErrorHandler(hls, failHls);
+            const errorHandling = this._createHlsErrorHandler(hls, failHls, options.url);
             hls.on(Hls.Events.ERROR, errorHandling.onError);
             hls.on(Hls.Events.FRAG_LOADED, errorHandling.onFragLoaded);
             this._hlsElementErrorHandler = { hls, onError: errorHandling.onError };
+
+            // -----------------------------------------------------------------
+            // Start watchdog: without one, a server that stopped answering left
+            // play() pending forever, as the 3 s fallback's video.play() never
+            // settles without media. The playlists get 60 s. Each fragment request
+            // re-arms it: HLS.js ends a stalled request with its own fatal
+            // timeout, so a slow cold transcode is not cut off. When not even a
+            // playlist arrived, the server is not delivering at all: a network
+            // error, so JellyfinPlayer shows it instead of trying a transcode.
+            // -----------------------------------------------------------------
+            const armStartWatchdog = () => {
+                clearTimeout(startWatchdog);
+                if (resolved) return;
+                startWatchdog = setTimeout(() => {
+                    log.warn(`HLS.js start made no progress for ${HLS_START_LOAD_TIMEOUT_MS / 1000} s`);
+                    failHls(createLoadTimeoutError(!sawData));
+                }, HLS_START_LOAD_TIMEOUT_MS);
+            };
+            const onDataLoaded = () => {
+                sawData = true;
+            };
+            hls.on(Hls.Events.MANIFEST_LOADED, onDataLoaded);
+            hls.on(Hls.Events.LEVEL_LOADED, onDataLoaded);
+            hls.on(Hls.Events.FRAG_LOADED, onDataLoaded);
+            hls.on(Hls.Events.FRAG_LOADING, armStartWatchdog);
+            armStartWatchdog();
 
             // Listen for the first segment buffered — triggers play()
             hls.on(Hls.Events.FRAG_BUFFERED, onFragBuffered);
@@ -988,7 +1050,8 @@ export class HtmlVideoPlayer {
      * - Non-fatal errors: HLS.js retries them itself; nothing to do here.
      * - Fatal network errors: retried with backoff (1 s, 2 s, 4 s); an HTTP
      *   4xx/5xx response or a fourth failure in a row gives up. A loaded
-     *   fragment resets the count.
+     *   fragment resets the count. A manifest that failed is requested again
+     *   with loadSource(): startLoad() does not reload it.
      * - Fatal media errors: recoverMediaError(), then swapAudioCodec() +
      *   recoverMediaError(), each at most once per 3 s window (jellyfin-web's
      *   policy); a third error inside the window gives up. A decoder that keeps
@@ -999,9 +1062,10 @@ export class HtmlVideoPlayer {
      * @private
      * @param {Hls} hls
      * @param {Function} fail - (error) => void, called when recovery is exhausted
+     * @param {string} [url] - Manifest URL, loaded again after a manifest error (default: hls.url)
      * @returns {{onError: Function, onFragLoaded: Function}} HLS.js event handlers
      */
-    _createHlsErrorHandler(hls, fail) {
+    _createHlsErrorHandler(hls, fail, url) {
         let networkRetries = 0;
         let lastDecoderReset = 0;
         let lastCodecSwap = 0;
@@ -1032,8 +1096,17 @@ export class HtmlVideoPlayer {
                 const delay = 1000 * Math.pow(2, networkRetries);
                 networkRetries++;
                 log.info(`Retrying HLS load in ${delay} ms (attempt ${networkRetries}/${HLS_MAX_NETWORK_RETRIES})`);
+                // startLoad() does not request a manifest that never loaded (HLS.js 1.7:
+                // with no levels it only flags a start for later), so that retry did
+                // nothing and no further event came
+                const reloadManifest = HLS_MANIFEST_ERRORS.indexOf(data.details) !== -1;
                 setTimeout(() => {
-                    if (this._hlsPlayer === hls) hls.startLoad();
+                    if (this._hlsPlayer !== hls) return;
+                    if (reloadManifest) {
+                        hls.loadSource(url || hls.url);
+                    } else {
+                        hls.startLoad();
+                    }
                 }, delay);
                 return;
             }
