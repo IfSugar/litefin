@@ -404,3 +404,25 @@ test('HtmlVideoPlayer: a media error while the element reloads does not renew th
     assert.strictEqual(hls.calls.length, 3);
     assert.strictEqual(failures.length, 1, 'the same fault got three more resets');
 });
+
+// ----------------------------------------------------------------------------
+// autoplay across items
+// ----------------------------------------------------------------------------
+
+test('HtmlVideoPlayer: an HLS.js item after a native item does not inherit autoplay', async (t) => {
+    const { player, hlsInstances } = createPlayer(t);
+    // A native item (progressive direct play) turns autoplay on
+    const native = player.play({ url: 'http://srv/Videos/a/stream.mp4', mediaSource });
+    await flush();
+    player._videoElement.fire('canplay');
+    player._videoElement.fire('playing');
+    await native;
+    assert.strictEqual(player._videoElement.autoplay, true);
+    await player.stop();
+
+    // SyncPlay starts its items with autoPlay: false
+    const load = player.play(hlsItem({ autoPlay: false }));
+    hlsInstances[0].trigger(Hls.Events.MANIFEST_PARSED, {});
+    await load;
+    assert.strictEqual(player._videoElement.autoplay, false, 'the element starts the paused item by itself');
+});

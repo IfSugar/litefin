@@ -903,6 +903,10 @@ export class HtmlVideoPlayer {
                 mediaReloaded = true;
             });
 
+            // The buffer gate starts playback (not at all for autoPlay: false); autoplay
+            // left on by a native item would start the element by itself
+            video.autoplay = false;
+
             log.debug('HLS Loading source:', options.url);
             hls.loadSource(options.url);
             hls.attachMedia(video);
