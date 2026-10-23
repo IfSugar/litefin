@@ -776,6 +776,11 @@ export class WebOSPlayer {
 
         const video = this._ensureVideoElement();
 
+        // Route the audio through the normalization gain (or back to unity gain) before the
+        // load starts. Set up once play() had resolved, every queued track started at full
+        // level on its fresh element, then dropped by the gain a moment later.
+        this._applyAudioNormalization(options);
+
         // ====================================================================
         // Audio & Video Suppression for Seamless Resume:
         // When resuming playback from a non-zero position, native TV decoders
@@ -834,7 +839,6 @@ export class WebOSPlayer {
             await this._playNativeDirect(video, options);
         }
 
-        this._applyAudioNormalization(options);
         this._currentSrc = options.url;
     }
 
