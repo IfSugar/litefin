@@ -92,3 +92,133 @@ test('PlayerSettings: granular modes video, audio, and all are preserved', () =>
     PlayerSettings.set('forceDirectPlay', false);
     assert.equal(PlayerSettings.get('forceDirectPlay'), 'off');
 });
+
+// ============================================================================
+// PrewarmManager Force Direct Play Integration Tests
+// ============================================================================
+
+import { readFileSync } from 'node:fs';
+import vm from 'node:vm';
+
+const prewarmSource = readFileSync(new URL('../src/player/core/PrewarmManager.js', import.meta.url), 'utf8')
+    .replace(/\r\n/g, '\n')
+    .replace(/^import .*;\n/gm, '')
+    .replace(/^export default .*;\n/gm, '')
+    .replace(/^export const .*;\n/gm, '')
+    .replace('export class PrewarmManager', 'class PrewarmManager');
+
+function createPrewarmManagerWithSettings(settings = {}) {
+    const posts = [];
+    const context = vm.createContext({
+        logger: { create: () => ({ info() {}, debug() {}, warn() {}, error() {} }) },
+        api: {
+            userId: 'user',
+            post(url, body) {
+                posts.push(body);
+                return Promise.resolve({ MediaSources: [{ Id: 'ms-1' }] });
+            }
+        },
+        PlayerSettings: { get: (key) => settings[key] },
+        buildJellyfinProfile: () => ({
+            MaxStreamingBitrate: 40000000,
+            DirectPlayProfiles: [{ Type: 'Video', Container: 'mp4', VideoCodec: 'h264', AudioCodec: 'aac' }],
+            TranscodingProfiles: [{ Container: 'ts', Type: 'Video' }],
+            CodecProfiles: [{ Type: 'Video', Codec: 'h264' }]
+        }),
+        FontLoader: { loadFont: () => Promise.resolve() },
+        SubtitleStyles: { getCurrentFontId: () => null },
+        platformInfo: {},
+        webCodecsProbe: {},
+        resolveBestAudioStream: () => null,
+        doesAudioTrackRequireDirectStream: () => false,
+        resolveSubtitleStream: () => -1,
+        getEffectiveSubtitleMode: () => 'Default',
+        AbortController
+    });
+    const manager = vm.runInContext(`${prewarmSource}\nnew PrewarmManager();`, context);
+    return { manager, posts, settings };
+}
+
+const testMovie = {
+    Id: 'movie-force-dp',
+    Type: 'Movie',
+    Name: 'The Colors Within',
+    MediaSources: [{ Id: 'ms-force-dp', MediaStreams: [] }]
+};
+
+test('PrewarmManager: prewarms with strict Direct Play overrides when forceDirectPlay is "all"', () => {
+    const { manager, posts } = createPrewarmManagerWithSettings({
+        forceDirectPlay: 'all'
+    });
+
+    manager.prewarm(testMovie);
+
+    assert.equal(posts.length, 1);
+    const payload = posts[0];
+
+    // Transcoding must be disabled completely in the request payload
+    assert.equal(payload.EnableDirectPlay, true);
+    assert.equal(payload.EnableDirectStream, false);
+    assert.equal(payload.EnableTranscoding, false);
+    assert.equal(payload.AllowVideoStreamCopy, false);
+    assert.equal(payload.AllowAudioStreamCopy, false);
+
+    // TranscodingProfiles and CodecProfiles must be emptied
+    assert.equal(payload.DeviceProfile.TranscodingProfiles.length, 0);
+    assert.equal(payload.DeviceProfile.CodecProfiles.length, 0);
+
+    // DirectPlayProfiles must include comprehensive codecs including AV1
+    assert.ok(payload.DeviceProfile.DirectPlayProfiles.length > 0);
+    const videoProfile = payload.DeviceProfile.DirectPlayProfiles.find((p) => p.Type === 'Video');
+    assert.ok(videoProfile.VideoCodec.includes('av1'));
+});
+
+test('PrewarmManager: prewarms with video Direct Play overrides when forceDirectPlay is "video"', () => {
+    const { manager, posts } = createPrewarmManagerWithSettings({
+        forceDirectPlay: 'video'
+    });
+
+    manager.prewarm(testMovie);
+
+    assert.equal(posts.length, 1);
+    const payload = posts[0];
+
+    assert.equal(payload.EnableDirectPlay, true);
+    assert.equal(payload.EnableDirectStream, true);
+    assert.equal(payload.EnableTranscoding, true);
+    assert.equal(payload.AllowVideoStreamCopy, true);
+
+    const videoProfile = payload.DeviceProfile.DirectPlayProfiles.find((p) => p.Type === 'Video');
+    assert.ok(videoProfile.VideoCodec.includes('av1'));
+    // Video CodecProfiles must be stripped
+    assert.equal(payload.DeviceProfile.CodecProfiles.some((p) => p.Type === 'Video'), false);
+});
+
+test('PrewarmManager: invalidates prewarmed data if forceDirectPlay changes before consumption', () => {
+    const settings = { forceDirectPlay: 'all' };
+    const { manager } = createPrewarmManagerWithSettings(settings);
+
+    manager.prewarm(testMovie);
+
+    const consumeOptions = {
+        mediaSourceId: 'ms-force-dp',
+        audioStreamIndex: null,
+        subtitleStreamIndex: -1,
+        maxStreamingBitrate: 40000000
+    };
+
+    // Consume with same setting succeeds
+    const cachedPromise = manager.consumePlaybackInfo('movie-force-dp', consumeOptions);
+    assert.ok(cachedPromise);
+
+    // Re-prewarm with 'all'
+    manager.prewarm(testMovie);
+
+    // User switches setting to 'off' in settings
+    settings.forceDirectPlay = 'off';
+
+    // Must be discarded due to setting mismatch
+    const resultAfterChange = manager.consumePlaybackInfo('movie-force-dp', consumeOptions);
+    assert.equal(resultAfterChange, null);
+});
+

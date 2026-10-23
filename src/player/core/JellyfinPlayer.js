@@ -5466,10 +5466,42 @@ export class JellyfinPlayer extends EventEmitter {
                         ? isAudioTrackNativelyPlayable(activeAudioTrack, firstSource, this._backendType)
                         : true;
 
-                    // Only discard AudioCodecNotSupported when the track is natively playable on this device
-                    // (signaling that the server unnecessarily forced a transcode for a supported stream).
-                    // If the active track is TrueHD or unsupported, AudioCodecNotSupported is expected and valid.
-                    if (isAudioCodecError && isActiveAudioPlayable && (this._playbackMode === 'auto' || this._playbackMode === 'directPlay')) {
+                    // =================================================================
+                    // Safeguard Against Prewarmed Transcode when Force Direct Play Active
+                    // =================================================================
+                    // When the user has Force Direct Play active ('all', 'video', or 'audio'),
+                    // or Force Transcode active, the cached response must align with that policy.
+                    // If prewarmed data resolved to a server transcode while direct play is forced,
+                    // or cached direct play while transcode is forced, discard it immediately.
+                    // =================================================================
+                    const activeForceDirectPlay = PlayerSettings.get('forceDirectPlay');
+                    const activeForceTranscode = Boolean(PlayerSettings.get('forceTranscode'));
+                    const isStrictDirectPlay = activeForceDirectPlay === 'all' || activeForceDirectPlay === true;
+                    const isVideoDirectPlayForced = activeForceDirectPlay === 'video';
+                    const isAudioDirectPlayForced = activeForceDirectPlay === 'audio';
+                    const isPrewarmedTranscoding = firstSource.SupportsDirectPlay === false || Boolean(firstSource.TranscodingUrl);
+
+                    if (activeForceTranscode && (firstSource.SupportsDirectPlay || firstSource.SupportsDirectStream)) {
+                        log.info(
+                            '[Prewarm] Prewarmed PlaybackInfo cached direct stream/play, but Force Transcode is active. ' +
+                            'Discarding in favor of fresh transcode request.'
+                        );
+                    } else if (isStrictDirectPlay && isPrewarmedTranscoding) {
+                        log.warn(
+                            '[Prewarm] Prewarmed PlaybackInfo resolved to Transcode, but Force Direct Play (all) is active. ' +
+                            'Discarding in favor of fresh direct-play request.'
+                        );
+                    } else if (isVideoDirectPlayForced && firstSource.SupportsDirectPlay === false && firstSource.SupportsDirectStream === false) {
+                        log.warn(
+                            '[Prewarm] Prewarmed PlaybackInfo requires full Transcode, but Force Direct Play (video) is active. ' +
+                            'Discarding in favor of fresh direct-play request.'
+                        );
+                    } else if (isAudioDirectPlayForced && firstSource.TranscodingUrl && firstSource.TranscodingUrl.includes('TranscodeReasons=AudioCodecNotSupported')) {
+                        log.warn(
+                            '[Prewarm] Prewarmed PlaybackInfo transcodes audio, but Force Direct Play (audio) is active. ' +
+                            'Discarding in favor of fresh direct-play request.'
+                        );
+                    } else if (isAudioCodecError && isActiveAudioPlayable && (this._playbackMode === 'auto' || this._playbackMode === 'directPlay')) {
                         log.warn(
                             '[Prewarm] Prewarmed PlaybackInfo forced transcode for AudioCodecNotSupported despite track being playable. Discarding in favor of fresh direct-play request.'
                         );

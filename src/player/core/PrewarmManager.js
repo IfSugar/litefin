@@ -100,14 +100,20 @@ export class PrewarmManager {
             }
         }
 
-        // Check if item is already prewarmed with identical track and media source options
+        // Read active global policy settings for parity checks
+        const activeForceDirectPlay = PlayerSettings.get('forceDirectPlay') || 'off';
+        const activeForceTranscode = Boolean(PlayerSettings.get('forceTranscode'));
+
+        // Check if item is already prewarmed with identical track, media source, and policy options
         const isSameItem = this._cachedItemId === item.Id;
         const isFresh = Date.now() - this._timestamp < 60000;
         const isSameSource = this._prewarmParams?.mediaSourceId === targetMediaSourceId;
         const isSameAudio = this._prewarmParams?.audioStreamIndex === targetAudioIndex;
         const isSameSubtitle = this._prewarmParams?.subtitleStreamIndex === targetSubtitleIndex;
+        const isSameForceDirectPlay = this._prewarmParams?.forceDirectPlay === activeForceDirectPlay;
+        const isSameForceTranscode = this._prewarmParams?.forceTranscode === activeForceTranscode;
 
-        if (isSameItem && isFresh && isSameSource && isSameAudio && isSameSubtitle) {
+        if (isSameItem && isFresh && isSameSource && isSameAudio && isSameSubtitle && isSameForceDirectPlay && isSameForceTranscode) {
             log.debug(`[Prewarm] Item "${item.Name}" already pre-warmed with matching parameters, skipping duplicate.`);
             return;
         }
@@ -118,10 +124,12 @@ export class PrewarmManager {
         log.info(`[Prewarm] Initiating zero-latency prewarm for "${item.Name}" (${item.Id})`, {
             mediaSourceId: targetMediaSourceId,
             audioStreamIndex: targetAudioIndex,
-            subtitleStreamIndex: targetSubtitleIndex
+            subtitleStreamIndex: targetSubtitleIndex,
+            forceDirectPlay: activeForceDirectPlay,
+            forceTranscode: activeForceTranscode
         });
 
-        // Store active caching state
+        // Store active caching state including user playback policy flags
         this._cachedItemId = item.Id;
         this._cachedItem = item;
         this._timestamp = Date.now();
@@ -130,7 +138,9 @@ export class PrewarmManager {
             mediaSourceId: targetMediaSourceId,
             audioStreamIndex: targetAudioIndex,
             subtitleStreamIndex: targetSubtitleIndex,
-            playbackMode: 'auto'
+            playbackMode: 'auto',
+            forceDirectPlay: activeForceDirectPlay,
+            forceTranscode: activeForceTranscode
         };
 
         // 1. Preload subtitle font in background if configured
@@ -239,6 +249,116 @@ export class PrewarmManager {
                 EnableDirectStream: true
             };
 
+            // =================================================================
+            // Global Playback Policy Overrides in Prewarm Payload
+            // =================================================================
+            // Replicate the exact profile overrides that JellyfinPlayer uses so
+            // the server pre-warms with the correct PlayMethod (e.g. strict Direct Play
+            // or Forced Video Copy) instead of producing an incompatible transcode stream.
+            // =================================================================
+            if (activeForceTranscode) {
+                // Strict transcode mode
+                requestBody.EnableDirectPlay = false;
+                requestBody.EnableDirectStream = false;
+                requestBody.EnableTranscoding = true;
+                requestBody.AllowVideoStreamCopy = false;
+                requestBody.AllowAudioStreamCopy = false;
+                if (requestBody.DeviceProfile) {
+                    requestBody.DeviceProfile.DirectPlayProfiles = [];
+                    requestBody.DeviceProfile.DirectStreamProfiles = [];
+                }
+            } else if (activeForceDirectPlay === 'all' || activeForceDirectPlay === true) {
+                // Strict Direct Play: Direct play all audio and video formats natively
+                requestBody.EnableDirectPlay = true;
+                requestBody.EnableDirectStream = false;
+                requestBody.EnableTranscoding = false;
+                requestBody.AllowVideoStreamCopy = false;
+                requestBody.AllowAudioStreamCopy = false;
+
+                if (requestBody.DeviceProfile) {
+                    requestBody.DeviceProfile.DirectPlayProfiles = [{
+                        Container: 'm4v,3gp,ts,mpegts,mov,xvid,vob,mkv,wmv,asf,ogm,ogv,m2v,avi,mpg,mpeg,mp4,webm,wtv,dvr-ms,m2ts,rmvb,mxf',
+                        AudioCodec: 'aac,mp3,mpa,wav,wma,wv,flac,ogg,oga,vorbis,ac3,eac3,dts,dtshd,opus,truehd,alac',
+                        VideoCodec: 'h264,h265,hevc,vp8,vp9,mpeg1video,mpeg2video,mpeg4,wmv2,wmv3,vcl,theora,vc1,mpeg,h263,msmpeg4,av1',
+                        Type: 'Video'
+                    }, {
+                        Container: 'aac,mp3,mpa,wav,wma,wv,flac,ogg,oga,vorbis,ac3,eac3,dts,dtshd,opus,truehd,alac',
+                        AudioCodec: 'aac,mp3,mpa,wav,wma,wv,flac,ogg,oga,vorbis,ac3,eac3,dts,dtshd,opus,truehd,alac',
+                        Type: 'Audio'
+                    }];
+                    requestBody.DeviceProfile.TranscodingProfiles = [];
+                    requestBody.DeviceProfile.DirectStreamProfiles = [];
+                    requestBody.DeviceProfile.CodecProfiles = [];
+                    requestBody.DeviceProfile.ContainerProfiles = [];
+                }
+            } else if (activeForceDirectPlay === 'video') {
+                // Video Direct Play Only: Video is always copied, audio may transcode
+                requestBody.EnableDirectPlay = true;
+                requestBody.EnableDirectStream = true;
+                requestBody.EnableTranscoding = true;
+                requestBody.AllowVideoStreamCopy = true;
+                requestBody.AllowAudioStreamCopy = true;
+
+                const allVideoContainers = 'm4v,3gp,ts,mpegts,mov,xvid,vob,mkv,wmv,asf,ogm,ogv,m2v,avi,mpg,mpeg,mp4,webm,wtv,dvr-ms,m2ts,rmvb,mxf';
+                const allVideoCodecs = 'h264,h265,hevc,vp8,vp9,mpeg1video,mpeg2video,mpeg4,wmv2,wmv3,vcl,theora,vc1,mpeg,h263,msmpeg4,av1';
+
+                if (requestBody.DeviceProfile && Array.isArray(requestBody.DeviceProfile.DirectPlayProfiles)) {
+                    const supportedAudioCodecs = requestBody.DeviceProfile.DirectPlayProfiles
+                        .filter(p => p.Type === 'Video' && p.AudioCodec)
+                        .map(p => p.AudioCodec)
+                        .join(',');
+                    const audioCodecsList = supportedAudioCodecs || 'aac,mp3,ac3,eac3,flac,vorbis,opus';
+
+                    requestBody.DeviceProfile.DirectPlayProfiles = [{
+                        Container: allVideoContainers,
+                        AudioCodec: audioCodecsList,
+                        VideoCodec: allVideoCodecs,
+                        Type: 'Video'
+                    }, {
+                        Container: 'aac,mp3,mpa,wav,wma,wv,flac,ogg,oga,vorbis,ac3,eac3,dts,dtshd,opus,truehd,alac',
+                        AudioCodec: 'aac,mp3,mpa,wav,wma,wv,flac,ogg,oga,vorbis,ac3,eac3,dts,dtshd,opus,truehd,alac',
+                        Type: 'Audio'
+                    }];
+                }
+
+                if (requestBody.DeviceProfile && Array.isArray(requestBody.DeviceProfile.CodecProfiles)) {
+                    requestBody.DeviceProfile.CodecProfiles = requestBody.DeviceProfile.CodecProfiles.filter(p => p.Type !== 'Video' && p.Type !== 'VideoAudio');
+                }
+            } else if (activeForceDirectPlay === 'audio') {
+                // Audio Direct Play Only: Audio is direct-played/copied, video may transcode
+                requestBody.EnableDirectPlay = true;
+                requestBody.EnableDirectStream = true;
+                requestBody.EnableTranscoding = true;
+                requestBody.AllowVideoStreamCopy = true;
+                requestBody.AllowAudioStreamCopy = true;
+
+                const allAudioCodecs = 'aac,mp3,mpa,wav,wma,wv,flac,ogg,oga,vorbis,ac3,eac3,dts,dtshd,opus,truehd,alac';
+                const allContainersList = 'm4v,3gp,ts,mpegts,mov,xvid,vob,mkv,wmv,asf,ogm,ogv,m2v,avi,mpg,mpeg,mp4,webm,wtv,dvr-ms,m2ts,rmvb,mxf';
+
+                if (requestBody.DeviceProfile && Array.isArray(requestBody.DeviceProfile.DirectPlayProfiles)) {
+                    const supportedVideoCodecs = requestBody.DeviceProfile.DirectPlayProfiles
+                        .filter(p => p.Type === 'Video' && p.VideoCodec)
+                        .map(p => p.VideoCodec)
+                        .join(',');
+                    const videoCodecsList = supportedVideoCodecs || 'h264,hevc,vp9,av1';
+
+                    requestBody.DeviceProfile.DirectPlayProfiles = [{
+                        Container: allContainersList,
+                        AudioCodec: allAudioCodecs,
+                        VideoCodec: videoCodecsList,
+                        Type: 'Video'
+                    }, {
+                        Container: allAudioCodecs,
+                        AudioCodec: allAudioCodecs,
+                        Type: 'Audio'
+                    }];
+                }
+
+                if (requestBody.DeviceProfile && Array.isArray(requestBody.DeviceProfile.CodecProfiles)) {
+                    requestBody.DeviceProfile.CodecProfiles = requestBody.DeviceProfile.CodecProfiles.filter(p => p.Type !== 'Audio');
+                }
+            }
+
             // consumePlaybackInfo() reuses the response only for the same bitrate limit
             this._prewarmParams.maxStreamingBitrate = requestBody.MaxStreamingBitrate;
 
@@ -324,7 +444,29 @@ export class PrewarmManager {
                 return null;
             }
 
-            // 2. Validate MediaSourceId: If user or player selected a different version, invalidate
+            // 2. Validate forceDirectPlay & forceTranscode settings parity if tracked
+            const activeForceDirectPlay = PlayerSettings.get('forceDirectPlay') || 'off';
+            const activeForceTranscode = Boolean(PlayerSettings.get('forceTranscode'));
+
+            if (this._prewarmParams?.forceDirectPlay !== undefined && this._prewarmParams.forceDirectPlay !== activeForceDirectPlay) {
+                log.info(
+                    `[Prewarm] ForceDirectPlay setting changed since prewarm ` +
+                    `(prewarmed: ${this._prewarmParams.forceDirectPlay}, active: ${activeForceDirectPlay}). Discarding prewarm.`
+                );
+                this.clear();
+                return null;
+            }
+
+            if (this._prewarmParams?.forceTranscode !== undefined && this._prewarmParams.forceTranscode !== activeForceTranscode) {
+                log.info(
+                    `[Prewarm] ForceTranscode setting changed since prewarm ` +
+                    `(prewarmed: ${this._prewarmParams.forceTranscode}, active: ${activeForceTranscode}). Discarding prewarm.`
+                );
+                this.clear();
+                return null;
+            }
+
+            // 3. Validate MediaSourceId: If user or player selected a different version, invalidate
             if (options.mediaSourceId && this._prewarmParams?.mediaSourceId) {
                 if (options.mediaSourceId !== this._prewarmParams.mediaSourceId) {
                     log.info(
