@@ -790,11 +790,11 @@ html[data-layout-media-rows="expanding"] .favorite-badge {
     z-index: 8;
     font-weight: 700;
     pointer-events: none;
-    /* Smooth floating physics when card expands and badges elevate above inside text */
-    transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1),
-                bottom 0.25s cubic-bezier(0.16, 1, 0.3, 1),
-                left 0.25s cubic-bezier(0.16, 1, 0.3, 1),
-                right 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+    /* Smooth floating physics when card expands and badges elevate above inside text.
+       Only transform is animated: animating bottom/left/right would lay the card out
+       again on every frame of every focus move. */
+    -webkit-transition: -webkit-transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 html[data-layout-media-rows="modern"] .media-card:focus .count-badge,
@@ -1040,16 +1040,7 @@ html[data-layout-media-rows="expanding"] .media-card.landscape .media-source-cou
 html[data-layout-media-rows="expanding"] .media-card.landscape .favorite-badge,
 html[data-layout-media-rows="expanding"] .media-card.square .version-badge,
 html[data-layout-media-rows="expanding"] .media-card.square .media-source-count-badge,
-html[data-layout-media-rows="expanding"] .media-card.square .favorite-badge,
-html[data-layout-media-rows="expanding"] .media-row:not(:hover) .media-card.has-expansion:focus .version-badge,
-html[data-layout-media-rows="expanding"] .media-row:not(:hover) .media-card.has-expansion:focus .media-source-count-badge,
-html[data-layout-media-rows="expanding"] .media-row:not(:hover) .media-card.has-expansion:focus .favorite-badge,
-html[data-layout-media-rows="expanding"] .media-row:not(:hover) .media-card.has-expansion.focused .version-badge,
-html[data-layout-media-rows="expanding"] .media-row:not(:hover) .media-card.has-expansion.focused .media-source-count-badge,
-html[data-layout-media-rows="expanding"] .media-row:not(:hover) .media-card.has-expansion.focused .favorite-badge,
-html[data-layout-media-rows="expanding"] .media-card.has-expansion:hover .version-badge,
-html[data-layout-media-rows="expanding"] .media-card.has-expansion:hover .media-source-count-badge,
-html[data-layout-media-rows="expanding"] .media-card.has-expansion:hover .favorite-badge {
+html[data-layout-media-rows="expanding"] .media-card.square .favorite-badge {
     bottom: 112px;
     left: 30px;
     right: auto;
@@ -1057,10 +1048,7 @@ html[data-layout-media-rows="expanding"] .media-card.has-expansion:hover .favori
 
 /* Right Badge: Watched indicator positioned above text */
 html[data-layout-media-rows="expanding"] .media-card.landscape .played-badge,
-html[data-layout-media-rows="expanding"] .media-card.square .played-badge,
-html[data-layout-media-rows="expanding"] .media-row:not(:hover) .media-card.has-expansion:focus .played-badge,
-html[data-layout-media-rows="expanding"] .media-row:not(:hover) .media-card.has-expansion.focused .played-badge,
-html[data-layout-media-rows="expanding"] .media-card.has-expansion:hover .played-badge {
+html[data-layout-media-rows="expanding"] .media-card.square .played-badge {
     bottom: 112px;
     right: 30px;
     left: auto;
@@ -1070,13 +1058,7 @@ html[data-layout-media-rows="expanding"] .media-card.has-expansion:hover .played
 html[data-layout-media-rows="expanding"] .media-card.landscape .version-badge ~ .favorite-badge,
 html[data-layout-media-rows="expanding"] .media-card.landscape .media-source-count-badge ~ .favorite-badge,
 html[data-layout-media-rows="expanding"] .media-card.square .version-badge ~ .favorite-badge,
-html[data-layout-media-rows="expanding"] .media-card.square .media-source-count-badge ~ .favorite-badge,
-html[data-layout-media-rows="expanding"] .media-row:not(:hover) .media-card.has-expansion:focus .version-badge ~ .favorite-badge,
-html[data-layout-media-rows="expanding"] .media-row:not(:hover) .media-card.has-expansion:focus .media-source-count-badge ~ .favorite-badge,
-html[data-layout-media-rows="expanding"] .media-row:not(:hover) .media-card.has-expansion.focused .version-badge ~ .favorite-badge,
-html[data-layout-media-rows="expanding"] .media-row:not(:hover) .media-card.has-expansion.focused .media-source-count-badge ~ .favorite-badge,
-html[data-layout-media-rows="expanding"] .media-card.has-expansion:hover .version-badge ~ .favorite-badge,
-html[data-layout-media-rows="expanding"] .media-card.has-expansion:hover .media-source-count-badge ~ .favorite-badge {
+html[data-layout-media-rows="expanding"] .media-card.square .media-source-count-badge ~ .favorite-badge {
     left: 82px;
 }
 
@@ -1088,20 +1070,107 @@ html[data-layout-media-rows="expanding"] .media-card.landscape.has-progress .pla
 html[data-layout-media-rows="expanding"] .media-card.square.has-progress .version-badge,
 html[data-layout-media-rows="expanding"] .media-card.square.has-progress .media-source-count-badge,
 html[data-layout-media-rows="expanding"] .media-card.square.has-progress .favorite-badge,
-html[data-layout-media-rows="expanding"] .media-card.square.has-progress .played-badge,
+html[data-layout-media-rows="expanding"] .media-card.square.has-progress .played-badge {
+    bottom: 122px;
+}
+
+/* -------------------------------------------------------------------------
+   Expanding posters: badges travel with a transform
+   -------------------------------------------------------------------------
+   A poster that widens on focus/hover keeps its badges at their resting
+   bottom/left/right and moves them to the same above-text spots as the
+   rules above with translate(), combined with the focus scale. Only the
+   transform animates, so a D-pad move costs no extra layout per frame.
+   From rest: up 90px (22px -> 112px), or 84px with a progress bar
+   (38px -> 122px), and 8px inwards (22px -> 30px, 74px -> 82px). */
+html[data-layout-media-rows="expanding"] .media-row:not(:hover) .media-card.has-expansion:focus .version-badge,
+html[data-layout-media-rows="expanding"] .media-row:not(:hover) .media-card.has-expansion:focus .media-source-count-badge,
+html[data-layout-media-rows="expanding"] .media-row:not(:hover) .media-card.has-expansion:focus .favorite-badge,
+html[data-layout-media-rows="expanding"] .media-row:not(:hover) .media-card.has-expansion.focused .version-badge,
+html[data-layout-media-rows="expanding"] .media-row:not(:hover) .media-card.has-expansion.focused .media-source-count-badge,
+html[data-layout-media-rows="expanding"] .media-row:not(:hover) .media-card.has-expansion.focused .favorite-badge,
+html[data-layout-media-rows="expanding"] .media-card.has-expansion:hover .version-badge,
+html[data-layout-media-rows="expanding"] .media-card.has-expansion:hover .media-source-count-badge,
+html[data-layout-media-rows="expanding"] .media-card.has-expansion:hover .favorite-badge {
+    -webkit-transform: translate(8px, -90px) scale(1.05);
+    transform: translate(8px, -90px) scale(1.05);
+}
+
+html[data-layout-media-rows="expanding"] .media-row:not(:hover) .media-card.has-expansion:focus .played-badge,
+html[data-layout-media-rows="expanding"] .media-row:not(:hover) .media-card.has-expansion.focused .played-badge,
+html[data-layout-media-rows="expanding"] .media-card.has-expansion:hover .played-badge {
+    -webkit-transform: translate(-8px, -90px) scale(1.05);
+    transform: translate(-8px, -90px) scale(1.05);
+}
+
 html[data-layout-media-rows="expanding"] .media-row:not(:hover) .media-card.has-expansion.has-progress:focus .version-badge,
 html[data-layout-media-rows="expanding"] .media-row:not(:hover) .media-card.has-expansion.has-progress:focus .media-source-count-badge,
 html[data-layout-media-rows="expanding"] .media-row:not(:hover) .media-card.has-expansion.has-progress:focus .favorite-badge,
-html[data-layout-media-rows="expanding"] .media-row:not(:hover) .media-card.has-expansion.has-progress:focus .played-badge,
 html[data-layout-media-rows="expanding"] .media-row:not(:hover) .media-card.has-expansion.has-progress.focused .version-badge,
 html[data-layout-media-rows="expanding"] .media-row:not(:hover) .media-card.has-expansion.has-progress.focused .media-source-count-badge,
 html[data-layout-media-rows="expanding"] .media-row:not(:hover) .media-card.has-expansion.has-progress.focused .favorite-badge,
-html[data-layout-media-rows="expanding"] .media-row:not(:hover) .media-card.has-expansion.has-progress.focused .played-badge,
 html[data-layout-media-rows="expanding"] .media-card.has-expansion.has-progress:hover .version-badge,
 html[data-layout-media-rows="expanding"] .media-card.has-expansion.has-progress:hover .media-source-count-badge,
-html[data-layout-media-rows="expanding"] .media-card.has-expansion.has-progress:hover .favorite-badge,
+html[data-layout-media-rows="expanding"] .media-card.has-expansion.has-progress:hover .favorite-badge {
+    -webkit-transform: translate(8px, -84px) scale(1.05);
+    transform: translate(8px, -84px) scale(1.05);
+}
+
+html[data-layout-media-rows="expanding"] .media-row:not(:hover) .media-card.has-expansion.has-progress:focus .played-badge,
+html[data-layout-media-rows="expanding"] .media-row:not(:hover) .media-card.has-expansion.has-progress.focused .played-badge,
 html[data-layout-media-rows="expanding"] .media-card.has-expansion.has-progress:hover .played-badge {
-    bottom: 122px;
+    -webkit-transform: translate(-8px, -84px) scale(1.05);
+    transform: translate(-8px, -84px) scale(1.05);
+}
+
+/* Disable Card Scaling resets focused badges to transform: none (base.css);
+   keep the move above the text, without the scale. */
+html[data-disable-card-scaling="true"][data-layout-media-rows="expanding"] .media-row:not(:hover) .media-card.has-expansion:focus .version-badge,
+html[data-disable-card-scaling="true"][data-layout-media-rows="expanding"] .media-row:not(:hover) .media-card.has-expansion:focus .media-source-count-badge,
+html[data-disable-card-scaling="true"][data-layout-media-rows="expanding"] .media-row:not(:hover) .media-card.has-expansion:focus .favorite-badge,
+html[data-disable-card-scaling="true"][data-layout-media-rows="expanding"] .media-row:not(:hover) .media-card.has-expansion.focused .version-badge,
+html[data-disable-card-scaling="true"][data-layout-media-rows="expanding"] .media-row:not(:hover) .media-card.has-expansion.focused .media-source-count-badge,
+html[data-disable-card-scaling="true"][data-layout-media-rows="expanding"] .media-row:not(:hover) .media-card.has-expansion.focused .favorite-badge,
+html[data-disable-card-scaling="true"][data-layout-media-rows="expanding"] .media-card.has-expansion:focus:hover .version-badge,
+html[data-disable-card-scaling="true"][data-layout-media-rows="expanding"] .media-card.has-expansion.focused:hover .version-badge,
+html[data-disable-card-scaling="true"][data-layout-media-rows="expanding"] .media-card.has-expansion:focus:hover .media-source-count-badge,
+html[data-disable-card-scaling="true"][data-layout-media-rows="expanding"] .media-card.has-expansion.focused:hover .media-source-count-badge,
+html[data-disable-card-scaling="true"][data-layout-media-rows="expanding"] .media-card.has-expansion:focus:hover .favorite-badge,
+html[data-disable-card-scaling="true"][data-layout-media-rows="expanding"] .media-card.has-expansion.focused:hover .favorite-badge {
+    -webkit-transform: translate(8px, -90px) !important;
+    transform: translate(8px, -90px) !important;
+}
+
+html[data-disable-card-scaling="true"][data-layout-media-rows="expanding"] .media-row:not(:hover) .media-card.has-expansion:focus .played-badge,
+html[data-disable-card-scaling="true"][data-layout-media-rows="expanding"] .media-row:not(:hover) .media-card.has-expansion.focused .played-badge,
+html[data-disable-card-scaling="true"][data-layout-media-rows="expanding"] .media-card.has-expansion:focus:hover .played-badge,
+html[data-disable-card-scaling="true"][data-layout-media-rows="expanding"] .media-card.has-expansion.focused:hover .played-badge {
+    -webkit-transform: translate(-8px, -90px) !important;
+    transform: translate(-8px, -90px) !important;
+}
+
+html[data-disable-card-scaling="true"][data-layout-media-rows="expanding"] .media-row:not(:hover) .media-card.has-expansion.has-progress:focus .version-badge,
+html[data-disable-card-scaling="true"][data-layout-media-rows="expanding"] .media-row:not(:hover) .media-card.has-expansion.has-progress:focus .media-source-count-badge,
+html[data-disable-card-scaling="true"][data-layout-media-rows="expanding"] .media-row:not(:hover) .media-card.has-expansion.has-progress:focus .favorite-badge,
+html[data-disable-card-scaling="true"][data-layout-media-rows="expanding"] .media-row:not(:hover) .media-card.has-expansion.has-progress.focused .version-badge,
+html[data-disable-card-scaling="true"][data-layout-media-rows="expanding"] .media-row:not(:hover) .media-card.has-expansion.has-progress.focused .media-source-count-badge,
+html[data-disable-card-scaling="true"][data-layout-media-rows="expanding"] .media-row:not(:hover) .media-card.has-expansion.has-progress.focused .favorite-badge,
+html[data-disable-card-scaling="true"][data-layout-media-rows="expanding"] .media-card.has-expansion.has-progress:focus:hover .version-badge,
+html[data-disable-card-scaling="true"][data-layout-media-rows="expanding"] .media-card.has-expansion.has-progress.focused:hover .version-badge,
+html[data-disable-card-scaling="true"][data-layout-media-rows="expanding"] .media-card.has-expansion.has-progress:focus:hover .media-source-count-badge,
+html[data-disable-card-scaling="true"][data-layout-media-rows="expanding"] .media-card.has-expansion.has-progress.focused:hover .media-source-count-badge,
+html[data-disable-card-scaling="true"][data-layout-media-rows="expanding"] .media-card.has-expansion.has-progress:focus:hover .favorite-badge,
+html[data-disable-card-scaling="true"][data-layout-media-rows="expanding"] .media-card.has-expansion.has-progress.focused:hover .favorite-badge {
+    -webkit-transform: translate(8px, -84px) !important;
+    transform: translate(8px, -84px) !important;
+}
+
+html[data-disable-card-scaling="true"][data-layout-media-rows="expanding"] .media-row:not(:hover) .media-card.has-expansion.has-progress:focus .played-badge,
+html[data-disable-card-scaling="true"][data-layout-media-rows="expanding"] .media-row:not(:hover) .media-card.has-expansion.has-progress.focused .played-badge,
+html[data-disable-card-scaling="true"][data-layout-media-rows="expanding"] .media-card.has-expansion.has-progress:focus:hover .played-badge,
+html[data-disable-card-scaling="true"][data-layout-media-rows="expanding"] .media-card.has-expansion.has-progress.focused:hover .played-badge {
+    -webkit-transform: translate(-8px, -84px) !important;
+    transform: translate(-8px, -84px) !important;
 }
 
 /* Top Left: SxxExx */
