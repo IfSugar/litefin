@@ -130,6 +130,9 @@ class PlayerPage extends Page {
         this._preSelectedAudio = undefined;
         this._preSelectedSubtitle = undefined;
 
+        // Version and tracks handed over by the play request, taken from state by onInit()
+        this._initialSelection = null;
+
         /*
          * ====================================================================
          * ORIGINATING CONTEXT TRACKING
@@ -309,6 +312,26 @@ class PlayerPage extends Page {
         const resume = this.params.resume === 'true';
         const startPositionTicks = this.params.startPositionTicks ? parseInt(this.params.startPositionTicks, 10) : null;
 
+        // Take the play request's hand-over state now, before anything waits:
+        // left behind (Back during the loading spinner), the next playback would
+        // get this item's queue context and audio/subtitle/version choice.
+        const contextType = state.get('player:contextType');
+        const contextId = state.get('player:contextId');
+        // For BoxSet queues, the sort order is forwarded from DetailsPage so the
+        // full queue is ordered the same way the collection display grid is ordered.
+        const boxsetSortBy = state.get('player:boxsetSortBy');
+        this._initialSelection = {
+            mediaSourceId: state.get('player:initialMediaSourceId'),
+            audioIndex: state.get('player:initialAudioIndex'),
+            subtitleIndex: state.get('player:initialSubtitleIndex')
+        };
+        state.set('player:contextType', null);
+        state.set('player:contextId', null);
+        state.set('player:boxsetSortBy', null);
+        state.set('player:initialMediaSourceId', null);
+        state.set('player:initialAudioIndex', null);
+        state.set('player:initialSubtitleIndex', null);
+
         try {
             // Show loading overlay immediately with a solid opaque black background
             this._showLoading(true);
@@ -360,6 +383,13 @@ class PlayerPage extends Page {
 
             // Load item details (and wait for font if needed)
             const [itemResult] = await Promise.all(fetchTasks);
+
+            // Back during the loading spinner: the page is gone, don't start
+            // the queue or the player for it
+            if (this._isDestroyed || this._isExiting) {
+                log.info('Player left while the item was loading — not starting playback');
+                return;
+            }
 
             /*
              * -----------------------------------------------------------------
@@ -420,9 +450,6 @@ class PlayerPage extends Page {
             }
 
             // Initialize Play Queue
-            const contextType = state.get('player:contextType');
-            const contextId = state.get('player:contextId');
-
             /*
              * Save the active container context locally on the page instance before
              * the state is purged. This ensures the stop and exit logic can resolve
@@ -432,11 +459,14 @@ class PlayerPage extends Page {
             this._contextType = contextType || null;
             this._contextId = contextId || null;
 
-            // For BoxSet queues, the sort order is forwarded from DetailsPage so the
-            // full queue is ordered the same way the collection display grid is ordered.
-            const boxsetSortBy = state.get('player:boxsetSortBy');
             log.debug('Initializing PlayQueue with context:', { contextType, contextId, boxsetSortBy });
             await playQueue.init(this._item, contextType, contextId, boxsetSortBy);
+
+            // Back while the queue was loading (up to 2 s)
+            if (this._isDestroyed || this._isExiting) {
+                log.info('Player left while the queue was loading — not starting playback');
+                return;
+            }
 
             // Sync the active item to the instance that PlayQueue just minted.
             // This prevents duplicate-fetch bugs with plugins like Local Intros.
@@ -448,11 +478,6 @@ class PlayerPage extends Page {
                 Object.assign(queueItem, this._item);
                 this._item = queueItem;
             }
-
-            // Clear context state so it doesn't leak to next playback
-            state.set('player:contextType', null);
-            state.set('player:contextId', null);
-            state.set('player:boxsetSortBy', null);
 
             // Calculate resume position if needed
             if (startPositionTicks !== null && !isNaN(startPositionTicks)) {
@@ -1420,6 +1445,12 @@ class PlayerPage extends Page {
             log.error('pluginManager.prepareItemPlayback failed:', err);
         }
 
+        // Left while the plugins prepared the item (see onInit)
+        if (this._isDestroyed || this._isExiting) {
+            log.info('Player left while the item was prepared — not starting playback');
+            return;
+        }
+
         // Re-sync this._item with the PlayQueue's current pointer.
         // If a plugin (like Local Intros) prepended items, the "main" item is now
         // at a later index, and the current pointer (0) is the first intro.
@@ -1463,6 +1494,11 @@ class PlayerPage extends Page {
             } catch (err) {
                 log.warn('Failed to backfill item metadata in _startPlayback:', err);
             }
+            // Left while the item details loaded
+            if (this._isDestroyed || this._isExiting) {
+                log.info('Player left while the item details loaded — not starting playback');
+                return;
+            }
         }
 
         // Reset version and track selections if the item has changed (e.g. queue advance/prev)
@@ -1473,19 +1509,20 @@ class PlayerPage extends Page {
             this._preSelectedSubtitle = undefined;
         }
 
-        // 1. Check for pre-selected tracks/version from DetailsPage (stored in state)
+        // 1. Check for pre-selected tracks/version from DetailsPage (taken from state by onInit)
         // Store these on the page instance once so they persist across error/retry attempts
+        const initialSelection = this._initialSelection || {};
         if (this._preSelectedMediaSourceId === undefined) {
-            this._preSelectedMediaSourceId = state.get('player:initialMediaSourceId') || null;
-            state.set('player:initialMediaSourceId', null);
+            this._preSelectedMediaSourceId = initialSelection.mediaSourceId || null;
+            initialSelection.mediaSourceId = null;
         }
         if (this._preSelectedAudio === undefined) {
-            this._preSelectedAudio = state.get('player:initialAudioIndex') ?? null;
-            state.set('player:initialAudioIndex', null);
+            this._preSelectedAudio = initialSelection.audioIndex ?? null;
+            initialSelection.audioIndex = null;
         }
         if (this._preSelectedSubtitle === undefined) {
-            this._preSelectedSubtitle = state.get('player:initialSubtitleIndex') ?? null;
-            state.set('player:initialSubtitleIndex', null);
+            this._preSelectedSubtitle = initialSelection.subtitleIndex ?? null;
+            initialSelection.subtitleIndex = null;
         }
 
         const preSelectedMediaSourceId = this._preSelectedMediaSourceId;
@@ -5713,6 +5750,7 @@ class PlayerPage extends Page {
     // ========================================================================
 
     destroy() {
+        this._isDestroyed = true;
         document.body.classList.remove('resume-profile-selection-active');
         this._resumeProfileSelectionActive = false;
         this._resumePlaybackAfterProfileSelection = false;
