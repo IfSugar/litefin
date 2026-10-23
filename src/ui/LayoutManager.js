@@ -431,6 +431,23 @@ class LayoutManager {
             }
         }
 
+        /*
+         * ====================================================================
+         * SETTINGS RESTORATION COMPLETION
+         * ====================================================================
+         * Mark settings as loaded on both the documentElement and body.
+         * This unblocks the startup splash loading spinner, ensuring it only
+         * becomes visible once the user's chosen animation style (e.g., ring,
+         * orbit, dots) and active theme tokens have taken effect.
+         * ====================================================================
+         */
+        if (typeof document !== 'undefined' && document.documentElement) {
+            document.documentElement.setAttribute('data-settings-loaded', 'true');
+            if (document.body) {
+                document.body.classList.add('settings-loaded');
+            }
+        }
+
         log.info(
             `Initialized: layout="${this._layout}", mode="${this._themeMode}", color="${this._themeColor}", font="${this._uiFont}", tier="${platformInfo.layoutTier}", platform="${platformInfo.platformString}", quirks="${platformInfo.isAncientChrome ? 'c26' : 'none'}"`
         );

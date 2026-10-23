@@ -305,7 +305,8 @@
                 var validLoaderStyles = ['dots','ring','dual-ring','orbit','satellite','triple-ring','dotted-ring','eclipse-sweep','sonar-ring','push-pulse','horizontal-dots','pulsing-grid'];
                 var savedLoaderStyle = localStorage.getItem('litefin:loaderStyle');
                 var savedSimpleLoader = localStorage.getItem('litefin:simpleLoader') === 'true';
-                var loaderStyle = validLoaderStyles.includes(savedLoaderStyle) ? savedLoaderStyle : (savedSimpleLoader ? 'ring' : 'dots');
+                // Align fallback default to 'ring' to match LayoutManager single source of truth
+                var loaderStyle = validLoaderStyles.includes(savedLoaderStyle) ? savedLoaderStyle : (savedSimpleLoader ? 'ring' : 'ring');
                 document.documentElement.setAttribute('data-loader-style', loaderStyle);
 
                 // Theme variables for early loading (must match CSS definitions)
@@ -414,6 +415,31 @@
 
         .page-loading.hidden {
             display: none !important;
+        }
+
+        /* 
+         * ====================================================================
+         * STARTUP SPINNER VISIBILITY MANAGEMENT
+         * ====================================================================
+         * Keep the initial loading indicator completely hidden until user
+         * settings have finished restoring. This prevents a visible flash of the
+         * default spinner before the user-configured style and theme take effect.
+         * ====================================================================
+         */
+        #app-splash .loading-spinner {
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        /* 
+         * Reveal the loading spinner once user settings have been restored
+         * and the active loader style attribute has been populated.
+         */
+        html[data-settings-loaded="true"] #app-splash .loading-spinner,
+        body.settings-loaded #app-splash .loading-spinner {
+            opacity: 1;
+            visibility: visible;
         }
 
         .loading-spinner {

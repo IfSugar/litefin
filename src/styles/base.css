@@ -961,6 +961,30 @@ body.app-splash-active .page-loading .loading-spinner {
     opacity: 0;
 }
 
+/* 
+ * ============================================================================
+ * STARTUP SPINNER VISIBILITY MANAGEMENT
+ * ============================================================================
+ * Keep the initial startup loading indicator hidden until user preferences
+ * have finished restoring into LayoutManager and applied to the DOM.
+ * ============================================================================
+ */
+#app-splash .loading-spinner {
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* 
+ * Reveal the loading spinner once user settings have been restored
+ * and the active loader style attribute has been populated.
+ */
+html[data-settings-loaded="true"] #app-splash .loading-spinner,
+body.settings-loaded #app-splash .loading-spinner {
+    opacity: 1;
+    visibility: visible;
+}
+
 /* Premium Shimmer Skeleton Animation */
 /* PERFORMANCE: Use transform: translateX() instead of background-position.
    Animating 'background-position' triggers a CPU repaint for every frame, 
