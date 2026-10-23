@@ -449,7 +449,11 @@ export function buildJellyfinProfile(options = {}) {
     // -------------------------------------------------------------------------
     // Notice: Id is strictly omitted here to prevent server lookup validation errors.
     // -------------------------------------------------------------------------
-    const effectiveBitrate = manualBitrate || 120000000;
+    // A quality picked in the OSD, else the global limit (maxBitrateInternet), at most 120 Mbps
+    const effectiveBitrate = Math.min(
+        manualBitrate || PlayerSettings.get('maxBitrateInternet') || 120000000,
+        120000000
+    );
     const profile = {
         Name: `Litefin Android (Media3 ExoPlayer)${playbackMode !== 'auto' ? ` (${playbackMode})` : ''}`,
         MaxStreamingBitrate: effectiveBitrate,

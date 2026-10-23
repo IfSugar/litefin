@@ -37,7 +37,7 @@ const playerEventSource = source
 
 const METHODS = [
     'async play(options) {',
-    'async stop() {',
+    'async stop(options = {}) {',
     'async setMaxBitrate(bitrate) {',
     '_abandonSupersededPlay(stage) {',
     '_clearResumeAdvanceWait() {',
