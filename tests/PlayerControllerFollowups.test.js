@@ -11,6 +11,7 @@ import vm from 'node:vm';
  * Follow-ups to the player controller (JellyfinPlayer, MediaHelper):
  *   - HLS manifest polling stops at a client error (4xx)
  *   - the global bitrate limit does not force a transcode of the first item
+ *   - a failed PlaybackInfo request is reported, not asked again as a transcode
  * The JellyfinPlayer methods under test are taken from the source and run on
  * a stub player (the module itself needs a full DOM).
  * ============================================================================
@@ -400,4 +401,85 @@ test('JellyfinPlayer: a quality picked in the OSD still forces a transcode (guar
     assert.strictEqual(bodies[0].EnableDirectPlay, false);
     assert.strictEqual(bodies[0].AllowVideoStreamCopy, false);
     assert.strictEqual(bodies[0].MaxStreamingBitrate, 4000000);
+});
+
+// ----------------------------------------------------------------------------
+// PlaybackInfo failures
+// ----------------------------------------------------------------------------
+
+/** A stub player with the real _getPlaybackInfo() and MediaHelper.fetchWithTimeout() on the given fetch(). */
+function createFetchingPlayer(fetch) {
+    const requests = [];
+    const player = createPlayer({
+        methods: ['async _getPlaybackInfo(options, deviceProfile, manualBitrate = null) {']
+    });
+    delete player._getPlaybackInfo;
+    globalThis.fetch = (url, init) => {
+        requests.push(JSON.parse(init.body));
+        return fetch(url, init);
+    };
+    return { player, requests };
+}
+
+function restartsOf(player) {
+    return player.events.filter((e) => e.type === 'restarting').length;
+}
+
+test('JellyfinPlayer: a PlaybackInfo request the server does not answer fails after one timeout', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    // The server accepts the connection, then stalls
+    const { player, requests } = createFetchingPlayer(() => new Promise(() => {}));
+    try {
+        const outcome = player.play({ itemId: 'A', userId: 'user', mediaSourceId: 'A' }).then(
+            () => null,
+            (err) => err
+        );
+        // Long enough for a second request to time out as well
+        await advance(t, 61000, 1000);
+        const error = await Promise.race([outcome, flush().then(() => 'pending')]);
+        assert.strictEqual(requests.length, 1, `asked again with EnableDirectPlay=${requests[1]?.EnableDirectPlay}`);
+        assert.match(error?.message || '', /did not answer within 30 s/);
+        assert.strictEqual(error.isNetworkError, true, 'the page does not see a lost connection');
+        assert.strictEqual(restartsOf(player), 0);
+        assert.strictEqual(player.events.filter((e) => e.type === 'error').length, 1);
+    } finally {
+        globalThis.fetch = realFetch;
+    }
+});
+
+test('JellyfinPlayer: a PlaybackInfo server error or unreachable server is reported, not asked again', async () => {
+    const answers = [
+        [async () => ({ ok: false, status: 500, text: async () => 'boom' }), /500 - boom/, undefined],
+        [() => Promise.reject(new TypeError('Failed to fetch')), /Failed to fetch/, true]
+    ];
+    for (const [fetch, message, isNetworkError] of answers) {
+        const { player, requests } = createFetchingPlayer(fetch);
+        try {
+            const error = await player.play({ itemId: 'A', userId: 'user', mediaSourceId: 'A' }).then(
+                () => null,
+                (err) => err
+            );
+            assert.match(error?.message || '', message);
+            assert.strictEqual(error.isNetworkError, isNetworkError);
+            assert.strictEqual(requests.length, 1, 'asked for PlaybackInfo again');
+            assert.strictEqual(restartsOf(player), 0);
+        } finally {
+            globalThis.fetch = realFetch;
+        }
+    }
+});
+
+test('JellyfinPlayer: a failed backend load is still escalated to a transcode (guard)', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const player = createPlayer();
+    const playing = player.play({ itemId: 'A', userId: 'user', mediaSourceId: 'A' });
+    await waitFor(() => player.backend.loads.length === 1, 'the backend load');
+    player.backend.loads[0].reject(new Error('MEDIA_ERR_DECODE: pipeline rejected stream'));
+
+    await waitFor(() => restartsOf(player) === 1, 'the escalation');
+    await advance(t, 500);
+    await waitFor(() => player.backend.loads.length === 2, 'the transcode load');
+    assert.strictEqual(player.infoRequests[1].playbackMode, 'transcode');
+    player.backend.loads[1].resolve();
+    await playing;
 });

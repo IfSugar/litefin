@@ -2738,6 +2738,8 @@ export class JellyfinPlayer extends EventEmitter {
         // ────────────────────────────────────────────────────────────────
         const request = (this._playRequestId = (this._playRequestId || 0) + 1);
         const isSuperseded = () => request !== this._playRequestId;
+        // Set when the backend's load fails: the only failure a transcode restart can help
+        let backendLoadFailed = false;
 
         //log.info('Play requested:', options);
         /*
@@ -3416,6 +3418,7 @@ export class JellyfinPlayer extends EventEmitter {
                     log.info('Backend play() was superseded by stop() or a newer request — abandoning this play() call');
                     return false;
                 }
+                backendLoadFailed = true;
                 throw backendErr;
             }
             // Backends without load sessions (Tizen AVPlay) resolve even after stop()
@@ -3600,11 +3603,14 @@ export class JellyfinPlayer extends EventEmitter {
             // during DirectPlay or Remux, immediately attempt server transcode before
             // surfacing a fatal error. Not when the server sent nothing at all
             // (stalled or unreachable): a transcode request would only add another
-            // timeout before the error shows.
+            // timeout before the error shows. Not for a failure before the load
+            // either (PlaybackInfo timed out or answered with an error): the
+            // transcode would start with another PlaybackInfo request.
             // ────────────────────────────────────────────────────────────────
             const isAutoTranscodeEnabled = PlayerSettings.get('autoTranscodeOnError') !== false;
             const canEscalate =
                 isAutoTranscodeEnabled &&
+                backendLoadFailed &&
                 !error?.isNetworkError &&
                 !this._isRestarting &&
                 !this._directPlayEscalated &&
@@ -5880,8 +5886,17 @@ export class JellyfinPlayer extends EventEmitter {
                 }
             );
         } catch (err) {
+            // No answer at all is a network error, which play() does not escalate
             if (err?.name === 'TimeoutError') {
-                throw new Error(`Failed to get playback info: the server did not answer within ${PLAYBACK_INFO_TIMEOUT_MS / 1000} s`);
+                const timeoutError = new Error(
+                    `Failed to get playback info: the server did not answer within ${PLAYBACK_INFO_TIMEOUT_MS / 1000} s`
+                );
+                timeoutError.isNetworkError = true;
+                throw timeoutError;
+            }
+            // fetch() rejects with a TypeError when the server cannot be reached
+            if (err?.name === 'TypeError') {
+                err.isNetworkError = true;
             }
             throw err;
         }
