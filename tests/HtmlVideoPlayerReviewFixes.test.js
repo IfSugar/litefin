@@ -315,3 +315,65 @@ test('HtmlVideoPlayer: subtitle cues added after an offset return to their time 
     assert.strictEqual(early.startTime, 10);
     assert.strictEqual(late.startTime, 30, 'late cue moved 2 s early');
 });
+
+// ----------------------------------------------------------------------------
+// 'playing' after a seek
+// ----------------------------------------------------------------------------
+
+test('HtmlVideoPlayer: a seek during playback that rebuffers reports playing once, when it plays on', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const { player, events } = createPlayer();
+    await playAndStart(player, movie);
+    const video = player._videoElement;
+    video.fire('playing');
+    events.length = 0;
+
+    video.seeking = true;
+    video.fire('seeking');
+    video.readyState = 1; // the seek drops the readyState: the element reports 'waiting'
+    video.fire('waiting');
+    video.readyState = 2;
+    video.seeking = false;
+    video.fire('seeked');
+    assert.strictEqual(count(events, 'playing'), 0, "'playing' at HAVE_CURRENT_DATA hides the spinner early");
+
+    video.readyState = 4;
+    video.fire('playing');
+    assert.strictEqual(count(events, 'playing'), 1);
+});
+
+test('HtmlVideoPlayer: a seek inside the buffer during playback still ends the spinner', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const { player, events } = createPlayer();
+    await playAndStart(player, movie);
+    const video = player._videoElement;
+    video.fire('playing');
+    events.length = 0;
+
+    // The readyState never drops: the element fires neither 'waiting' nor 'playing'
+    video.seeking = true;
+    video.fire('seeking');
+    video.seeking = false;
+    video.fire('seeked');
+    assert.deepStrictEqual(
+        events.filter((e) => e === 'waiting' || e === 'playing'),
+        ['waiting', 'playing']
+    );
+});
+
+test('HtmlVideoPlayer: Play queued behind a paused seek reports playing once', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const { player, events } = createPlayer();
+    await playAndStart(player, movie);
+    const video = player._videoElement;
+    video.paused = true;
+    events.length = 0;
+
+    video.seeking = true;
+    video.fire('seeking');
+    player.unpause(); // queued behind the seek
+    video.seeking = false;
+    video.fire('seeked'); // runs the queued play()...
+    video.fire('playing'); // ...which the element answers with 'playing'
+    assert.strictEqual(count(events, 'playing'), 1);
+});

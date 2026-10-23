@@ -213,6 +213,10 @@ export class HtmlVideoPlayer {
         // Direct-play seek verification and the post-play resume follow-up check
         this._directSeekVerifyTimeout = null;
         this._resumeFollowUpTimeout = null;
+        // A seek began during playback (its 'waiting' reported), and the element
+        // fired 'waiting' itself, so it fires 'playing' once it can play on
+        this._seekWhilePlaying = false;
+        this._elementWaiting = false;
     }
 
     /**
@@ -236,6 +240,8 @@ export class HtmlVideoPlayer {
         clearTimeout(this._seekPlayFallbackTimer);
         this._seekPlayFallbackTimer = null;
         this._pendingPlayAfterSeek = false;
+        this._seekWhilePlaying = false;
+        this._elementWaiting = false;
         this._cancelResumeRevealOnSeeked();
         this._clearStallCheck();
     }
@@ -2627,11 +2633,13 @@ export class HtmlVideoPlayer {
         }
         this._clearHlsStartTimeout();
         this._clearStallCheck();
+        this._elementWaiting = false;
         this.onEvent({ type: 'playing' });
     }
 
     /** @private */
     _onWaiting() {
+        this._elementWaiting = true;
         this.onEvent({ type: 'waiting' });
         this._startStallCheck();
     }
@@ -2678,7 +2686,8 @@ export class HtmlVideoPlayer {
     _onSeeking() {
         const video = this._videoElement;
         // Only show spinner if we are NOT paused (real buffering during playback)
-        if (video && !video.paused) {
+        this._seekWhilePlaying = Boolean(video && !video.paused);
+        if (this._seekWhilePlaying) {
             this.onEvent({ type: 'waiting' });
         }
     }
@@ -2714,8 +2723,16 @@ export class HtmlVideoPlayer {
             data: { time: this.getCurrentTime() }
         });
 
-        if (video && !video.paused) {
-            // Re-use _onPlaying logic for seeked-playing transition
+        // ---------------------------------------------------------------------
+        // A seek during playback ends the spinner of _onSeeking() with 'playing'.
+        // The element fires that itself when the seek dropped its readyState
+        // (it fired 'waiting' then). A seek inside the buffer can complete
+        // without either: report 'playing' here for it, once the element plays
+        // on with data ahead (not at HAVE_CURRENT_DATA).
+        // ---------------------------------------------------------------------
+        const seekWhilePlaying = this._seekWhilePlaying;
+        this._seekWhilePlaying = false;
+        if (seekWhilePlaying && !this._elementWaiting && video && !video.paused && video.readyState >= 3) {
             this._onPlaying();
         }
         this._clearStallCheck();
