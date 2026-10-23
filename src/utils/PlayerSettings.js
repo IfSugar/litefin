@@ -559,7 +559,7 @@ const DEFAULTS = {
     tizenSegmentLength: 6,
 
     // WebOS
-    webosStallRecovery: 8,
+    webosStallRecovery: 8000,
     webosBufferGate: 10,
     webosSegmentLength: 6,
 

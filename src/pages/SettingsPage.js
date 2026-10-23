@@ -4956,7 +4956,7 @@ class SettingsPage extends Page {
                             { value: 8000, label: '8000ms' },
                             { value: 10000, label: '10000ms' }
                         ],
-                        PlayerSettings.get('webosStallRecovery') || 1000
+                        PlayerSettings.get('webosStallRecovery') || 8000
                     )}
                             </div>
                         </div>

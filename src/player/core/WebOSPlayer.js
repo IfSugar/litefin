@@ -4365,6 +4365,13 @@ export class WebOSPlayer {
             // Give the download time to fill the buffer. Only kick after the
             // full recovery window, and only if still below the buffer gate.
             // ────────────────────────────────────────────────────────────────
+            // Settings UI offers timeouts in milliseconds (250ms to 10000ms).
+            // Legacy user settings or historic defaults stored the value in seconds
+            // (< 100, e.g. 8). We normalize values below 100 by multiplying by 1000,
+            // while preserving millisecond values directly without double-multiplying.
+            const rawRecoverySetting = Number(PlayerSettings.get('webosStallRecovery')) || 8000;
+            const recoveryDelayMs = rawRecoverySetting < 100 ? rawRecoverySetting * 1000 : rawRecoverySetting;
+
             this._stallTimer = setTimeout(() => {
                 if (!this._videoElement || this._videoElement.paused || !this._started) return;
 
@@ -4407,9 +4414,8 @@ export class WebOSPlayer {
 
                 // Genuine underrun — kick forward to force a clean IDR re-init.
                 log.warn(
-                    'WebOSPlayer: Still stalled after 8s (buffer:',
-                    bufferAhead.toFixed(1),
-                    's) — recovery kick (+0.5s)'
+                    `WebOSPlayer: Still stalled after ${(recoveryDelayMs / 1000).toFixed(1)}s (buffer: ` +
+                    `${bufferAhead.toFixed(1)}s) — recovery kick (+0.5s)`
                 );
                 this._lastRecoveryKickTime = Date.now();
                 try {
@@ -4417,7 +4423,7 @@ export class WebOSPlayer {
                 } catch (e) {
                     log.error('WebOSPlayer: Recovery kick failed', e);
                 }
-            }, (PlayerSettings.get('webosStallRecovery') || 8) * 1000);
+            }, recoveryDelayMs);
         }
     }
 
