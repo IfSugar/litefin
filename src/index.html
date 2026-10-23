@@ -85,6 +85,9 @@
                 var ua = navigator.userAgent;
                 // TV platforms run at native 1080p canvas unless explicitly scaled
                 var isNativeTv = /Tizen|Web[O0]S/i.test(ua) || (typeof isAndroidTv !== 'undefined' && isAndroidTv);
+                if (isNativeTv) {
+                    document.documentElement.setAttribute('data-device-type', 'tv');
+                }
                 var effectiveScale = 1.0;
 
                 if (savedScale === 'auto') {

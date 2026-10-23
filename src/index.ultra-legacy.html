@@ -17,6 +17,9 @@
         if (/Web[O0]S|NetCast|LG[ -]Browser/i.test(navigator.userAgent)) {
             document.write('<script src="js/webOSTV.js"><\\/script>');
         }
+        if (/Tizen|Web[O0]S|NetCast|LG[ -]Browser/i.test(navigator.userAgent)) {
+            document.documentElement.setAttribute('data-device-type', 'tv');
+        }
     </script>
     <script src="js/logger.js"></script>
 

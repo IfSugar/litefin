@@ -94,15 +94,26 @@ html[data-layout-media-rows="modern-posters"] .media-card.square:not(.grid-card)
     width: var(--card-square-width, 223px);
 }
 
+/*
+ * -----------------------------------------------------------------------------
+ * Dynamic Card Scale on Remote D-Pad / Keyboard Focus
+ * -----------------------------------------------------------------------------
+ * Applies subtle, premium elevation strictly to the actively focused media card.
+ * To avoid parked TV cursor coordinates from triggering phantom "double focus"
+ * outlines on television hardware (Tizen, webOS), mouse hover scaling is scoped
+ * exclusively to non-TV environments (desktop browsers, web builds).
+ * -----------------------------------------------------------------------------
+ */
 html[data-layout-media-rows="expanded"] .media-card:not(.grid-card):not(.episode-row-card):not(.episode-card):focus,
 html[data-layout-media-rows="expanded"] .media-card:not(.grid-card):not(.episode-row-card):not(.episode-card).focused,
-html[data-layout-media-rows="expanded"] .media-card:not(.grid-card):not(.episode-row-card):not(.episode-card):hover,
 html[data-layout-media-rows="modern"] .media-card:not(.grid-card):not(.episode-row-card):not(.episode-card):focus,
 html[data-layout-media-rows="modern"] .media-card:not(.grid-card):not(.episode-row-card):not(.episode-card).focused,
-html[data-layout-media-rows="modern"] .media-card:not(.grid-card):not(.episode-row-card):not(.episode-card):hover,
 html[data-layout-media-rows="modern-posters"] .media-card:not(.grid-card):not(.episode-row-card):not(.episode-card):focus,
 html[data-layout-media-rows="modern-posters"] .media-card:not(.grid-card):not(.episode-row-card):not(.episode-card).focused,
-html[data-layout-media-rows="modern-posters"] .media-card:not(.grid-card):not(.episode-row-card):not(.episode-card):hover {
+/* Mouse hover scaling restricted to non-TV platforms where physical pointers exist */
+html:not([data-device-type="tv"])[data-layout-media-rows="expanded"] .media-card:not(.grid-card):not(.episode-row-card):not(.episode-card):hover,
+html:not([data-device-type="tv"])[data-layout-media-rows="modern"] .media-card:not(.grid-card):not(.episode-row-card):not(.episode-card):hover,
+html:not([data-device-type="tv"])[data-layout-media-rows="modern-posters"] .media-card:not(.grid-card):not(.episode-row-card):not(.episode-card):hover {
     -webkit-transform: scale(1.05);
     transform: scale(1.05);
     z-index: 10;
@@ -146,28 +157,41 @@ html[data-layout-media-rows="modern-posters"] .media-card.square:not(.grid-card)
     height: var(--card-square-height, var(--card-square-width, 223px)) !important;
 }
 
-/* Focus Highlight & Focus Ring */
+/*
+ * -----------------------------------------------------------------------------
+ * Card Background Surface Highlight
+ * -----------------------------------------------------------------------------
+ * Subtly elevates card backing during active navigation or pointer hover.
+ * -----------------------------------------------------------------------------
+ */
 html[data-layout-media-rows="expanded"] .media-card:not(.grid-card):not(.episode-row-card):not(.episode-card):focus .card-image,
 html[data-layout-media-rows="expanded"] .media-card:not(.grid-card):not(.episode-row-card):not(.episode-card).focused .card-image,
-html[data-layout-media-rows="expanded"] .media-card:not(.grid-card):not(.episode-row-card):not(.episode-card):hover .card-image,
 html[data-layout-media-rows="modern"] .media-card:not(.grid-card):not(.episode-row-card):not(.episode-card):focus .card-image,
 html[data-layout-media-rows="modern"] .media-card:not(.grid-card):not(.episode-row-card):not(.episode-card).focused .card-image,
-html[data-layout-media-rows="modern"] .media-card:not(.grid-card):not(.episode-row-card):not(.episode-card):hover .card-image,
 html[data-layout-media-rows="modern-posters"] .media-card:not(.grid-card):not(.episode-row-card):not(.episode-card):focus .card-image,
 html[data-layout-media-rows="modern-posters"] .media-card:not(.grid-card):not(.episode-row-card):not(.episode-card).focused .card-image,
-html[data-layout-media-rows="modern-posters"] .media-card:not(.grid-card):not(.episode-row-card):not(.episode-card):hover .card-image {
+/* Pointer hover background highlight on non-TV devices */
+html:not([data-device-type="tv"])[data-layout-media-rows="expanded"] .media-card:not(.grid-card):not(.episode-row-card):not(.episode-card):hover .card-image,
+html:not([data-device-type="tv"])[data-layout-media-rows="modern"] .media-card:not(.grid-card):not(.episode-row-card):not(.episode-card):hover .card-image,
+html:not([data-device-type="tv"])[data-layout-media-rows="modern-posters"] .media-card:not(.grid-card):not(.episode-row-card):not(.episode-card):hover .card-image {
     background: var(--jf-surface-hover, rgba(255, 255, 255, 0.1));
 }
 
+/*
+ * -----------------------------------------------------------------------------
+ * Focus Ring Overlay (:focus & .focused ONLY)
+ * -----------------------------------------------------------------------------
+ * Renders the unmistakable 4px theme-accented border strictly on the actively
+ * focused element. Under no circumstances should mouse hover attach a focus ring,
+ * as stationary TV mouse positions create confusing phantom double-focus borders.
+ * -----------------------------------------------------------------------------
+ */
 html[data-layout-media-rows="expanded"] .media-card:not(.grid-card):not(.episode-row-card):not(.episode-card):focus .card-image::after,
 html[data-layout-media-rows="expanded"] .media-card:not(.grid-card):not(.episode-row-card):not(.episode-card).focused .card-image::after,
-html[data-layout-media-rows="expanded"] .media-card:not(.grid-card):not(.episode-row-card):not(.episode-card):hover .card-image::after,
 html[data-layout-media-rows="modern"] .media-card:not(.grid-card):not(.episode-row-card):not(.episode-card):focus .card-image::after,
 html[data-layout-media-rows="modern"] .media-card:not(.grid-card):not(.episode-row-card):not(.episode-card).focused .card-image::after,
-html[data-layout-media-rows="modern"] .media-card:not(.grid-card):not(.episode-row-card):not(.episode-card):hover .card-image::after,
 html[data-layout-media-rows="modern-posters"] .media-card:not(.grid-card):not(.episode-row-card):not(.episode-card):focus .card-image::after,
-html[data-layout-media-rows="modern-posters"] .media-card:not(.grid-card):not(.episode-row-card):not(.episode-card).focused .card-image::after,
-html[data-layout-media-rows="modern-posters"] .media-card:not(.grid-card):not(.episode-row-card):not(.episode-card):hover .card-image::after {
+html[data-layout-media-rows="modern-posters"] .media-card:not(.grid-card):not(.episode-row-card):not(.episode-card).focused .card-image::after {
     content: '';
     position: absolute;
     top: 0;
@@ -302,7 +326,8 @@ html[data-layout-media-rows="expanding"] .media-card.has-expansion:hover ~ .medi
    ========================================================================= */
 html[data-layout-media-rows="expanding"] .media-row:not(:hover) .media-card.has-expansion:not(.grid-card):not(.episode-row-card):not(.episode-card):focus,
 html[data-layout-media-rows="expanding"] .media-row:not(:hover) .media-card.has-expansion:not(.grid-card):not(.episode-row-card):not(.episode-card).focused,
-html[data-layout-media-rows="expanding"] .media-card.has-expansion:not(.grid-card):not(.episode-row-card):not(.episode-card):hover {
+/* Pointer hover expansion restricted to non-TV desktop environments */
+html:not([data-device-type="tv"])[data-layout-media-rows="expanding"] .media-card.has-expansion:not(.grid-card):not(.episode-row-card):not(.episode-card):hover {
     width: var(--card-expanded-width, 468px) !important;
     height: var(--card-height, 263.25px) !important; /* Lockdown physical dimensions to avoid layout jumps */
     z-index: 100; /* Stack on top of surrounding collapsed assets */
@@ -326,7 +351,7 @@ html[data-layout-media-rows="expanding"] .media-card.has-expansion .card-info.in
 /* Inside Label reveal during D-pad navigation or mouse hover */
 html[data-layout-media-rows="expanding"] .media-row:not(:hover) .media-card.has-expansion:focus .card-info.inside,
 html[data-layout-media-rows="expanding"] .media-row:not(:hover) .media-card.has-expansion.focused .card-info.inside,
-html[data-layout-media-rows="expanding"] .media-card.has-expansion:hover .card-info.inside {
+html:not([data-device-type="tv"])[data-layout-media-rows="expanding"] .media-card.has-expansion:hover .card-info.inside {
     opacity: 1; /* Match the active visual expansion */
 }
 
@@ -356,17 +381,16 @@ html[data-layout-media-rows="expanding"] .media-card:not(.grid-card):not(.episod
 /* Exclude grid cards and episode cards from modern focus transformations to prevent interference with classic scaling */
 html[data-layout-media-rows="expanding"] .media-card:not(.grid-card):not(.episode-row-card):not(.episode-card):focus .card-image,
 html[data-layout-media-rows="expanding"] .media-card:not(.grid-card):not(.episode-row-card):not(.episode-card).focused .card-image,
-html[data-layout-media-rows="expanding"] .media-card:not(.grid-card):not(.episode-row-card):not(.episode-card):hover .card-image {
+html:not([data-device-type="tv"])[data-layout-media-rows="expanding"] .media-card:not(.grid-card):not(.episode-row-card):not(.episode-card):hover .card-image {
     /* Focus ring is handled by ::after; outer shadows removed */
     box-shadow: none;
     transform: translateY(-8px);
     background: var(--jf-surface-hover, rgba(255, 255, 255, 0.1));
 }
 
-/* The Focus Ring Overlay: Using ::after ensures it sits on top of the image and tint */
+/* The Focus Ring Overlay: Using ::after ensures it sits on top of the image and tint (:focus & .focused ONLY) */
 html[data-layout-media-rows="expanding"] .media-card:not(.grid-card):not(.episode-row-card):not(.episode-card):focus .card-image::after,
-html[data-layout-media-rows="expanding"] .media-card:not(.grid-card):not(.episode-row-card):not(.episode-card).focused .card-image::after,
-html[data-layout-media-rows="expanding"] .media-card:not(.grid-card):not(.episode-row-card):not(.episode-card):hover .card-image::after {
+html[data-layout-media-rows="expanding"] .media-card:not(.grid-card):not(.episode-row-card):not(.episode-card).focused .card-image::after {
     content: '';
     position: absolute;
     top: 0;
@@ -1227,9 +1251,39 @@ html[data-layout-media-rows="expanding"] .count-badge ~ .game-card-badge {
 */
 html[data-layout-media-rows="modern"] .media-row:not(:hover) .media-card.has-expansion.expansion-ready:focus .media-fallback-initials,
 html[data-layout-media-rows="modern"] .media-row:not(:hover) .media-card.has-expansion.expansion-ready.focused .media-fallback-initials,
-html[data-layout-media-rows="modern"] .media-card.has-expansion.expansion-ready:hover .media-fallback-initials {
+html:not([data-device-type="tv"])[data-layout-media-rows="modern"] .media-card.has-expansion.expansion-ready:hover .media-fallback-initials {
     opacity: 0;
     transition: opacity 0.25s ease;
 }
+
+/* =========================================================================
+   TELEVISION HARDWARE GHOST HOVER MITIGATION
+   =========================================================================
+   On Smart TV operating systems (Samsung Tizen, LG webOS, Android TV), user
+   navigation is driven strictly by remote control directional D-pads.
+   The underlying browser rendering engine (Chromium / WebKit) retains an invisible
+   or parked mouse cursor position at fixed screen coordinates. As horizontal
+   media rows translate across the viewport, cards sliding under this coordinate
+   are mistakenly flagged with the :hover state, causing duplicate outlines and
+   jarring scale jumps.
+   
+   These rules explicitly neutralize hover transforms and focus rings on any
+   media cards that do not hold active keyboard or D-pad focus on television devices.
+   ========================================================================= */
+html[data-device-type="tv"] .media-card:not(:focus):not(.focused):hover,
+html[data-platform="tizen"] .media-card:not(:focus):not(.focused):hover,
+html[data-platform="webos"] .media-card:not(:focus):not(.focused):hover,
+html[data-platform="android"] .media-card:not(:focus):not(.focused):hover {
+    -webkit-transform: none !important;
+    transform: none !important;
+}
+
+html[data-device-type="tv"] .media-card:not(:focus):not(.focused):hover .card-image::after,
+html[data-platform="tizen"] .media-card:not(:focus):not(.focused):hover .card-image::after,
+html[data-platform="webos"] .media-card:not(:focus):not(.focused):hover .card-image::after,
+html[data-platform="android"] .media-card:not(:focus):not(.focused):hover .card-image::after {
+    display: none !important;
+}
+
 
 
