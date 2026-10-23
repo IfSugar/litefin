@@ -6001,6 +6001,11 @@ export class JellyfinPlayer extends EventEmitter {
         // ----------------------------------------------------------------
         if (!['auto', 'directPlay', 'transcode', 'remux', 'transcodeVideo', 'transcodeAudio'].includes(mode)) return;
 
+        // The Playback Mode menu shows getPlaybackMode(): confirming that one
+        // changes nothing (an item remuxed for its audio track would only be
+        // restarted into the same remux)
+        if (mode === this.getPlaybackMode()) return;
+
         // A mode picked here is the user's, even the remux the item already uses
         this._audioRemuxFrom = null;
 

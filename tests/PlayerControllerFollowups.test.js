@@ -12,6 +12,7 @@ import vm from 'node:vm';
  *   - HLS manifest polling stops at a client error (4xx)
  *   - the global bitrate limit does not force a transcode of the first item
  *   - a failed PlaybackInfo request is reported, not asked again as a transcode
+ *   - confirming the mode the Playback Mode menu shows does not restart
  * The JellyfinPlayer methods under test are taken from the source and run on
  * a stub player (the module itself needs a full DOM).
  * ============================================================================
@@ -233,6 +234,23 @@ function createPlayer({ methods = [], settings = {}, globals = {} } = {}) {
         },
         _clearRemuxStuckWatchdog() {}
     });
+}
+
+/** Play options as PlayerPage._startPlayback() builds them: it carries getPlaybackMode() over. */
+function pageOptions(player, itemId, extra = {}) {
+    const options = {
+        itemId,
+        userId: 'user',
+        mediaSourceId: itemId,
+        audioStreamIndex: 2,
+        item: { Id: itemId, Chapters: [{}], MediaSources: [{ Id: itemId, Container: 'mkv', MediaStreams: [] }] },
+        ...extra
+    };
+    const storedMode = player.getPlaybackMode();
+    if (storedMode && storedMode !== 'auto') {
+        options.playbackMode = storedMode;
+    }
+    return options;
 }
 
 async function waitFor(condition, what = 'condition') {
@@ -482,4 +500,46 @@ test('JellyfinPlayer: a failed backend load is still escalated to a transcode (g
     assert.strictEqual(player.infoRequests[1].playbackMode, 'transcode');
     player.backend.loads[1].resolve();
     await playing;
+});
+
+// ----------------------------------------------------------------------------
+// Playback Mode menu
+// ----------------------------------------------------------------------------
+
+/** Items whose selected audio track the stub reports as needing a server remux (e.g. DTS:X). */
+const NEEDS_AUDIO_REMUX = new Set(['dtsx']);
+
+function createModePlayer() {
+    return createPlayer({
+        methods: ['async setPlaybackMode(mode) {'],
+        globals: { doesAudioTrackRequireDirectStream: (mediaSource) => NEEDS_AUDIO_REMUX.has(mediaSource.Id) }
+    });
+}
+
+test('JellyfinPlayer: confirming the shown Auto on an item remuxed for its audio does not restart it', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const player = createModePlayer();
+    await playAndStart(player, pageOptions(player, 'dtsx'));
+    assert.strictEqual(player._playbackMode, 'remux', 'the item is remuxed for its audio');
+    assert.strictEqual(player.getPlaybackMode(), 'auto', 'the menu shows Auto');
+
+    const confirming = player.setPlaybackMode('auto');
+    await advance(t, 1000);
+    assert.strictEqual(player.events.filter((e) => e.type === 'restarting').length, 0);
+    assert.strictEqual(player.backend.loads.length, 1, 'restarted into the same remux');
+    await confirming;
+});
+
+test('JellyfinPlayer: picking another mode in the menu still restarts the item (guard)', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const player = createModePlayer();
+    await playAndStart(player, pageOptions(player, 'dtsx'));
+
+    const changing = player.setPlaybackMode('transcode');
+    await advance(t, 1000);
+    await waitFor(() => player.backend.loads.length === 2, 'the restart');
+    player.backend.loads[1].resolve();
+    await changing;
+    assert.strictEqual(player.infoRequests[1].playbackMode, 'transcode');
+    assert.strictEqual(player.getPlaybackMode(), 'transcode');
 });
