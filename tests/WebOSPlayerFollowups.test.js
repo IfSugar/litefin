@@ -600,6 +600,7 @@ test('WebOSPlayer: a paused seek, a seek receiving data and a seek that lands ar
 
     // Playing and receiving data (a slow 4K remux seek): waits up to 30 s
     video.paused = false;
+    video.fire('play');
     let end = 47;
     for (let elapsed = 0; elapsed < 28000; elapsed += 2000) {
         end += 3;
