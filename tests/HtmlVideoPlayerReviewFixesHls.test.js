@@ -260,3 +260,85 @@ test('HtmlVideoPlayer: a start that does not follow a decoder reset fails with a
     assert.notStrictEqual(load.outcome.name, 'AbortError');
     assert.strictEqual(load.outcome.code, 3);
 });
+
+// ----------------------------------------------------------------------------
+// Start watchdog and resume gate: segments, not SourceBuffer appends
+// ----------------------------------------------------------------------------
+
+const resumeAt600 = (playMethod) => hlsItem({ playMethod, playerStartPositionTicks: 600 * 10000000 });
+
+test('HtmlVideoPlayer: a resume stuck after its segments arrived is escalated after the 3 s fallback', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const { player, events, hlsInstances } = createPlayer(t);
+    player.play(resumeAt600('Transcode')).catch(() => {});
+    const hls = hlsInstances[0];
+    hls.trigger(Hls.Events.MANIFEST_PARSED, {});
+
+    t.mock.timers.tick(3000); // slow transcode: the 3 s fallback starts play() with nothing buffered
+    // The first segments arrive at ~4 s, but the decoder never starts
+    bufferSegment(hls, 1);
+    bufferSegment(hls, 2);
+    t.mock.timers.tick(5000);
+
+    assert.ok(events.includes('resumeseekfailed'), 'stuck start taken for a transcode still preparing');
+});
+
+test('HtmlVideoPlayer: a transcode that has delivered no segment by 8 s is still left to start', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const { player, events, hlsInstances } = createPlayer(t);
+    player.play(resumeAt600('Transcode')).catch(() => {});
+    hlsInstances[0].trigger(Hls.Events.MANIFEST_PARSED, {});
+    t.mock.timers.tick(8000);
+    assert.ok(!events.includes('resumeseekfailed'));
+});
+
+test('HtmlVideoPlayer: a slow transcode whose first segment lands just before 8 s is given time to start', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const { player, events, hlsInstances } = createPlayer(t);
+    player.play(resumeAt600('Transcode')).catch(() => {});
+    const hls = hlsInstances[0];
+    hls.trigger(Hls.Events.MANIFEST_PARSED, {});
+
+    t.mock.timers.tick(7500); // cold transcode: segment #1 arrives at 7.5 s
+    bufferSegment(hls, 1);
+    t.mock.timers.tick(500);
+    assert.ok(!events.includes('resumeseekfailed'), 'restarted (a new cold transcode) 0.5 s after its first segment');
+
+    // Still not started 5 s after its first segment: a stuck decoder
+    t.mock.timers.tick(4500);
+    assert.strictEqual(events.filter((e) => e === 'resumeseekfailed').length, 1);
+});
+
+test('HtmlVideoPlayer: a resume that starts within 5 s of its first late segment is left alone', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const { player, events, hlsInstances } = createPlayer(t);
+    const video = player._ensureVideoElement();
+    player.play(resumeAt600('Transcode')).catch(() => {});
+    const hls = hlsInstances[0];
+    hls.trigger(Hls.Events.MANIFEST_PARSED, {});
+
+    t.mock.timers.tick(7500);
+    bufferSegment(hls, 1);
+    t.mock.timers.tick(2000);
+    video.fire('playing');
+    t.mock.timers.tick(10000);
+    assert.ok(!events.includes('resumeseekfailed'));
+});
+
+test('HtmlVideoPlayer: the resume gate waits for segment #2 when segment #1 leaves under 1 s', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const { player, hlsInstances } = createPlayer(t);
+    const video = player._ensureVideoElement();
+    player.play(resumeAt600('Transcode')).catch(() => {});
+    const hls = hlsInstances[0];
+    hls.trigger(Hls.Events.MANIFEST_PARSED, {});
+
+    // Segment #1 covers 594.2–600.2 s: 0.2 s ahead of the resume point
+    video.buffered = { length: 1, start: () => 594.2, end: () => 600.2 };
+    bufferSegment(hls, 1);
+    assert.strictEqual(video.playCalls, 0, 'started with 0.2 s buffered (the audio append counted as segment #2)');
+
+    video.buffered = { length: 1, start: () => 594.2, end: () => 606.2 };
+    bufferSegment(hls, 2);
+    assert.strictEqual(video.playCalls, 1);
+});

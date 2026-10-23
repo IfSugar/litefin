@@ -80,6 +80,14 @@ const STALL_KICK_WEBOS_S = 0.5;
 /** HLS.js fatal network errors retried (1 s, 2 s, 4 s apart) before giving up. */
 const HLS_MAX_NETWORK_RETRIES = 3;
 
+/**
+ * HLS start check (_onHlsStartTimeout): due this long after the HLS.js load
+ * began, and not sooner than the second delay after the first buffered
+ * segment, which the decoder needs to start on.
+ */
+const HLS_START_CHECK_MS = 8000;
+const HLS_START_SEGMENT_WAIT_MS = 5000;
+
 /** HLS.js fatal media errors: a decoder reset, then a codec swap, once per window each. */
 const HLS_MEDIA_RECOVERY_WINDOW_MS = 3000;
 
@@ -157,8 +165,10 @@ export class HtmlVideoPlayer {
         // Pending reveal for a resume seek that 'playing' overtook
         this._resumeRevealOnSeeked = null;
 
-        // Startup verification watchdog timer for HLS playback initiation
+        // Startup verification watchdog timer for HLS playback initiation, and its
+        // wait after the first buffered segment
         this._hlsStartTimeout = null;
+        this._hlsSegmentWaitTimeout = null;
 
         // Media element error that HLS.js is recovering from (one recovery per HLS.js session)
         this._hlsRecoveringError = null;
@@ -624,15 +634,22 @@ export class HtmlVideoPlayer {
             let bufferReady = false;
             let initialBufferTimer = null;
             let resolved = false;
-            let appendedSegmentsCount = 0;
+            // Main segments HLS.js has buffered: in all (for the start watchdog), and
+            // since the buffer gate was armed
+            let segmentsBuffered = 0;
+            let gateSegments = 0;
             // Set when HLS.js detaches the element: recoverMediaError() reloads it
             let mediaReloaded = false;
+            // The start check is due (8 s since the load began), and the wait after
+            // the first segment is over
+            let startCheckDue = false;
+            let segmentWaitOver = false;
 
             const resolveOnce = (value) => {
                 if (resolved) return;
                 resolved = true;
                 clearTimeout(initialBufferTimer);
-                hls.off(Hls.Events.BUFFER_APPENDED, onBufferAppended);
+                hls.off(Hls.Events.FRAG_BUFFERED, onFragBuffered);
                 resolve(value);
             };
 
@@ -640,7 +657,7 @@ export class HtmlVideoPlayer {
                 if (resolved) return;
                 resolved = true;
                 clearTimeout(initialBufferTimer);
-                hls.off(Hls.Events.BUFFER_APPENDED, onBufferAppended);
+                hls.off(Hls.Events.FRAG_BUFFERED, onFragBuffered);
                 reject(reason);
             };
 
@@ -651,7 +668,7 @@ export class HtmlVideoPlayer {
             // with `failure` if that does not happen within 10 s.
             const waitForRecovery = (failure) => {
                 bufferReady = false;
-                appendedSegmentsCount = 0;
+                gateSegments = 0;
                 initialBufferTimer = setTimeout(() => rejectOnce(failure), 10000);
             };
 
@@ -706,10 +723,23 @@ export class HtmlVideoPlayer {
             // next segment loads, causing an instant bufferSeekOverHole jump.
             // We inspect the native video.buffered TimeRanges directly to ensure
             // at least 1.0s of forward cushion exists (or wait for segment #2).
+            // Segments are counted on FRAG_BUFFERED, once all their tracks are
+            // appended: BUFFER_APPENDED fires per SourceBuffer append, so the audio
+            // of segment #1 passed for segment #2. Counting goes on after the gate
+            // opened (the 3 s fallback opens it with none) for the start watchdog.
             // -----------------------------------------------------------------
-            const onBufferAppended = () => {
+            const onFragBuffered = (event, data) => {
+                if (data?.id !== 'main') return;
+                segmentsBuffered++;
+                if (segmentsBuffered === 1) {
+                    this._hlsSegmentWaitTimeout = setTimeout(() => {
+                        this._hlsSegmentWaitTimeout = null;
+                        segmentWaitOver = true;
+                        if (startCheckDue) checkStart();
+                    }, HLS_START_SEGMENT_WAIT_MS);
+                }
                 if (bufferReady) return;
-                appendedSegmentsCount++;
+                gateSegments++;
 
                 // If resuming, calculate forward buffer cushion from the native video element
                 if (resumeSeconds > 0 && video) {
@@ -729,8 +759,10 @@ export class HtmlVideoPlayer {
                     }
 
                     // If forward cushion is thin (< 1.0s) and we haven't buffered segment #2 yet, wait
-                    if (forwardBuffer < 1.0 && appendedSegmentsCount < 2) {
-                        log.info(`HLS.js: segment #${appendedSegmentsCount} appended, forward buffer ${forwardBuffer.toFixed(2)}s < 1.0s — waiting for next segment to stabilize resume`);
+                    if (forwardBuffer < 1.0 && gateSegments < 2) {
+                        log.info(
+                            `HLS.js: segment #${gateSegments} buffered, forward buffer ${forwardBuffer.toFixed(2)}s < 1.0s — waiting for next segment to stabilize resume`
+                        );
                         return;
                     }
                 }
@@ -738,7 +770,7 @@ export class HtmlVideoPlayer {
                 // Buffer is now healthy and stabilized for smooth playback engagement
                 bufferReady = true;
                 clearTimeout(initialBufferTimer);
-                log.info(`HLS.js: initial buffer ready (${appendedSegmentsCount} segment(s)), starting playback`);
+                log.info(`HLS.js: initial buffer ready (${gateSegments} segment(s)), starting playback`);
                 startPlayback();
             };
 
@@ -786,7 +818,7 @@ export class HtmlVideoPlayer {
                     log.info('HLS.js path: Skipping initial play() due to autoPlay=false');
                     resolveOnce();
                 }
-                // Otherwise BUFFER_APPENDED or timeout will call startPlayback()
+                // Otherwise FRAG_BUFFERED or timeout will call startPlayback()
             });
 
             // ================================================================
@@ -840,7 +872,7 @@ export class HtmlVideoPlayer {
             this._hlsElementErrorHandler = { hls, onError: errorHandling.onError };
 
             // Listen for the first segment buffered — triggers play()
-            hls.on(Hls.Events.BUFFER_APPENDED, onBufferAppended);
+            hls.on(Hls.Events.FRAG_BUFFERED, onFragBuffered);
             hls.on(Hls.Events.MEDIA_DETACHING, () => {
                 mediaReloaded = true;
             });
@@ -861,16 +893,26 @@ export class HtmlVideoPlayer {
             //   - For resume sessions: emit 'resumeseekfailed' so JellyfinPlayer can
             //     escalate to Remux or full Transcoding.
             //   - For 0:00 start: log warning for diagnostics.
+            // A segment buffered less than 5 s before puts the check off until 5 s
+            // after it: a cold transcode can deliver its first segment just before
+            // 8 s, and restarting it then only starts another cold transcode.
             // -----------------------------------------------------------------
+            const checkStart = () => {
+                if (segmentsBuffered > 0 && !segmentWaitOver) return;
+                this._onHlsStartTimeout(options, resumeSeconds, segmentsBuffered);
+            };
             this._clearHlsStartTimeout();
             this._hlsStartTimeout = setTimeout(() => {
-                this._onHlsStartTimeout(options, resumeSeconds, appendedSegmentsCount);
-            }, 8000);
+                this._hlsStartTimeout = null;
+                startCheckDue = true;
+                checkStart();
+            }, HLS_START_CHECK_MS);
         });
     }
 
     /**
-     * HLS start watchdog, 8 s after the HLS.js load began.
+     * HLS start watchdog, 8 s after the HLS.js load began and at least 5 s
+     * after its first buffered segment.
      *
      * A resume that has buffered segments but still not started points at a
      * stuck decoder (e.g. a remux cut mid-GOP), so JellyfinPlayer gets a
@@ -881,7 +923,7 @@ export class HtmlVideoPlayer {
      * @private
      * @param {Object} options - Play options of the load
      * @param {number} resumeSeconds - Resume target in seconds (0 for a start from the beginning)
-     * @param {number} segmentsBuffered - Segments HLS.js appended so far
+     * @param {number} segmentsBuffered - Segments HLS.js buffered so far
      */
     _onHlsStartTimeout(options, resumeSeconds, segmentsBuffered) {
         if (this._started || this._videoElement?.paused) return;
@@ -2723,6 +2765,8 @@ export class HtmlVideoPlayer {
             clearTimeout(this._hlsStartTimeout);
             this._hlsStartTimeout = null;
         }
+        clearTimeout(this._hlsSegmentWaitTimeout);
+        this._hlsSegmentWaitTimeout = null;
     }
 
     /**
