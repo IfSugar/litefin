@@ -532,6 +532,9 @@ class PlayerPage extends Page {
             // Handle remote pause/play/stop commands from Jellyfin dashboard
             // IMPORTANT: These must also report state changes to the server!
 
+            // Handlers wrapped in lockCheck() are added with this.on(), which
+            // removes the wrapper on destroy(): eventBus.off() with the unwrapped
+            // handler would leave every closed player page subscribed
             const lockCheck = (fn) => {
                 return (...args) => {
                     if (this._resumeProfileSelectionActive) return;
@@ -579,7 +582,7 @@ class PlayerPage extends Page {
                     }
                 }
             };
-            eventBus.on('remote:pause', lockCheck(this._onRemotePause));
+            this.on('remote:pause', lockCheck(this._onRemotePause));
 
             this._onRemotePlay = () => {
                 log.info('Remote: Play/Resume');
@@ -612,7 +615,7 @@ class PlayerPage extends Page {
                     }
                 }
             };
-            eventBus.on('remote:play', lockCheck(this._onRemotePlay));
+            this.on('remote:play', lockCheck(this._onRemotePlay));
 
             this._onRemotePlayPause = () => {
                 log.info('Remote: PlayPause');
@@ -646,14 +649,14 @@ class PlayerPage extends Page {
                     }
                 }
             };
-            eventBus.on('remote:playpause', lockCheck(this._onRemotePlayPause));
+            this.on('remote:playpause', lockCheck(this._onRemotePlayPause));
 
             this._onRemoteStop = () => {
                 log.info('Remote: Stop');
                 // _stopAndExit already handles reporting stopped to server
                 this._stopAndExit();
             };
-            eventBus.on('remote:stop', lockCheck(this._onRemoteStop));
+            this.on('remote:stop', lockCheck(this._onRemoteStop));
 
             this._onRemoteSeek = (positionTicks) => {
                 log.info('Remote: Seek to', positionTicks);
@@ -666,7 +669,7 @@ class PlayerPage extends Page {
                     log.warn('Player has no seek method');
                 }
             };
-            eventBus.on('remote:seek', lockCheck(this._onRemoteSeek));
+            this.on('remote:seek', lockCheck(this._onRemoteSeek));
 
             // Volume controls - these don't need server reporting (volume is local)
             // Note: On Tizen, volume may be controlled via system API not player API
@@ -686,7 +689,7 @@ class PlayerPage extends Page {
                     log.warn('No volume control available');
                 }
             };
-            eventBus.on('remote:volume', lockCheck(this._onRemoteVolume));
+            this.on('remote:volume', lockCheck(this._onRemoteVolume));
 
             this._onRemoteVolumeUp = () => {
                 log.info('Remote: VolumeUp');
@@ -712,7 +715,7 @@ class PlayerPage extends Page {
                     }
                 }
             };
-            eventBus.on('remote:volumeup', lockCheck(this._onRemoteVolumeUp));
+            this.on('remote:volumeup', lockCheck(this._onRemoteVolumeUp));
 
             this._onRemoteVolumeDown = () => {
                 log.info('Remote: VolumeDown');
@@ -734,7 +737,7 @@ class PlayerPage extends Page {
                     }
                 }
             };
-            eventBus.on('remote:volumedown', lockCheck(this._onRemoteVolumeDown));
+            this.on('remote:volumedown', lockCheck(this._onRemoteVolumeDown));
 
             this._onRemoteMute = (muted) => {
                 log.info('Remote: Mute', muted);
@@ -750,7 +753,7 @@ class PlayerPage extends Page {
                 // Report mute state to server
                 this._reportPlaybackProgress('timeupdate');
             };
-            eventBus.on('remote:mute', lockCheck(this._onRemoteMute));
+            this.on('remote:mute', lockCheck(this._onRemoteMute));
 
             this._onRemoteToggleMute = () => {
                 log.info('Remote: ToggleMute');
@@ -778,20 +781,20 @@ class PlayerPage extends Page {
                 // Report mute state to server
                 this._reportPlaybackProgress('timeupdate');
             };
-            eventBus.on('remote:togglemute', lockCheck(this._onRemoteToggleMute));
+            this.on('remote:togglemute', lockCheck(this._onRemoteToggleMute));
 
             // Next/Previous track handlers
             this._onRemoteNext = async () => {
                 log.info('Remote: NextTrack');
                 this._playNextItem();
             };
-            eventBus.on('remote:next', lockCheck(this._onRemoteNext));
+            this.on('remote:next', lockCheck(this._onRemoteNext));
 
             this._onRemotePrevious = async () => {
                 log.info('Remote: PreviousTrack');
                 this._playPreviousItem();
             };
-            eventBus.on('remote:previous', lockCheck(this._onRemotePrevious));
+            this.on('remote:previous', lockCheck(this._onRemotePrevious));
 
             // Repeat and Shuffle
             this._onRemoteRepeatMode = (mode) => {
@@ -820,7 +823,7 @@ class PlayerPage extends Page {
                     this._osd.handleInput(direction);
                 }
             };
-            eventBus.on('remote:navigate', lockCheck(this._onRemoteNavigate));
+            this.on('remote:navigate', lockCheck(this._onRemoteNavigate));
 
             this._onRemoteSelect = () => {
                 log.info('Remote: Select');
@@ -828,7 +831,7 @@ class PlayerPage extends Page {
                     this._osd.handleInput('enter');
                 }
             };
-            eventBus.on('remote:select', lockCheck(this._onRemoteSelect));
+            this.on('remote:select', lockCheck(this._onRemoteSelect));
 
             this._onRemoteAudioTrack = (index) => {
                 log.info('Remote: SetAudioStreamIndex', index);
@@ -837,7 +840,7 @@ class PlayerPage extends Page {
                     this._refreshSubtitleStyles(); // In case track change affects OSD state
                 }
             };
-            eventBus.on('remote:audiotrack', lockCheck(this._onRemoteAudioTrack));
+            this.on('remote:audiotrack', lockCheck(this._onRemoteAudioTrack));
 
             this._onRemoteSubtitle = (index) => {
                 log.info('Remote: SetSubtitleStreamIndex', index);
@@ -845,7 +848,7 @@ class PlayerPage extends Page {
                     this._player.setSubtitleStreamIndex(index);
                 }
             };
-            eventBus.on('remote:subtitle', lockCheck(this._onRemoteSubtitle));
+            this.on('remote:subtitle', lockCheck(this._onRemoteSubtitle));
 
             // ---------------------------------------------------------------
             // Remote queue manipulation
@@ -886,10 +889,10 @@ class PlayerPage extends Page {
 
             // Channel Up/Down for Live TV
             this._onChannelUp = () => this._handleChannelChange(1);
-            eventBus.on('key:channelUp', lockCheck(this._onChannelUp));
+            this.on('key:channelUp', lockCheck(this._onChannelUp));
 
             this._onChannelDown = () => this._handleChannelChange(-1);
-            eventBus.on('key:channelDown', lockCheck(this._onChannelDown));
+            this.on('key:channelDown', lockCheck(this._onChannelDown));
 
             // ================================================================
             // MAGIC CURSOR SUPPORT (WebOS / Tizen Pointer)
@@ -5827,28 +5830,10 @@ class PlayerPage extends Page {
         }
 
         // Remove remote control event listeners
-        if (this._onRemotePause) eventBus.off('remote:pause', this._onRemotePause);
-        if (this._onRemotePlay) eventBus.off('remote:play', this._onRemotePlay);
-        if (this._onRemotePlayPause) eventBus.off('remote:playpause', this._onRemotePlayPause);
-        if (this._onRemoteStop) eventBus.off('remote:stop', this._onRemoteStop);
-        if (this._onRemoteSeek) eventBus.off('remote:seek', this._onRemoteSeek);
-        if (this._onRemoteVolume) eventBus.off('remote:volume', this._onRemoteVolume);
-        if (this._onRemoteVolumeUp) eventBus.off('remote:volumeup', this._onRemoteVolumeUp);
-        if (this._onRemoteVolumeDown) eventBus.off('remote:volumedown', this._onRemoteVolumeDown);
-        if (this._onRemoteMute) eventBus.off('remote:mute', this._onRemoteMute);
-        if (this._onRemoteToggleMute) eventBus.off('remote:togglemute', this._onRemoteToggleMute);
-        if (this._onRemoteNext) eventBus.off('remote:next', this._onRemoteNext);
-        if (this._onRemotePrevious) eventBus.off('remote:previous', this._onRemotePrevious);
         if (this._onRemoteRepeatMode) eventBus.off('remote:repeatmode', this._onRemoteRepeatMode);
         if (this._onRemoteShuffleMode) eventBus.off('remote:shufflemode', this._onRemoteShuffleMode);
-        if (this._onRemoteNavigate) eventBus.off('remote:navigate', this._onRemoteNavigate);
-        if (this._onRemoteSelect) eventBus.off('remote:select', this._onRemoteSelect);
-        if (this._onRemoteAudioTrack) eventBus.off('remote:audiotrack', this._onRemoteAudioTrack);
-        if (this._onRemoteSubtitle) eventBus.off('remote:subtitle', this._onRemoteSubtitle);
         if (this._onRemoteQueueUpdate) eventBus.off('remote:queueupdate', this._onRemoteQueueUpdate);
         if (this._onRemoteUserDataChanged) eventBus.off('remote:userdatachanged', this._onRemoteUserDataChanged);
-        if (this._onChannelUp) eventBus.off('key:channelUp', this._onChannelUp);
-        if (this._onChannelDown) eventBus.off('key:channelDown', this._onChannelDown);
 
         // Clean up global lock listeners
         if (this._onGlobalKeyDown) {
