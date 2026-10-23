@@ -847,12 +847,14 @@ html[data-layout-media-rows="modern-posters"] .hero-poster .media-fallback {
 /* ------------------------------------------------------------------------- */
 /* Floating Text Tooltip Specific Positioning                                */
 /* ------------------------------------------------------------------------- */
-/* Positions floating text specifically at 90px from the container top       */
-/* to maintain ideal spatial separation under action buttons.                */
+/* The page script sets top to the focused button's bottom edge, so the      */
+/* label follows its button onto a wrapped second row. Floating text sits    */
+/* 18px below that edge (6px lower than a name card) for spatial separation. */
 /* ------------------------------------------------------------------------- */
 .action-btn-tooltip-bar.style-floating,
 .tooltip-mode-floating .action-btn-tooltip-bar {
-    top: 90px !important;
+    transform: translate(-50%, 18px);
+    -webkit-transform: translate(-50%, 18px);
 }
 
 /* ------------------------------------------------------------------------- */

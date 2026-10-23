@@ -34,6 +34,49 @@ class CardRenderer {
     static clearCache() {
         this._htmlCache.clear();
         this._htmlCacheKey = null;
+        this._prefs = null;
+    }
+
+    /**
+     * Card preferences, read once per render pass. A row or grid renders all
+     * its cards in one synchronous loop; reading each preference per card
+     * cost 6 storage reads per card on a cache hit and about 18 on a miss,
+     * each parsing the whole settings object when settings are per user.
+     * The snapshot is dropped when the current task ends and by clearCache().
+     */
+    static _prefs = null;
+
+    static _getPrefs() {
+        if (CardRenderer._prefs) return CardRenderer._prefs;
+        const prefs = {
+            libraryThumbMode: storage.getItem('pref:libraryThumbMode') || 'off',
+            preferBackdrops: storage.getItem('pref:preferBackdropsOverThumbs') === 'true',
+            globalBlurHashDisabled: storage.getItem('litefin:disableBlurhash') === 'true',
+            libraryBlurHashDisabled: storage.getItem('pref:disableLibraryBlurhash') !== 'false',
+            // Raw values: part of the HTML cache key as stored
+            hideLibraryLabels: storage.getItem('pref:hideLibraryLabels'),
+            cardLabelStyle: storage.getItem('pref:cardLabelStyle'),
+            preferEpisodeImages: storage.getItem('pref:preferEpisodeImagesLocal') === 'true',
+            hideProgressBar: storage.getItem('pref:hideProgressBar') === 'true',
+            hideEpisodeCounts: storage.getItem('pref:hideEpisodeCounts') === 'true',
+            showMediaSourceCounts: storage.getItem('pref:showMediaSourceCounts') !== 'false',
+            useEpisodeBadges: storage.getItem('pref:useEpisodeBadges') !== 'false',
+            useSeasonBadges: storage.getItem('pref:useSeasonBadges') === 'true',
+            swapEpisodeTitles: storage.getItem('pref:swapEpisodeTitles') === 'true',
+            showFavoriteBadges: storage.getItem('pref:showFavoriteBadges') === 'true',
+            showQualityBadges: storage.getItem('pref:showQualityBadges') === 'true'
+        };
+        // Each of these shapes the markup the HTML cache keeps, so all of them are
+        // part of its key: a changed setting rebuilds the cards once
+        prefs.markupKey = Object.keys(prefs)
+            .map((name) => prefs[name])
+            .join('|');
+        CardRenderer._prefs = prefs;
+        // A setting changed later (in another task) is picked up by the next render pass
+        Promise.resolve().then(() => {
+            if (CardRenderer._prefs === prefs) CardRenderer._prefs = null;
+        });
+        return prefs;
     }
 
     /**
@@ -193,14 +236,13 @@ class CardRenderer {
         }
 
         // Verify if user preference permits favorite badges (off by default)
-        const showFavoriteBadges = storage.getItem('pref:showFavoriteBadges') === 'true';
-        if (!showFavoriteBadges) {
+        if (!CardRenderer._getPrefs().showFavoriteBadges) {
             return '';
         }
 
         // Render sleek heart icon badge matching the universal design system
         return `
-            <div class="favorite-badge" title="Favorite">
+            <div class="favorite-badge" title="${escapeHtml(i18n.t('Favorite'))}">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
                     <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
                 </svg>
@@ -217,8 +259,7 @@ class CardRenderer {
         if (!item) return '';
         // Game ROMs do not have video resolution/HDR streams
         if (CardRenderer.isGame(item)) return '';
-        const showQualityBadges = storage.getItem('pref:showQualityBadges') === 'true';
-        if (!showQualityBadges) return '';
+        if (!CardRenderer._getPrefs().showQualityBadges) return '';
 
         let width = item.Width;
         let height = item.Height;
@@ -367,9 +408,10 @@ class CardRenderer {
         const isExpanding = mediaLayout === 'expanding';
         const isModernOrExpanded = isModern || isExpanded || isModernPosters || isExpanding;
 
-        const libraryThumbMode = storage.getItem('pref:libraryThumbMode') || 'off';
+        const prefs = CardRenderer._getPrefs();
+        const libraryThumbMode = prefs.libraryThumbMode;
         const isDynamicThumb = (type === 'library' && libraryThumbMode !== 'off') || Boolean(item._dynamicThumbUrl);
-        const preferBackdrops = storage.getItem('pref:preferBackdropsOverThumbs') === 'true';
+        const preferBackdrops = prefs.preferBackdrops;
 
         // ------------------------------------------------------------------
         // HTML OUTPUT CACHE
@@ -381,11 +423,14 @@ class CardRenderer {
         // ------------------------------------------------------------------
         // Evaluate BlurHash disable flags for cache invalidation
         // Ensures that whenever user flips global or library blurhash toggles, cached cards flush immediately
-        const isGlobalBlurHashDisabled = storage.getItem('litefin:disableBlurhash') === 'true';
-        const isLibraryBlurHashDisabledPref = storage.getItem('pref:disableLibraryBlurhash') !== 'false';
+        const isGlobalBlurHashDisabled = prefs.globalBlurHashDisabled;
+        const isLibraryBlurHashDisabledPref = prefs.libraryBlurHashDisabled;
 
-        // Incorporate every layout, dimension, and performance preference into the cache key
-        const cacheKey = `${mediaLayout}|${isLandscape}|${type}|${contextType}|${isGrid}|${cardWidth}|${options.showMeta}|${item._dynamicThumbUrl || ''}|${libraryThumbMode}|${storage.getItem('pref:hideLibraryLabels')}|${storage.getItem('pref:cardLabelStyle')}|${preferBackdrops}|${isGlobalBlurHashDisabled}|${isLibraryBlurHashDisabledPref}`;
+        // Incorporate every layout, dimension, and performance preference into the cache key.
+        // markupKey adds the card settings not spelled out here (favorite and quality
+        // badges, progress bar, counts...): without them, turning on Show Favorite
+        // Badges showed no heart until something else cleared the cache
+        const cacheKey = `${mediaLayout}|${isLandscape}|${type}|${contextType}|${isGrid}|${cardWidth}|${options.showMeta}|${item._dynamicThumbUrl || ''}|${libraryThumbMode}|${prefs.hideLibraryLabels}|${prefs.cardLabelStyle}|${preferBackdrops}|${isGlobalBlurHashDisabled}|${isLibraryBlurHashDisabledPref}|${prefs.markupKey}`;
         if (CardRenderer._htmlCacheKey !== cacheKey) {
             CardRenderer._htmlCache.clear();
             CardRenderer._htmlCacheKey = cacheKey;
@@ -580,7 +625,7 @@ class CardRenderer {
 
             if (item.Type === 'Episode') {
                 // Spoiler Prevention: For NextUp/Upcoming/Resume, prefer Series Thumb/Backdrop
-                const preferEpisodeImages = storage.getItem('pref:preferEpisodeImagesLocal') === 'true';
+                const preferEpisodeImages = prefs.preferEpisodeImages;
                 const isSpoilerFree = !preferEpisodeImages && ['nextUp', 'upcoming', 'resume'].includes(contextType);
 
                 // Episodes: Primary (Episode Thumb) -> Series Thumb -> Parent Thumb -> Backdrop
@@ -739,7 +784,7 @@ class CardRenderer {
                 const params = imageService.getParams('thumb', contextType);
 
                 // Spoiler Prevention for Episodes
-                const preferEpisodeImages = storage.getItem('pref:preferEpisodeImagesLocal') === 'true';
+                const preferEpisodeImages = prefs.preferEpisodeImages;
                 if (!preferEpisodeImages && item.Type === 'Episode' && item.SeriesId) {
                     // Prefer Series Primary/Thumb for Resume episodes to avoid spoilers
                     if (item.SeriesPrimaryImageTag) {
@@ -868,7 +913,7 @@ class CardRenderer {
         // Renders the playback progress indicator along the bottom of the card artwork.
         // Controlled by user preference 'pref:hideProgressBar' (defaults to shown/false).
         let progressHtml = '';
-        const hideProgressBar = storage.getItem('pref:hideProgressBar') === 'true';
+        const hideProgressBar = prefs.hideProgressBar;
 
         // Only construct and mount the progress element if playback progress exists and user hasn't hidden it
         if (
@@ -892,7 +937,7 @@ class CardRenderer {
         // Generates the circular unplayed badge positioned on the top-right of series/season cards.
         // Can be disabled via user preferences ('pref:hideEpisodeCounts').
         let unplayedCountBadgeHtml = '';
-        const hideEpisodeCounts = storage.getItem('pref:hideEpisodeCounts') === 'true';
+        const hideEpisodeCounts = prefs.hideEpisodeCounts;
         if (!hideEpisodeCounts && item.UserData && item.UserData.UnplayedItemCount > 0) {
             unplayedCountBadgeHtml = `<div class="count-badge unplayed-count-badge">${item.UserData.UnplayedItemCount}</div>`;
         }
@@ -903,7 +948,7 @@ class CardRenderer {
         // Displays the number of available video streams or multi-version releases (e.g. 4K, 1080p, cuts).
         // Unified position: bottom-left corner of the card artwork.
         let versionCountBadgeHtml = '';
-        const showMediaSourceCounts = storage.getItem('pref:showMediaSourceCounts') !== 'false';
+        const showMediaSourceCounts = prefs.showMediaSourceCounts;
         if (showMediaSourceCounts && item.MediaSourceCount > 1) {
             versionCountBadgeHtml = `<div class="version-badge media-source-count-badge">${item.MediaSourceCount}</div>`;
         }
@@ -913,7 +958,7 @@ class CardRenderer {
         // ====================================================================
         // Displays a heart badge when an item is marked as favorite in Jellyfin.
         // Sits at the bottom-left corner, positioned next to version count if versions are present.
-        let favoriteBadgeHtml = CardRenderer.getFavoriteBadgeHtml(item);
+        const favoriteBadgeHtml = CardRenderer.getFavoriteBadgeHtml(item);
 
         // Played Badge (Check Mark)
         let playedBadgeHtml = CardRenderer.getPlayedBadgeHtml(item);
@@ -937,8 +982,8 @@ class CardRenderer {
         // Retrieve Episode & Season Badge preferences from local storage.
         // Episode badges default to true, Season badges default to false (off).
         // -------------------------------------------------------------
-        const useEpisodeBadges = storage.getItem('pref:useEpisodeBadges') !== 'false';
-        const useSeasonBadges = storage.getItem('pref:useSeasonBadges') === 'true';
+        const useEpisodeBadges = prefs.useEpisodeBadges;
+        const useSeasonBadges = prefs.useSeasonBadges;
 
         // -------------------------------------------------------------
         // Check item type and build appropriate badge markup if allowed.
@@ -1008,7 +1053,7 @@ class CardRenderer {
             const s = (item.ParentIndexNumber || 0).toString().padStart(2, '0');
             const e = (item.IndexNumber || 0).toString().padStart(2, '0');
             const episodeCode = `S${s}E${e}`;
-            const swapEpisodeTitles = storage.getItem('pref:swapEpisodeTitles') === 'true';
+            const swapEpisodeTitles = prefs.swapEpisodeTitles;
 
             // Check if this episode is rendered within a "Recently Added" context.
             // Following standard representation, display the parent series name
@@ -1170,7 +1215,7 @@ class CardRenderer {
         }
 
         // --- 3.4. Label Visibility Styles & Special Card Overrides ---
-        const cardLabelStyle = storage.getItem('pref:cardLabelStyle') || 'default';
+        const cardLabelStyle = prefs.cardLabelStyle || 'default';
         if (item._isStudioCard || item._isNetworkCard || item._isGenreCard) {
             titleText = '';
             subtitleText = '';
@@ -1383,7 +1428,7 @@ class CardRenderer {
             : `${CardRenderer.getFallbackHtml(item, isLandscape, { hideInitials, isLibrary: type === 'library' })}`;
         const finalContextType = contextType || item.Type;
 
-        const hideLibraryLabelsPref = storage.getItem('pref:hideLibraryLabels') === 'true';
+        const hideLibraryLabelsPref = prefs.hideLibraryLabels === 'true';
 
         // Outside label hiding logic for library cards:
         // - Hide if user enabled 'pref:hideLibraryLabels'
