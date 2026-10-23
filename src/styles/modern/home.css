@@ -598,8 +598,9 @@ html[data-layout-media-rows="expanding"] .card-info.inside {
     z-index: 10;
     text-align: left;
     pointer-events: none;
-    /* Smooth positional adjustment when progress bar is toggled */
-    transition: bottom 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+    /* Smooth positional adjustment when progress bar is toggled, keeping the
+       opacity/transform fades of .media-card .card-info, which this rule overrides */
+    transition: opacity 0.3s ease, transform 0.3s ease, bottom 0.25s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 /* Elevate inside labels slightly when progress bar is present to maintain clean breathing room above track */
