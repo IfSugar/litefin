@@ -294,18 +294,32 @@ class PlayQueue {
             log.info('Dropping a queue built for an earlier playback');
             return;
         }
-        // Playback already started with the item alone (see init())
-        const playing = this._queue.length > 0 ? this.getCurrentItem() : null;
+        // Playback already started with the item alone (see init()). Items may
+        // have been added around it since (Local Intros' pre-roll, insertNext()),
+        // and the cursor is on the item that is actually playing.
+        const liveQueue = this._queue;
+        const liveIndex = this._currentIndex;
+        const liveUnshuffled = this._unshuffledQueue.length > 0 ? this._unshuffledQueue : liveQueue;
+        const playing = liveQueue.length > 0;
+        const built = staging._queue[staging._currentIndex];
         for (const field of BUILT_QUEUE_FIELDS) {
             this[field] = staging[field];
         }
-        // Keep the instance playback started with: PlayerPage merged the item's
-        // full details into it and holds on to it
-        const built = this.getCurrentItem();
-        if (playing && built && built !== playing && built.Id === playing.Id) {
-            this._queue[this._currentIndex] = playing;
+        // The live queue takes the place of the item the queue was built
+        // around. This also keeps the instance playback started with: PlayerPage
+        // merged the item's full details into it and holds on to it.
+        if (playing && built) {
+            const builtIndex = this._currentIndex;
+            this._queue = [...this._queue.slice(0, builtIndex), ...liveQueue, ...this._queue.slice(builtIndex + 1)];
+            this._currentIndex = builtIndex + liveIndex;
             const unshuffledIndex = this._unshuffledQueue.indexOf(built);
-            if (unshuffledIndex !== -1) this._unshuffledQueue[unshuffledIndex] = playing;
+            if (unshuffledIndex !== -1) {
+                this._unshuffledQueue = [
+                    ...this._unshuffledQueue.slice(0, unshuffledIndex),
+                    ...liveUnshuffled,
+                    ...this._unshuffledQueue.slice(unshuffledIndex + 1)
+                ];
+            }
         }
         // Shuffle toggled while the queue was loading
         if (this._shuffleMode !== staging._shuffleMode) {
