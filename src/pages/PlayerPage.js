@@ -83,6 +83,9 @@ class PlayerPage extends Page {
 
         // Track reporting state
         this._hasReportedStart = false;
+        // A restart of a playing session whose new session has not reported
+        // its start yet (see _onPlayerRestarting)
+        this._unstartedRestart = null;
         this._isPaused = false;
         this._resumeProfileSelectionActive = false;
         this._resumePlaybackAfterProfileSelection = false;
@@ -3469,6 +3472,8 @@ class PlayerPage extends Page {
         const durationTicks =
             this._player?.getDurationTicks?.() || mediaSource?.RunTimeTicks || this._item?.RunTimeTicks || 0;
         if (mediaSource?.PlaySessionId && this._item && !this._item.isIntro) {
+            // A restart before the previous restart's session played
+            const restarted = this._unstartedRestart?.itemId === this._item.Id ? this._unstartedRestart : null;
             const report = this._reportPlaybackStopped(mediaSource, positionTicks, false, durationTicks).catch(
                 (err) => {
                     log.warn('Failed to report playback stopped during restart:', err);
@@ -3478,6 +3483,18 @@ class PlayerPage extends Page {
             report.then(() => {
                 if (this._pendingStopReport === report) this._pendingStopReport = null;
             });
+
+            // The new session reports its start only once it plays, but the
+            // server may already be transcoding it. Leaving it before then
+            // (Back, Next, another restart) still stops it, at the position
+            // the user was at (see _reportPlaybackStopped).
+            if (this._hasReportedStart || restarted) {
+                this._unstartedRestart = {
+                    itemId: this._item.Id,
+                    playSessionId: mediaSource.PlaySessionId,
+                    positionTicks: restarted ? restarted.positionTicks : positionTicks
+                };
+            }
         }
 
         // Reset start-report guard so the upcoming 'playing' event
@@ -3487,6 +3504,8 @@ class PlayerPage extends Page {
     }
 
     async _reportPlaybackStart() {
+        // The restarted session plays: it is reported like any other now
+        this._unstartedRestart = null;
         if (!this._player || !this._item) return;
 
         // Skip reporting start completely if running in private/ghost mode
@@ -4776,9 +4795,20 @@ class PlayerPage extends Page {
          * and sending 0 ticks would clobber the user's saved resume position!
          * ---------------------------------------------------------------------
          */
+        let restartPositionTicks = null;
         if (!this._hasReportedStart) {
-            log.info('Skipping PlaybackStopped report: playback never successfully started');
-            return;
+            // Except for a session started by a restart of a playing session
+            // (see _onPlayerRestarting): its transcode would run until
+            // Jellyfin's ping timeout. It is stopped at the restart position.
+            const restart = this._unstartedRestart;
+            const playSessionId = (capturedMediaSource ?? this._player?.getCurrentMediaSource?.())?.PlaySessionId;
+            if (!restart || restart.itemId !== item.Id || !playSessionId || playSessionId === restart.playSessionId) {
+                log.info('Skipping PlaybackStopped report: playback never successfully started');
+                return;
+            }
+            log.info('Reporting the stop of a restarted session that never played');
+            restartPositionTicks = restart.positionTicks;
+            this._unstartedRestart = null;
         }
 
         // A start report for this session still waiting must not follow its stop
@@ -4791,7 +4821,8 @@ class PlayerPage extends Page {
 
             // Ensure position is a rounded integer. We grab the reported position
             // from the player backend or the fallback parameters.
-            let rawPosition = capturedPosition ?? this._player?.getCurrentPositionTicks?.() ?? 0;
+            let rawPosition =
+                restartPositionTicks ?? capturedPosition ?? this._player?.getCurrentPositionTicks?.() ?? 0;
 
             /*
              * -----------------------------------------------------------------
