@@ -17,6 +17,8 @@ import vm from 'node:vm';
  *     when the page starts that item again)
  *   - Back or Next while a restart loads ends the restart
  *   - play() resolves false only when the request was cancelled
+ *   - a restart during the page's first play() resolves that play() with the
+ *     restart, so the page still sets up its OSD
  * The JellyfinPlayer methods under test are taken from the source and run on
  * a stub player (the module itself needs a full DOM).
  * ============================================================================
@@ -903,4 +905,174 @@ test('JellyfinPlayer: play() resolves true when its own escalation starts playba
 test('JellyfinPlayer: play() resolves true once playback started', async () => {
     const player = createPlayer();
     assert.strictEqual(await playAndStart(player, pageOptions(player, 'A')), true);
+});
+
+// ----------------------------------------------------------------------------
+// A restart during the page's play()
+// ----------------------------------------------------------------------------
+
+/**
+ * PlayerPage's play() of item A, its load still pending (webOS resolves
+ * video.play() only once playback starts).
+ */
+async function startPagePlay(player) {
+    const playing = player.play(pageOptions(player, 'A'));
+    let settled = false;
+    playing.then(
+        () => (settled = true),
+        () => (settled = true)
+    );
+    await waitFor(() => player.backend.loads.length === 1, 'the load of A');
+    return { playing, isSettled: () => settled };
+}
+
+const audioTrackSwitchFailed = { type: 'audiotrackswitchfailed', data: { listIndex: 1 } };
+const decodeError = { type: 'error', data: { code: 3, message: 'MEDIA_ERR_DECODE' } };
+
+test("JellyfinPlayer: a failed audio track switch while the page's play() loads resolves it with the restart", async () => {
+    const player = createPlayer();
+    const page = await startPagePlay(player);
+
+    // WebOSPlayer: audioTracks empty and the wanted track is not the default one
+    player._handleBackendEvent(audioTrackSwitchFailed);
+    await waitFor(() => player.backend.loads.length === 2, 'the remux restart');
+    await flush();
+    assert.ok(!page.isSettled(), 'play() settled before the restart did');
+    player.backend.loads[1].resolve();
+
+    const result = await page.playing;
+    assert.strictEqual(result, true, `play() resolved ${result}: PlayerPage skips _initOSD()`);
+    assert.ok(player._isPlaying);
+    assert.strictEqual(player.events.filter((e) => e.type === 'playbackstart').length, 1);
+});
+
+test("JellyfinPlayer: a decode error while the page's play() loads resolves it with the transcode", async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const player = createPlayer();
+    const page = await startPagePlay(player);
+
+    player._handleBackendEvent(decodeError);
+    await advance(t, 1000);
+    await waitFor(() => player.backend.loads.length === 2, 'the transcode');
+    assert.strictEqual(player.infoRequests[1].playbackMode, 'transcode');
+    player.backend.loads[1].resolve();
+    assert.strictEqual(await page.playing, true);
+});
+
+test("JellyfinPlayer: Back during a restart that replaced the page's play() resolves that play() false (guard)", async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    // Back while the restart loads
+    let player = createPlayer();
+    let page = await startPagePlay(player);
+    player._handleBackendEvent(audioTrackSwitchFailed);
+    await waitFor(() => player.backend.loads.length === 2, 'the remux restart');
+    await player.stop();
+    assert.strictEqual(await page.playing, false, 'Back while the restart loaded');
+
+    // Back during the pause before the restart's play()
+    player = createPlayer();
+    page = await startPagePlay(player);
+    player._handleBackendEvent(decodeError);
+    await flush();
+    await player.stop();
+    assert.strictEqual(await page.playing, false, 'Back before the restart loaded');
+    await advance(t, 1000);
+    assert.strictEqual(player.backend.loads.length, 1, 'the abandoned restart loaded A');
+    assert.strictEqual(player.events.filter((e) => e.type === 'playbackstart').length, 0);
+});
+
+test("JellyfinPlayer: a newer play() during a restart that replaced the page's play() resolves that play() false (guard)", async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const player = createPlayer();
+    const page = await startPagePlay(player);
+    player._handleBackendEvent(decodeError);
+    await flush();
+
+    const next = player.play(pageOptions(player, 'B'));
+    assert.strictEqual(await page.playing, false);
+    await waitFor(() => player.backend.loads.length === 2, 'the load of B');
+    player.backend.loads[1].resolve();
+    assert.strictEqual(await next, true);
+    await advance(t, 1000);
+    assert.strictEqual(player.backend.loads.length, 2, 'the abandoned restart loaded A');
+});
+
+test("JellyfinPlayer: a restart that fails rejects the page's play() it replaced, reported once", async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const player = createPlayer();
+    const answer = player._getPlaybackInfo.bind(player);
+    player._getPlaybackInfo = async function (options) {
+        if (this.infoRequests.length === 1) {
+            throw new Error('Failed to get playback info: 500 - boom');
+        }
+        return answer(options);
+    };
+    const page = await startPagePlay(player);
+    player._handleBackendEvent(decodeError);
+    await advance(t, 1000);
+
+    await assert.rejects(page.playing, /500 - boom/);
+    assert.strictEqual(player.events.filter((e) => e.type === 'error').length, 1);
+});
+
+test('JellyfinPlayer: a resume remux replaced by an audio track restart arms no watchdog on the new session', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const player = createPlayer({
+        methods: ['async setAudioStreamIndex(index) {'],
+        globals: { prewarmManager: { invalidateCache() {} } }
+    });
+    player.getAudioTracks = () => [
+        { Index: 1, Type: 'Audio', Codec: 'aac' },
+        { Index: 2, Type: 'Audio', Codec: 'ac3' }
+    ];
+    await playAndStart(player, pageOptions(player, 'A', { startPositionTicks: 36000000000 }));
+
+    // The direct-play resume fails: a remux restart at the resume point
+    player._handleBackendEvent({ type: 'resumeseekfailed', data: { targetPositionTicks: 36000000000 } });
+    await advance(t, 1000);
+    await waitFor(() => player.backend.loads.length === 2, 'the remux restart');
+    player._currentPlayMethod = 'Remux';
+
+    // The user switches the audio track while the remux loads
+    const switching = player.setAudioStreamIndex(1);
+    await advance(t, 1000);
+    await waitFor(() => player.backend.loads.length === 3, 'the audio track restart');
+    player.backend.loads[2].resolve();
+    await switching;
+    await flush();
+    assert.deepStrictEqual(player.armedWatchdogs, [], "the remux's watchdog was armed on the audio restart's session");
+});
+
+test("JellyfinPlayer: restarts that replace each other during the page's play() resolve it with the last one", async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const methods = ['async setMaxBitrate(bitrate) {'];
+
+    // The second restart comes while the first one loads
+    let player = createPlayer({ methods });
+    let page = await startPagePlay(player);
+    player._handleBackendEvent(audioTrackSwitchFailed);
+    await waitFor(() => player.backend.loads.length === 2, 'the remux restart');
+    let quality = player.setMaxBitrate(4000000);
+    await advance(t, 1000);
+    await waitFor(() => player.backend.loads.length === 3, 'the quality restart');
+    await flush();
+    assert.ok(!page.isSettled(), 'play() settled with the replaced restart');
+    player.backend.loads[2].resolve();
+    assert.strictEqual(await page.playing, true, 'the second restart came while the first one loaded');
+    await quality;
+
+    // The second restart comes before the first one plays
+    player = createPlayer({ methods });
+    page = await startPagePlay(player);
+    player._handleBackendEvent(decodeError);
+    await flush();
+    quality = player.setMaxBitrate(4000000);
+    await advance(t, 1000);
+    await waitFor(() => player.backend.loads.length === 2, 'the quality restart');
+    await flush();
+    assert.ok(!page.isSettled(), 'play() settled with the replaced restart');
+    player.backend.loads[1].resolve();
+    assert.strictEqual(await page.playing, true, 'the second restart came before the first one played');
+    await quality;
+    assert.strictEqual(player.backend.loads.length, 2, 'the replaced transcode restart loaded as well');
 });

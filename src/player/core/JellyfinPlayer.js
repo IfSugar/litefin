@@ -1435,6 +1435,8 @@ export class JellyfinPlayer extends EventEmitter {
         // stop() or a newer restart takes the restart over (see _playAfterRestartPause())
         this._restartOwner = null;
         this._playRequestId = 0; // Advanced by play(), stop() and destroy(); see play()
+        this._latestPlay = null; // The latest play() request, for a restart that replaces it (see stop())
+        this._restartHandover = null; // A restart's stop() until its play() starts (see stop())
         this._lastReportedPlayError = null; // Last error play() emitted (restart flows skip re-reporting it)
         this._playbackMode = 'auto'; // Current playback mode ('auto', 'directPlay', 'transcode', 'remux', 'transcodeVideo', 'transcodeAudio')
 
@@ -2118,8 +2120,10 @@ export class JellyfinPlayer extends EventEmitter {
                     await this.stop({ restart: true });
                     const started = await this._playAfterRestartPause(restartOptions, 0);
                     // A reloaded remux that does not start is escalated by the watchdog,
-                    // as after a failed resume
-                    if (started !== false && (this._currentPlayMethod === 'Remux' || this._currentPlayMethod === 'DirectStream')) {
+                    // as after a failed resume. Not when another restart replaced this
+                    // one: `started` is then that restart's outcome.
+                    const isRemux = this._currentPlayMethod === 'Remux' || this._currentPlayMethod === 'DirectStream';
+                    if (started !== false && isRemux && this._currentPlayOptions === restartOptions) {
                         this._armRemuxStuckWatchdog(targetTicks);
                     }
                 } catch (e) {
@@ -2211,9 +2215,12 @@ export class JellyfinPlayer extends EventEmitter {
                         // Arm stuck-detection watchdog once remux stream is initiated.
                         // If the hardware decoder hangs on mid-GOP stream copy, the
                         // watchdog will detect lack of progress and escalate to transcode.
-                        // Not when the user stopped playback while the restart loaded.
+                        // Not when the user stopped playback while the restart loaded,
+                        // nor when another restart (audio track, burn-in) replaced this
+                        // one: `started` is then that restart's outcome.
                         // -------------------------------------------------------------
-                        if (started !== false && restartMode === 'remux') {
+                        const isOwnSession = this._currentPlayOptions === restartOptions;
+                        if (started !== false && restartMode === 'remux' && isOwnSession) {
                             this._armRemuxStuckWatchdog(effectiveTicks);
                         }
                     } catch (e) {
@@ -2300,7 +2307,7 @@ export class JellyfinPlayer extends EventEmitter {
                             log.info('[BackendFallback] Playback was stopped or replaced meanwhile — not restarting');
                             return;
                         }
-                        await this.play(restartOptions);
+                        await this._playAfterRestartPause(restartOptions, 0);
                     } catch (fallbackErr) {
                         log.error('[BackendFallback] Failed to recover via HTML5 backend:', fallbackErr);
                         // play() has already reported its own failure
@@ -2734,6 +2741,9 @@ export class JellyfinPlayer extends EventEmitter {
      */
     async _playAfterRestartPause(options, pauseMs) {
         const request = this._playRequestId;
+        // Set up by the restart's stop() for a play() request it replaced (see stop())
+        const handover =
+            this._restartHandover && this._restartHandover.request === request ? this._restartHandover : null;
         if (pauseMs > 0) {
             await new Promise(resolve => setTimeout(resolve, pauseMs));
         }
@@ -2744,7 +2754,14 @@ export class JellyfinPlayer extends EventEmitter {
             log.info('Restart abandoned: playback was stopped or replaced while it was pending');
             return false;
         }
-        return this.play(options);
+        if (handover) {
+            this._restartHandover = null;
+        }
+        const playing = this.play(options);
+        if (handover) {
+            handover.settle(playing);
+        }
+        return playing;
     }
 
     /**
@@ -2759,6 +2776,7 @@ export class JellyfinPlayer extends EventEmitter {
      * @returns {Promise<boolean>} false when stop() or a newer play() superseded
      *   this request before it started; callers must then not continue with it.
      *   Otherwise true (also when this request's own escalation started playback).
+     *   A request that a restart replaced resolves with the restart's play().
      */
     async play(options) {
         // ────────────────────────────────────────────────────────────────
@@ -2769,6 +2787,23 @@ export class JellyfinPlayer extends EventEmitter {
         // ────────────────────────────────────────────────────────────────
         const request = (this._playRequestId = (this._playRequestId || 0) + 1);
         const isSuperseded = () => request !== this._playRequestId;
+        // A restart flow's stop() that replaces this request leaves the restart's
+        // outcome here (see stop()): the request was not cancelled, it resolves with
+        // the restart. webOS reports a failed audio track switch while video.play()
+        // is pending, and PlayerPage skips its OSD setup when play() resolves false.
+        const latest = (this._latestPlay = { request, restart: null });
+        const abandon = (stage) => {
+            if (latest.restart) {
+                log.info(`play() request replaced by a restart (after ${stage}) — resolving with the restart`);
+                return latest.restart;
+            }
+            return this._abandonSupersededPlay(stage);
+        };
+        // A restart that has not started its play() yet is over: this one came first
+        if (this._restartHandover) {
+            this._restartHandover.settle(false);
+            this._restartHandover = null;
+        }
         // Set when the backend's load fails: the only failure a transcode restart can help
         let backendLoadFailed = false;
 
@@ -2910,7 +2945,7 @@ export class JellyfinPlayer extends EventEmitter {
             // The desktop and web profiles depend on the WebCodecs AV1 probe; it is cached after the first run.
             if ((platformInfo.isDesktop || platformInfo.isWeb) && platformInfo.hasWebCodecsSupport) {
                 await webCodecsProbe.probeAV1();
-                if (isSuperseded()) return this._abandonSupersededPlay('AV1 probe');
+                if (isSuperseded()) return abandon('AV1 probe');
             }
 
             // Build device profile once (avoids duplicate logs/work).
@@ -2948,7 +2983,7 @@ export class JellyfinPlayer extends EventEmitter {
 
             // Get playback info from server
             const playbackInfo = await this._getPlaybackInfo(options, deviceProfile, this._manualBitrate);
-            if (isSuperseded()) return this._abandonSupersededPlay('PlaybackInfo');
+            if (isSuperseded()) return abandon('PlaybackInfo');
             log.debug('PlaybackInfo keys:', Object.keys(playbackInfo));
             if (playbackInfo.MediaSources && playbackInfo.MediaSources.length > 0) {
                 log.debug('MediaSource[0] keys:', Object.keys(playbackInfo.MediaSources[0]));
@@ -3084,7 +3119,7 @@ export class JellyfinPlayer extends EventEmitter {
                     } catch (stopErr) {
                         log.warn('[InterlacedFallback] Backend stop() threw during pre-switch cleanup:', stopErr);
                     }
-                    if (isSuperseded()) return this._abandonSupersededPlay('interlaced fallback');
+                    if (isSuperseded()) return abandon('interlaced fallback');
 
                     // Switch backend to HTML5 in-place (no page reload needed).
                     // HtmlVideoPlayer is already statically imported at the top of this module,
@@ -3205,7 +3240,7 @@ export class JellyfinPlayer extends EventEmitter {
                     } catch (e) {
                         log.warn('Failed to fetch item details for chapters:', e);
                     }
-                    if (isSuperseded()) return this._abandonSupersededPlay('chapters');
+                    if (isSuperseded()) return abandon('chapters');
                 }
             }
 
@@ -3404,7 +3439,7 @@ export class JellyfinPlayer extends EventEmitter {
                     }
                     this._playSetupInProgress = false;
                 }
-                if (isSuperseded()) return this._abandonSupersededPlay('subtitle pre-flight');
+                if (isSuperseded()) return abandon('subtitle pre-flight');
 
                 /*
                  * -----------------------------------------------------------------
@@ -3458,19 +3493,20 @@ export class JellyfinPlayer extends EventEmitter {
                 // ------------------------------------------------------------------
                 // Superseded load: stop() or a newer play() ended this backend session
                 // before it started. This request is over: resolve false so callers do
-                // not report playback start, arm watchdogs or escalate it.
+                // not report playback start, arm watchdogs or escalate it (or, when a
+                // restart replaced it, with that restart's outcome).
                 // (A DOM AbortError from an interrupted video.play() is not a cancel of
                 // the request; it goes on to the catch below as before.)
                 // ------------------------------------------------------------------
                 if (backendErr?.superseded) {
                     log.info('Backend play() was superseded by stop() or a newer request — abandoning this play() call');
-                    return false;
+                    return abandon('superseded backend load');
                 }
                 backendLoadFailed = true;
                 throw backendErr;
             }
             // Backends without load sessions (Tizen AVPlay) resolve even after stop()
-            if (isSuperseded()) return this._abandonSupersededPlay('backend play()');
+            if (isSuperseded()) return abandon('backend play()');
             log.info('Backend play() promise resolved');
 
             // A restart recreates the video element, so re-apply speed and aspect ratio
@@ -3561,7 +3597,7 @@ export class JellyfinPlayer extends EventEmitter {
             // A replaced request has nothing left to report or escalate: its
             // failure (a timed-out PlaybackInfo after Back, a destroyed
             // backend) belongs to playback the user already left.
-            if (isSuperseded()) return this._abandonSupersededPlay(`failure: ${error?.message || error}`);
+            if (isSuperseded()) return abandon(`failure: ${error?.message || error}`);
 
             // =================================================================
             // Suppress False-Positive Interruption Errors During Session Restart
@@ -3621,7 +3657,7 @@ export class JellyfinPlayer extends EventEmitter {
                 } catch (tearDownErr) {
                     log.warn(`[BackendFallback] Clean stop failed for ${failedBackend}:`, tearDownErr);
                 }
-                if (isSuperseded()) return this._abandonSupersededPlay('backend fallback');
+                if (isSuperseded()) return abandon('backend fallback');
 
                 // Switch to HTML5 player
                 this._backendType = 'html5';
@@ -3807,8 +3843,35 @@ export class JellyfinPlayer extends EventEmitter {
         }
 
         // Ends any play() request still loading (see play())
-        this._playRequestId = (this._playRequestId || 0) + 1;
+        const replacedRequest = this._playRequestId || 0;
+        this._playRequestId = replacedRequest + 1;
         this._clearResumeAdvanceWait();
+
+        // --------------------------------------------------------------------
+        // Restart handover: a play() request that a restart's own stop()
+        // replaces while it loads resolves with that restart instead of as
+        // cancelled. _playAfterRestartPause() settles the handover with the
+        // restart's play(). A stop() or play() that comes before it settles
+        // the handover with false (Back, next item), or a restart's stop()
+        // with the restart that replaces this one.
+        // --------------------------------------------------------------------
+        const pendingHandover = this._restartHandover;
+        this._restartHandover = null;
+        if (isRestartStop) {
+            let settle;
+            const promise = new Promise((resolve) => {
+                settle = resolve;
+            });
+            // The restart's play() reports its own failure; only a replaced request awaits this
+            promise.catch(() => {});
+            this._restartHandover = { request: this._playRequestId, promise, settle };
+            if (this._latestPlay && this._latestPlay.request === replacedRequest) {
+                this._latestPlay.restart = promise;
+            }
+        }
+        if (pendingHandover) {
+            pendingHandover.settle(this._restartHandover ? this._restartHandover.promise : false);
+        }
 
         const item = this._currentItem;
         const positionTicks = this.getCurrentPositionTicks();
