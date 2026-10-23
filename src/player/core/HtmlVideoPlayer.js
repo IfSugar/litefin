@@ -100,6 +100,21 @@ const HLS_MAX_DECODER_RESETS = 3;
 const HLS_DECODER_RESET_PROGRESS_S = 30;
 
 /**
+ * Minimum real-time spacing of forwarded timeupdate events (as WebOSPlayer).
+ * Chromium fires timeupdate about every 250 ms and webOS about every 156 ms;
+ * a gap below both keeps every one, only bursts are dropped.
+ */
+const TIMEUPDATE_MIN_INTERVAL_MS = 100;
+
+/**
+ * Monotonic milliseconds for interval throttling. Date.now() follows the TV's
+ * clock, which can step backwards on a time sync and stall the throttle.
+ * @returns {number}
+ */
+const monotonicNow = () =>
+    typeof performance !== 'undefined' && typeof performance.now === 'function' ? performance.now() : Date.now();
+
+/**
  * Rejection for a load abandoned by stop() or a newer play(). Named
  * 'AbortError' like a DOM abort, so JellyfinPlayer treats it as a cancel.
  * @returns {Error}
@@ -151,6 +166,7 @@ export class HtmlVideoPlayer {
 
         // Throttle for timeupdate events
         this._lastTimeUpdateTicks = 0;
+        this._lastTimeUpdateAt = 0;
 
         // Audio normalization (Web Audio API):
         // { element, context, source, gain } — see _applyAudioNormalization();
@@ -2472,10 +2488,17 @@ export class HtmlVideoPlayer {
 
         const currentTime = this.getCurrentTime();
         const currentTimeTicks = Math.floor(currentTime * 10000000);
-        
-        // Throttle to ~250ms to reduce main thread load on slow TVs
-        if (Math.abs(currentTimeTicks - this._lastTimeUpdateTicks) > 2500000) {
+        const now = monotonicNow();
+
+        // Throttle by elapsed time, not by media time, to spare slow TVs bursts.
+        // Requiring the media time to move by more than 0.25 s dropped every
+        // other event at webOS's ~156 ms cadence, so external subtitles (ticked
+        // only from these events) changed on a ~0.3 s grid. A jump of a second
+        // or more (seek, new stream) is forwarded at once.
+        const jumped = Math.abs(currentTimeTicks - this._lastTimeUpdateTicks) >= 10000000;
+        if (jumped || now - this._lastTimeUpdateAt >= TIMEUPDATE_MIN_INTERVAL_MS) {
             this._lastTimeUpdateTicks = currentTimeTicks;
+            this._lastTimeUpdateAt = now;
             this.onEvent({ type: 'timeupdate', data: { time: currentTime } });
         }
     }

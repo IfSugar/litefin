@@ -142,3 +142,53 @@ test('HtmlVideoPlayer: a direct-play seek that lands near its target either way 
     t.mock.timers.tick(2500);
     assert.strictEqual(count(events, 'resumeseekfailed'), 0);
 });
+
+// ----------------------------------------------------------------------------
+// timeupdate throttle
+// ----------------------------------------------------------------------------
+
+/** A controllable performance.now() for the throttle. */
+function mockClock(t) {
+    const clock = { now: 100000 };
+    t.mock.method(performance, 'now', () => clock.now);
+    return { tick: (ms) => (clock.now += ms) };
+}
+
+test('HtmlVideoPlayer: every ~156 ms timeupdate (webOS cadence) is forwarded', async (t) => {
+    // SubtitleManager ticks external subtitles only from these events
+    const clock = mockClock(t);
+    const { player, events } = createPlayer();
+    await playAndStart(player, movie);
+    const video = player._videoElement;
+    events.length = 0;
+
+    for (let i = 1; i <= 20; i++) {
+        clock.tick(156);
+        video.currentTime = 100 + i * 0.156;
+        video.fire('timeupdate');
+    }
+    assert.strictEqual(count(events, 'timeupdate'), 20);
+});
+
+test('HtmlVideoPlayer: bursts of timeupdate are throttled, but a jump is forwarded at once', async (t) => {
+    const clock = mockClock(t);
+    const { player, events } = createPlayer();
+    await playAndStart(player, movie);
+    const video = player._videoElement;
+
+    clock.tick(1000);
+    video.currentTime = 10;
+    video.fire('timeupdate');
+    events.length = 0;
+    for (let i = 1; i <= 4; i++) {
+        clock.tick(20);
+        video.currentTime = 10 + i * 0.02;
+        video.fire('timeupdate');
+    }
+    assert.strictEqual(count(events, 'timeupdate'), 0);
+
+    clock.tick(10);
+    video.currentTime = 600; // seek landed
+    video.fire('timeupdate');
+    assert.strictEqual(count(events, 'timeupdate'), 1);
+});
