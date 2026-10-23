@@ -68,6 +68,10 @@ class PlayerPage extends Page {
         // the new session's PlaybackStart waits for it (see _onPlayerRestarting)
         this._pendingStopReport = null;
 
+        // PlaybackStart waiting for _pendingStopReport. A stop report for its
+        // session sent meanwhile cancels it (see _reportPlaybackStart).
+        this._waitingStartReport = null;
+
         // Current item being played
         this._item = null;
 
@@ -3528,9 +3532,19 @@ class PlayerPage extends Page {
                 NowPlayingQueue: this._buildNowPlayingQueue()
             };
 
-            // A restart's stop report for the previous session goes first
+            // A stop report still in flight for the previous session goes
+            // first. If Back, Next or another restart sends this session's stop
+            // report meanwhile, the start is dropped: sent after the stop, it
+            // would show the item as playing on the server after the user left.
             if (this._pendingStopReport) {
+                const waiting = {};
+                this._waitingStartReport = waiting;
                 await this._pendingStopReport;
+                if (this._waitingStartReport !== waiting || this._isExiting) {
+                    log.info('Playback session stopped while its start report waited — not reporting the start');
+                    return;
+                }
+                this._waitingStartReport = null;
             }
 
             await api.reportPlaybackStart(info);
@@ -4766,6 +4780,9 @@ class PlayerPage extends Page {
             log.info('Skipping PlaybackStopped report: playback never successfully started');
             return;
         }
+
+        // A start report for this session still waiting must not follow its stop
+        this._waitingStartReport = null;
 
         try {
             // 1. Capture data
