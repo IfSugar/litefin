@@ -950,7 +950,7 @@ class CardRenderer {
         // ====================================================================
         // Displays a heart badge when an item is marked as favorite in Jellyfin.
         // Sits at the bottom-left corner, positioned next to version count if versions are present.
-        let favoriteBadgeHtml = CardRenderer.getFavoriteBadgeHtml(item);
+        const favoriteBadgeHtml = CardRenderer.getFavoriteBadgeHtml(item);
 
         // Played Badge (Check Mark)
         let playedBadgeHtml = CardRenderer.getPlayedBadgeHtml(item);
