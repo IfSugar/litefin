@@ -315,8 +315,8 @@ export class WebOSPlayer {
         // ---- Subtitle state ----
         this._currentSubtitleIndex = -1;
         this._subtitleOffset  = 0;
-        /** @type {WeakMap<TextTrack, number>} Offset the cues of each native track currently carry */
-        this._cueOffsets = new WeakMap();
+        /** @type {WeakMap<TextTrackCue, number[]>} [start, end] of each native cue without the offset */
+        this._cueBaseTimes = new WeakMap();
 
         // ---- Bound event handlers (stored so we can removeEventListener cleanly) ----
         this._boundHandlers = {};
@@ -3105,9 +3105,11 @@ export class WebOSPlayer {
     }
 
     /**
-     * Bring the cues of every showing native track to _subtitleOffset. The
-     * offset each track's cues already carry is kept per track, so only the
-     * difference is added: switching tracks and back never doubles it.
+     * Bring the cues of every showing native track to _subtitleOffset. Each
+     * cue's times without the offset are kept in _cueBaseTimes from when it is
+     * first seen here, so switching tracks and back never doubles the offset,
+     * and cues added since (Hls.js WebVTT segments, a track still loading),
+     * which carry none yet, get it too.
      * @private
      */
     _applySubtitleOffset() {
@@ -3121,15 +3123,18 @@ export class WebOSPlayer {
         for (let i = 0; i < video.textTracks.length; i++) {
             const track = video.textTracks[i];
             if (track.mode !== 'showing' || !track.cues) continue;
-            const delta = seconds - (this._cueOffsets.get(track) || 0);
-            if (delta === 0) continue;
             for (let j = 0; j < track.cues.length; j++) {
                 const cue = track.cues[j];
-                cue.startTime += delta;
-                cue.endTime   += delta;
+                let base = this._cueBaseTimes.get(cue);
+                if (!base) {
+                    // Not moved yet: only this method moves cues
+                    base = [cue.startTime, cue.endTime];
+                    this._cueBaseTimes.set(cue, base);
+                }
+                if (cue.startTime !== base[0] + seconds) cue.startTime = base[0] + seconds;
+                if (cue.endTime !== base[1] + seconds) cue.endTime = base[1] + seconds;
             }
-            this._cueOffsets.set(track, seconds);
-            log.debug('WebOSPlayer: Subtitle offset applied:', seconds, 's (delta:', delta, 's)');
+            log.debug('WebOSPlayer: Subtitle offset applied:', seconds, 's');
         }
     }
 
