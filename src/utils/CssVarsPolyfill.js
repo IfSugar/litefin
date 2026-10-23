@@ -21,19 +21,35 @@ import { logger } from './Logger.js';
 const log = logger.create('CssVarsPolyfill');
 
 /**
- * Shared ponyfill options.
+ * Shared ponyfill configuration options.
  *
- * - `silent: true`      — suppress console noise in production
- * - `updateURLs: false` — don't rewrite relative URLs inside CSS (avoids
- *                         breaking font/image paths when injecting computed CSS)
- * - `watch: false`      — we call update() manually on theme/layout changes
- *                         rather than using MutationObserver (lighter, more
- *                         predictable on TV hardware)
+ * - `silent: true`          — suppress internal console output in production
+ * - `updateURLs: false`      — prevent rewriting relative URLs inside CSS (avoids
+ *                             breaking local asset/font paths when injecting computed CSS)
+ * - `watch: false`          — invoke update() manually on theme/layout changes
+ *                             rather than relying on MutationObserver (much lighter,
+ *                             more predictable on TV hardware)
+ * - `include: 'style'`      — STRICTLY scan inline <style> elements; NEVER query
+ *                             or attempt to fetch <link rel="stylesheet"> via XMLHttpRequest.
+ *                             On Smart TV platforms (webOS IPK and Tizen WGT), local file://
+ *                             XHR requests cannot resolve and hang waiting on the browser's
+ *                             40-second network socket timeout before failing.
+ * - `preserveStatic: false` — omit static CSS declarations that do not reference custom properties.
+ *                             Instead of duplicating 1MB+ of entire static stylesheets (which
+ *                             freezes low-end dual-core TV CPUs for 30-40 seconds during AST parsing),
+ *                             this outputs strictly the transformed variable overrides into
+ *                             <style data-cssvars="out">. The original styles remain intact and active,
+ *                             slashing ponyfill parsing overhead by ~80% and preventing UI thread lockup.
+ * - `onlyLegacy: true`      — safety gate ensuring modern browsers with native CSS variable
+ *                             support never execute the ponyfill transform.
  */
 const PONYFILL_OPTIONS = {
     silent: true,
     updateURLs: false,
-    watch: false
+    watch: false,
+    include: 'style',
+    preserveStatic: false,
+    onlyLegacy: true
 };
 
 class CssVarsPolyfill {
@@ -88,7 +104,13 @@ class CssVarsPolyfill {
             // Provide our scoped variables manually, otherwise the ponyfill
             // ignores our [data-theme-mode="..."] selectors since they aren't :root
             const options = Object.assign({}, PONYFILL_OPTIONS, {
-                variables: themeVars
+                variables: themeVars,
+                onComplete: function (cssText, styleElms, cssVariables, benchmark) {
+                    log.debug(`Initial CSS vars ponyfill pass complete in ${benchmark}ms (${styleElms ? styleElms.length : 0} styles updated)`);
+                },
+                onError: function (message, node, xhr, url) {
+                    log.warn('Ponyfill warning/error during initial pass:', message, url || '');
+                }
             });
             cssVars(options);
         }, 0);
@@ -111,7 +133,13 @@ class CssVarsPolyfill {
         // Re-run with the preserved options + updated variables manually extracted
         // from the active theme class ([data-theme-mode="xyz"])
         const options = Object.assign({}, PONYFILL_OPTIONS, {
-            variables: themeVars
+            variables: themeVars,
+            onComplete: function (cssText, styleElms, cssVariables, benchmark) {
+                log.debug(`CSS vars ponyfill update complete in ${benchmark}ms`);
+            },
+            onError: function (message, node, xhr, url) {
+                log.warn('Ponyfill warning/error during update:', message, url || '');
+            }
         });
         cssVars(options);
     }
@@ -133,8 +161,9 @@ class CssVarsPolyfill {
         const vars = {};
 
         // 1. Scan raw text content of injected <style> tags.
-        // This avoids missing vars that fail to parse into CSSOM on Chrome 32.
-        const styleTags = document.querySelectorAll('style');
+        // We explicitly omit any ponyfill output styles ([data-cssvars="out"])
+        // to avoid recursively scanning computed property values on subsequent passes.
+        const styleTags = document.querySelectorAll('style:not([data-cssvars="out"])');
 
         // Regex to capture variables inside any block
         const varRegex = /(--[^:]+):\s*([^;}]+)/g;

@@ -397,7 +397,30 @@ const legacyConfig = {
                     }
                 }
             },
-            { test: /\.css$/, use: [MiniCssExtractPlugin.loader, 'css-loader'] },
+            /*
+             * =======================================================================
+             * CSS Inlining Strategy for Legacy Smart TV Packages (file:// Protocol)
+             * =======================================================================
+             * Legacy TV platforms (webOS 3.x and Tizen 3.0, running Chromium 38-47)
+             * lack native CSS custom property ('var()') support.
+             *
+             * When packaged into local TV applications (webOS IPK and Tizen WGT),
+             * the app executes under the file:// protocol. MiniCssExtractPlugin
+             * outputs discrete external CSS files linked via <link rel="stylesheet">.
+             *
+             * Because Chromium strictly blocks or stalls XMLHttpRequests over file://,
+             * css-vars-ponyfill attempts to fetch these external stylesheets and
+             * hangs waiting for the operating system socket timeout (~40-60 seconds)
+             * on every single app boot.
+             *
+             * By utilizing 'style-loader' instead of MiniCssExtractPlugin for the
+             * legacy tier, stylesheets are bundled directly into the JavaScript chunks
+             * and injected as inline <style> elements. This completely eliminates
+             * network/CORS overhead, avoids file:// XHR socket timeouts, and allows
+             * css-vars-ponyfill to evaluate in-memory in milliseconds.
+             * =======================================================================
+             */
+            { test: /\.css$/, use: ['style-loader', 'css-loader'] },
             {
                 test: /\.(woff|woff2|eot|ttf|otf)$/i,
                 type: 'asset/resource',
