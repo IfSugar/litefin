@@ -66,6 +66,11 @@ class CardRenderer {
             showFavoriteBadges: storage.getItem('pref:showFavoriteBadges') === 'true',
             showQualityBadges: storage.getItem('pref:showQualityBadges') === 'true'
         };
+        // Each of these shapes the markup the HTML cache keeps, so all of them are
+        // part of its key: a changed setting rebuilds the cards once
+        prefs.markupKey = Object.keys(prefs)
+            .map((name) => prefs[name])
+            .join('|');
         CardRenderer._prefs = prefs;
         // A setting changed later (in another task) is picked up by the next render pass
         Promise.resolve().then(() => {
@@ -421,8 +426,11 @@ class CardRenderer {
         const isGlobalBlurHashDisabled = prefs.globalBlurHashDisabled;
         const isLibraryBlurHashDisabledPref = prefs.libraryBlurHashDisabled;
 
-        // Incorporate every layout, dimension, and performance preference into the cache key
-        const cacheKey = `${mediaLayout}|${isLandscape}|${type}|${contextType}|${isGrid}|${cardWidth}|${options.showMeta}|${item._dynamicThumbUrl || ''}|${libraryThumbMode}|${prefs.hideLibraryLabels}|${prefs.cardLabelStyle}|${preferBackdrops}|${isGlobalBlurHashDisabled}|${isLibraryBlurHashDisabledPref}`;
+        // Incorporate every layout, dimension, and performance preference into the cache key.
+        // markupKey adds the card settings not spelled out here (favorite and quality
+        // badges, progress bar, counts...): without them, turning on Show Favorite
+        // Badges showed no heart until something else cleared the cache
+        const cacheKey = `${mediaLayout}|${isLandscape}|${type}|${contextType}|${isGrid}|${cardWidth}|${options.showMeta}|${item._dynamicThumbUrl || ''}|${libraryThumbMode}|${prefs.hideLibraryLabels}|${prefs.cardLabelStyle}|${preferBackdrops}|${isGlobalBlurHashDisabled}|${isLibraryBlurHashDisabledPref}|${prefs.markupKey}`;
         if (CardRenderer._htmlCacheKey !== cacheKey) {
             CardRenderer._htmlCache.clear();
             CardRenderer._htmlCacheKey = cacheKey;
