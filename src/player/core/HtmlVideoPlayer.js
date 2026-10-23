@@ -158,8 +158,8 @@ export class HtmlVideoPlayer {
         // Subtitle state
         this._currentSubtitleIndex = -1;
         this._subtitleOffset = 0;
-        /** @type {WeakMap<TextTrack, number>} Offset the cues of each native track currently carry */
-        this._cueOffsets = new WeakMap();
+        /** @type {WeakMap<TextTrackCue, number[]>} [start, end] of each native cue without the offset */
+        this._cueBaseTimes = new WeakMap();
 
         // Bound event handlers (for cleanup)
         this._boundHandlers = {};
@@ -352,7 +352,7 @@ export class HtmlVideoPlayer {
 
         // Reset subtitle offset for new playback session
         this._subtitleOffset = 0;
-        this._cueOffsets = new WeakMap();
+        this._cueBaseTimes = new WeakMap();
 
         const video = this._ensureVideoElement();
 
@@ -2361,9 +2361,11 @@ export class HtmlVideoPlayer {
     }
 
     /**
-     * Bring the cues of every showing native track to _subtitleOffset. The
-     * offset each track's cues already carry is kept per track in _cueOffsets,
-     * so only the difference is added: switching tracks and back never doubles it.
+     * Bring the cues of every showing native track to _subtitleOffset. Each
+     * cue's times without the offset are kept in _cueBaseTimes from when it is
+     * first seen here, so switching tracks and back never doubles the offset,
+     * and cues added since (HLS.js WebVTT segments, a track still loading),
+     * which carry none yet, get it too.
      * @private
      */
     _applySubtitleOffset() {
@@ -2380,20 +2382,18 @@ export class HtmlVideoPlayer {
             // Only apply offsets to actively rendered tracks with parsed cues
             if (track.mode !== 'showing' || !track.cues) continue;
 
-            // Compute relative delta required to bring this track from its current offset to target
-            const delta = seconds - (this._cueOffsets.get(track) || 0);
-            if (delta === 0) continue;
-
-            // Shift every individual cue's start and end timestamps by the delta
             for (let j = 0; j < track.cues.length; j++) {
                 const cue = track.cues[j];
-                cue.startTime += delta;
-                cue.endTime += delta;
+                let base = this._cueBaseTimes.get(cue);
+                if (!base) {
+                    // Not shifted yet: only this method moves cues
+                    base = [cue.startTime, cue.endTime];
+                    this._cueBaseTimes.set(cue, base);
+                }
+                if (cue.startTime !== base[0] + seconds) cue.startTime = base[0] + seconds;
+                if (cue.endTime !== base[1] + seconds) cue.endTime = base[1] + seconds;
             }
-
-            // Update tracked offset for this track instance
-            this._cueOffsets.set(track, seconds);
-            log.debug(`HtmlVideoPlayer: Subtitle offset applied: ${seconds}s (delta: ${delta}s)`);
+            log.debug(`HtmlVideoPlayer: Subtitle offset applied: ${seconds}s`);
         }
     }
 

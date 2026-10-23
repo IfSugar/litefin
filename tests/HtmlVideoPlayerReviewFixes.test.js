@@ -269,3 +269,49 @@ test('HtmlVideoPlayer: a normalized track plays through its gain from the start'
     player._videoElement.fire('canplay');
     await second;
 });
+
+// ----------------------------------------------------------------------------
+// Subtitle offset on native text tracks
+// ----------------------------------------------------------------------------
+
+test('HtmlVideoPlayer: subtitle cues added after an offset get the offset, not a delta', async () => {
+    const { player } = createPlayer();
+    await playAndStart(player, movie);
+    const early = { startTime: 10, endTime: 12 };
+    const tracks = [
+        { mode: 'showing', cues: [early] },
+        { mode: 'disabled', cues: [] }
+    ];
+    player._videoElement.textTracks = tracks;
+
+    player.setSubtitleStreamIndex(0);
+    player.setSubtitleOffset(2);
+    const late = { startTime: 30, endTime: 32 }; // the next WebVTT segment, parsed by HLS.js
+    tracks[0].cues.push(late);
+    player.setSubtitleOffset(3);
+
+    assert.deepStrictEqual([early.startTime, early.endTime], [13, 15]);
+    assert.deepStrictEqual([late.startTime, late.endTime], [33, 35], 'late cue shifted by the change only');
+});
+
+test('HtmlVideoPlayer: subtitle cues added after an offset return to their time after a track switch', async () => {
+    const { player } = createPlayer();
+    await playAndStart(player, movie);
+    const early = { startTime: 10, endTime: 12 };
+    const tracks = [
+        { mode: 'showing', cues: [early] },
+        { mode: 'disabled', cues: [] }
+    ];
+    player._videoElement.textTracks = tracks;
+
+    player.setSubtitleStreamIndex(0);
+    player.setSubtitleOffset(2);
+    const late = { startTime: 30, endTime: 32 };
+    tracks[0].cues.push(late);
+
+    // A track switch resets the offset
+    player.setSubtitleStreamIndex(1);
+    player.setSubtitleStreamIndex(0);
+    assert.strictEqual(early.startTime, 10);
+    assert.strictEqual(late.startTime, 30, 'late cue moved 2 s early');
+});
