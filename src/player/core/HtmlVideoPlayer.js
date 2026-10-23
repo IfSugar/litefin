@@ -1498,7 +1498,9 @@ export class HtmlVideoPlayer {
                 if (!this._videoElement) return;
                 const cur = this.getCurrentTime();
                 const drift = Math.abs(cur - targetSeconds);
-                const isNear = drift < 15 || cur >= (targetSeconds - 15);
+                // Distance either way: a backward seek that did not land stays past
+                // the target (while a seek is pending, currentTime reports the target)
+                const isNear = drift < 15;
                 if (!isNear) {
                     log.warn(`HtmlVideoPlayer: DirectPlay seek to ${targetSeconds}s failed (stuck at ${cur.toFixed(2)}s) — emitting resumeseekfailed for Remux fallback`);
                     this.onEvent({
