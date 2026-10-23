@@ -6056,7 +6056,8 @@ class SettingsPage extends Page {
                  * ------------------------------------------------------------- */
                 { value: 'instant', label: i18n.t('ScrollModeInstant') || 'Instant (No Animation)' }
             ],
-            storage.getItem('pref:verticalScrollMode') || 'native'
+            /* Defaults to 'gpu' on Android to eliminate CPU main-thread scrollTop reflows */
+            storage.getItem('pref:verticalScrollMode') || (platformInfo.isAndroid ? 'gpu' : 'native')
         )}
                     </div>
                 </div>

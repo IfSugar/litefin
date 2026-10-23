@@ -154,6 +154,33 @@ class ScrollController {
     }
 
     /**
+     * Resolves the active vertical scroll animation mode from stored preferences.
+     * Supported options:
+     * - 'gpu': Fast hardware-accelerated CSS translate3d transforms on .vertical-scroll-track.
+     * - 'native': Smooth animated scrolling via JS RAF scrollTop.
+     * - 'current': Standard custom JS RAF loops.
+     * - 'instant': Immediate position snapping without transition delay.
+     *
+     * @returns {'gpu'|'native'|'current'|'instant'} Active vertical scroll mode
+     */
+    getVerticalScrollMode() {
+        // Retrieve explicit user preference from persistent local storage
+        const stored = storage.getItem('pref:verticalScrollMode');
+        if (stored) {
+            return stored;
+        }
+
+        // On Android (both Android TV and mobile shells), default to high-performance
+        // GPU mode ('gpu') so vertical scrolling delegates to hardware compositor transforms
+        // rather than CPU main-thread scrollTop reflows.
+        if (platformInfo.isAndroid) {
+            return 'gpu';
+        }
+
+        return 'native';
+    }
+
+    /**
      * Resolves the configured horizontal media row scroll animation mode from stored preferences.
      * Supported options:
      * - 'gpu': Fast hardware-accelerated CSS translate3d transitions directly on .row-items-track.
@@ -320,7 +347,7 @@ class ScrollController {
         if (!container) return 0;
 
         // Retrieve active vertical scroll style preference.
-        const scrollMode = storage.getItem('pref:verticalScrollMode') || 'native';
+        const scrollMode = this.getVerticalScrollMode();
 
         // Check if GPU mode is active and parse the translate3d string coordinate.
         if (scrollMode === 'gpu') {
@@ -382,7 +409,7 @@ class ScrollController {
         const animIdKey = isVertical ? '_verticalScrollAnimationId' : '_horizontalScrollAnimationId';
 
         // Resolve active scroll mode and duration preference from stored user preferences.
-        const scrollMode = isVertical ? storage.getItem('pref:verticalScrollMode') || 'native' : this.getHorizontalScrollMode();
+        const scrollMode = isVertical ? this.getVerticalScrollMode() : this.getHorizontalScrollMode();
         const durationPref = storage.getItem('pref:scrollSmoothingDuration') || 'current';
 
         /* ====================================================================
