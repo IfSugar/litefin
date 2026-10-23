@@ -825,6 +825,39 @@ export class WebOSPlayer {
         // Tear down any active Hls.js session before starting fresh
         this._destroyHlsPlayer();
 
+        /*
+         * ====================================================================
+         * HLS MASTER VARIANT BYPASS FOR VIDEO STREAM COPY:
+         *
+         * When remuxing or direct-streaming an HDR source (e.g. 4K HEVC HDR10 /
+         * Dolby Vision with unsupported audio like DTS-HD MA), Jellyfin server's
+         * DynamicHlsHelper injects an H.264 SDR fallback variant into master.m3u8
+         * with identical BANDWIDTH ("Provide H.264 SDR entrance for backward
+         * compatibility").
+         *
+         * The native webOS HLS demuxer treats identical bandwidth variants as
+         * interchangeable and periodically switches to the SDR variant, which
+         * contains AllowVideoStreamCopy=false. This forces Jellyfin into a full
+         * 4K h264_qsv + tonemap transcode mid-stream, exhausting server CPU/GPU
+         * and stalling playback.
+         *
+         * By replacing /master.m3u8 with /main.m3u8, the webOS player requests
+         * the direct media playlist with the stream-copy query parameters.
+         * The secondary SDR variant is eliminated entirely, locking webOS into
+         * the stream-copied HDR track.
+         * ====================================================================
+         */
+        let streamUrl = options.url;
+        const isVideoDirect = options.playMethod === 'DirectStream' ||
+                              options.playMethod === 'Remux' ||
+                              (options.mediaSource ? MediaHelper.getTranscodeStatus(options.mediaSource).isVideoDirect : false);
+
+        if (isVideoDirect && typeof streamUrl === 'string' && streamUrl.includes('/master.m3u8')) {
+            log.info('WebOSPlayer: Video stream copy active — requesting main.m3u8 directly to bypass server SDR variant');
+            streamUrl = streamUrl.replace(/\/master\.m3u8/i, '/main.m3u8');
+            options = { ...options, url: streamUrl };
+        }
+
         // Detect whether the incoming stream is HLS (transcode, remux, or raw m3u8)
         const isHlsStream = options.isHls || (options.url && options.url.includes('.m3u8'));
         // Persist HLS stream flag on the player instance for seeking and recovery logic
