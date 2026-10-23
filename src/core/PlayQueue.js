@@ -862,6 +862,9 @@ class PlayQueue {
         if (!this._episodeSeriesId || !this._seriesAllEpisodes?.length || this._isLoadingMore) {
             return;
         }
+        // A queue put in place while the episodes load (setQueue() from a
+        // remote control, a new init()) is not this series' window any more
+        const generation = this._queueGeneration;
 
         const windowLimit = Math.max(10, PlayerSettings.get('playQueueEpisodeLimit') || 50);
         const threshold = Math.min(5, Math.floor(windowLimit / 4));
@@ -896,6 +899,10 @@ class PlayQueue {
                         newItems = res?.Items || [];
                     }
 
+                    if (generation !== this._queueGeneration) {
+                        log.info('[PlayQueue] Queue replaced while loading the next episodes — dropping them');
+                        return;
+                    }
                     if (newItems.length > 0) {
                         newItems.forEach(_stampPlaylistItemId);
                         this._queue.push(...newItems);
@@ -910,7 +917,8 @@ class PlayQueue {
                 } catch (err) {
                     log.warn('[PlayQueue] Failed to preload next episodes:', err);
                 } finally {
-                    this._isLoadingMore = false;
+                    // clear() already reset it for the new queue
+                    if (generation === this._queueGeneration) this._isLoadingMore = false;
                 }
             }
         } else if (direction === 'previous') {
@@ -941,6 +949,10 @@ class PlayQueue {
                         prevItems = res?.Items || [];
                     }
 
+                    if (generation !== this._queueGeneration) {
+                        log.info('[PlayQueue] Queue replaced while loading the previous episodes — dropping them');
+                        return;
+                    }
                     if (prevItems.length > 0) {
                         prevItems.forEach(_stampPlaylistItemId);
                         this._queue.unshift(...prevItems);
@@ -957,7 +969,8 @@ class PlayQueue {
                 } catch (err) {
                     log.warn('[PlayQueue] Failed to preload previous episodes:', err);
                 } finally {
-                    this._isLoadingMore = false;
+                    // clear() already reset it for the new queue
+                    if (generation === this._queueGeneration) this._isLoadingMore = false;
                 }
             }
         }
