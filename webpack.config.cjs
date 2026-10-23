@@ -149,7 +149,7 @@ const tvResolveAliases = {
 };
 
 // ============================================================================
-// Modern build - Tizen 6.5+ / WebOS 6.0+ (No transpilation, pure ES6+, no source maps)
+// Modern build - Tizen 6.5+ / WebOS 22+ (No transpilation, pure ES6+, no source maps)
 // Formerly referred to as the "ES6" build tier. Renamed to "Modern" to ensure
 // non-technical users can easily distinguish this as the appropriate package
 // for newer/modern television models.
