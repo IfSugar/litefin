@@ -572,7 +572,10 @@ export class WebOSPlayer {
      */
     _listen(target, type, handler, options) {
         target.addEventListener(type, handler, options);
-        const remove = () => target.removeEventListener(type, handler, options);
+        const remove = () => {
+            target.removeEventListener(type, handler, options);
+            this._dropSessionCleanup(remove);
+        };
         this._sessionCleanups.push(remove);
         return remove;
     }
@@ -585,11 +588,27 @@ export class WebOSPlayer {
      */
     _timer(fn, ms) {
         const session = this._sessionId;
-        const id = setTimeout(() => {
+        let id = null;
+        const cancel = () => clearTimeout(id);
+        id = setTimeout(() => {
+            // A fired timer needs no cleanup any more. Left in the list, those of
+            // re-armed timers (seek watch, retry polls) piled up for the session.
+            this._dropSessionCleanup(cancel);
             if (this._isSessionActive(session)) fn();
         }, ms);
-        this._sessionCleanups.push(() => clearTimeout(id));
+        this._sessionCleanups.push(cancel);
         return id;
+    }
+
+    /**
+     * Forget a cleanup of the current session that is no longer needed. One of
+     * an ended session is not in the list any more, so nothing happens then.
+     * @private
+     * @param {Function} cleanup
+     */
+    _dropSessionCleanup(cleanup) {
+        const index = this._sessionCleanups.lastIndexOf(cleanup);
+        if (index !== -1) this._sessionCleanups.splice(index, 1);
     }
 
     /**
@@ -3926,9 +3945,17 @@ export class WebOSPlayer {
                 return;
             }
             if (video.paused) {
-                // A paused seek completes only once playback starts
-                watch.playingMs = 0;
-                watch.noDataMs = 0;
+                // A paused seek completes only once playback starts: watch it again from
+                // the element's next 'play' (a Dolby Vision flush's too), unless a newer
+                // seek or 'seeked' replaced this watch. Checking every 2 s for as long as
+                // the pause lasted only added timers.
+                const removePlay = this._listen(video, 'play', () => {
+                    removePlay();
+                    if (this._seekWatch === watch && this._videoElement === video && video.seeking) {
+                        this._watchSeek(video);
+                    }
+                });
+                return;
             } else {
                 watch.playingMs += SEEK_STUCK_CHECK_MS;
                 const buffered = bufferedEnd();
