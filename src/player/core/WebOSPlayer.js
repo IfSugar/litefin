@@ -175,6 +175,12 @@ function describeAudioTracks(tracks) {
 const SEEK_PLAY_FALLBACK_MS = 500;
 
 /**
+ * How long the element stays muted after a failed startup audio track switch
+ * was reported, if no restart (its stop() lifts the mute) comes.
+ */
+const TRACK_SWITCH_RESTART_WAIT_MS = 5000;
+
+/**
  * A seek the pipeline never completes. On an LG C4 the pipeline rejected a
  * seek in a native-HLS remux ('seek Failure', error 700) and never finished
  * the next one: the element stayed `seeking` with playback requested, and
@@ -376,6 +382,8 @@ export class WebOSPlayer {
         this._resumeAudioSuppressed = false;
         // Keeps the resume mute on until a deferred audio track switch is done
         this._resumeTrackSwitchPending = false;
+        // { listIndex } of an audio track switch that failed at startup, reported once play() resolved
+        this._startupTrackSwitchFailure = null;
 
         // ====================================================================
         // Video Suppression State (Resume Playback):
@@ -772,6 +780,7 @@ export class WebOSPlayer {
         this._timeUpdated = false;
         this._subtitleOffset = 0;
         this._hlsFallbackAttempted = false;
+        this._startupTrackSwitchFailure = null;
 
         // Initialize robust seek state immediately to avoid race conditions with early 'playing' events.
         // Do not attempt robust resume for live TV/streams.
@@ -844,6 +853,23 @@ export class WebOSPlayer {
         }
 
         this._currentSrc = options.url;
+
+        // The audio track switch at startup failed (see _applyInitialTracks): report it
+        // in a later task, once the caller has gone on from this resolved play()
+        const trackSwitchFailure = this._startupTrackSwitchFailure;
+        if (trackSwitchFailure) {
+            this._startupTrackSwitchFailure = null;
+            this._timer(() => this.onEvent({ type: 'audiotrackswitchfailed', data: trackSwitchFailure }), 0);
+            // No restart came: play on with the default track rather than in silence
+            this._timer(() => {
+                log.warn('WebOSPlayer: no restart after the failed audio track switch — unmuting');
+                this._resumeTrackSwitchPending = false;
+                if (this._resumeAudioSuppressed && !this._robustSeekPending) {
+                    this._resumeAudioSuppressed = false;
+                    this.setMuted(false);
+                }
+            }, TRACK_SWITCH_RESTART_WAIT_MS);
+        }
     }
 
     /**
@@ -1838,13 +1864,19 @@ export class WebOSPlayer {
                 if (!nativeTracks || nativeTracks.length === 0) {
                     log.warn('WebOSPlayer: _applyInitialTracks — audioTracks empty, requested index', requestedIndex,
                         '≠ container default', defaultIndex, '. Scheduling deferred remux restart.');
-                    // Use setTimeout (macrotask) rather than Promise.resolve() (microtask)
-                    // to guarantee the restart fires AFTER play() has fully resolved.
-                    // A microtask still races with video.play()'s own promise within the
-                    // same event loop tick and can trigger "AbortError: play() was interrupted".
-                    this._timer(() => {
-                        this.onEvent({ type: 'audiotrackswitchfailed', data: { listIndex: resolvedIndex } });
-                    }, 0);
+                    // Reported by play() once it has resolved: JellyfinPlayer restarts the
+                    // item on it, and a restart while play() is still pending cancels that
+                    // play(). A 0 ms timer started here fired before video.play() resolved
+                    // (Chromium resolves it only once playback starts).
+                    this._startupTrackSwitchFailure = { listIndex: resolvedIndex };
+                    // Until then the file's default track must not be heard: the element stays
+                    // muted, past 'playing' too, until the restart's stop() lifts the mute
+                    const video = this._videoElement;
+                    if (video && !video.muted) {
+                        video.muted = true;
+                        this._resumeAudioSuppressed = true;
+                    }
+                    this._resumeTrackSwitchPending = true;
                 } else {
                     // Non-default track requested and nativeTracks is populated: switch via HTML5 audioTracks
                     const outputIndex = nativeTracks.length <= 1 ? 0 : resolvedIndex;
