@@ -34,7 +34,8 @@ const BUILT_QUEUE_FIELDS = [
     '_currentIndex',
     '_episodeSeriesId',
     '_seriesAllEpisodes',
-    '_seriesWindowStartIndex'
+    '_seriesWindowStartIndex',
+    '_seriesWindowEndIndex'
 ];
 
 // ============================================================================
@@ -82,6 +83,10 @@ class PlayQueue {
         this._episodeSeriesId = null;
         this._seriesAllEpisodes = null;
         this._seriesWindowStartIndex = 0;
+        // Series index after the last episode loaded. Not derived from the
+        // queue length: items inserted later (a Local Intros pre-roll, "play
+        // next") would move the next window one episode on for each of them.
+        this._seriesWindowEndIndex = 0;
         this._isLoadingMore = false;
     }
 
@@ -436,6 +441,7 @@ class PlayQueue {
         this._episodeSeriesId = null;
         this._seriesAllEpisodes = null;
         this._seriesWindowStartIndex = 0;
+        this._seriesWindowEndIndex = 0;
         this._isLoadingMore = false;
         // Should NOT clear RepeatMode and ShuffleMode - they are user preferences
     }
@@ -591,8 +597,7 @@ class PlayQueue {
 
         // If at the end of the loaded slice, check if more series episodes remain in the manifest
         if (this._episodeSeriesId && this._seriesAllEpisodes?.length) {
-            const nextWindowEnd = this._seriesWindowStartIndex + this._queue.length;
-            if (nextWindowEnd < this._seriesAllEpisodes.length) {
+            if (this._seriesWindowEndIndex < this._seriesAllEpisodes.length) {
                 return true;
             }
         }
@@ -850,6 +855,7 @@ class PlayQueue {
             this._queue = [currentItem];
             this._currentIndex = 0;
         }
+        this._seriesWindowEndIndex = this._seriesWindowStartIndex + this._queue.length;
     }
 
     /**
@@ -871,7 +877,7 @@ class PlayQueue {
 
         if (direction === 'next') {
             const remainingAhead = this._queue.length - 1 - this._currentIndex;
-            const currentWindowEnd = this._seriesWindowStartIndex + this._queue.length;
+            const currentWindowEnd = this._seriesWindowEndIndex;
 
             if (remainingAhead <= threshold && currentWindowEnd < this._seriesAllEpisodes.length) {
                 this._isLoadingMore = true;
@@ -906,6 +912,7 @@ class PlayQueue {
                     if (newItems.length > 0) {
                         newItems.forEach(_stampPlaylistItemId);
                         this._queue.push(...newItems);
+                        this._seriesWindowEndIndex = currentWindowEnd + newItems.length;
                         log.info(`[PlayQueue] Appended ${newItems.length} episodes. Queue size: ${this._queue.length}`);
                         eventBus.emit('playqueue:updated', {
                             queue: this._queue,
