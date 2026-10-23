@@ -2064,7 +2064,11 @@ html[data-layout-tier="ultra-legacy"] .subtitle-result-meta {
 .card-subtitle span {
     display: inline-block;
     white-space: nowrap;
-    will-change: transform;
+    /* PERFORMANCE: Avoid unconditional will-change: transform on static card spans.
+     * Promoting every title and subtitle span across 50-100+ cards to a separate GPU layer
+     * exhausts texture memory and causes severe compositor hitching during navigation.
+     * Layers are only promoted when marquee animation is actively engaged on focus. */
+    will-change: auto;
     /* Use dynamic spring-like transitions for reset focus animations */
     transition: transform 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
 }
@@ -2077,6 +2081,8 @@ html[data-layout-tier="ultra-legacy"] .subtitle-result-meta {
 
 .media-card.focused .card-title.marquee-active span,
 .media-card.focused .card-subtitle.marquee-active span {
+    /* Promote to GPU compositing layer strictly while active marquee animation is running */
+    will-change: transform;
     animation: card-text-marquee var(--marquee-duration, 4s) linear infinite alternate;
 }
 

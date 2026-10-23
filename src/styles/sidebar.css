@@ -399,8 +399,9 @@ body:not(.sidebar-mode-hidden) .sidebar.collapsed:not(:hover) .item-icon {
     color: rgba(255, 255, 255, 0.85);
     /* Unified resting state: flat by default without drop shadow */
     box-shadow: none;
-    -webkit-backdrop-filter: blur(20px);
-    backdrop-filter: blur(20px);
+    /* PERFORMANCE: Avoid GPU framebuffer readback blur on embedded/TV hardware */
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
     -webkit-transition: background-color 0.25s cubic-bezier(0.2, 0, 0, 1),
                         border-color 0.25s cubic-bezier(0.2, 0, 0, 1),
                         color 0.2s ease,
