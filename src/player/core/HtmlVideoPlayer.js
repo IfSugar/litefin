@@ -391,6 +391,10 @@ export class HtmlVideoPlayer {
         // Destroy any existing HLS player
         this._destroyHlsPlayer();
 
+        // Apply audio normalization for audio-only items before the load starts:
+        // routed in once playback had started, a track began at full level
+        this._applyAudioNormalization(options);
+
         // Determine playback method
         if (this._shouldUseHlsJs(options)) {
             await this._playWithHlsJs(video, options);
@@ -399,9 +403,6 @@ export class HtmlVideoPlayer {
         }
 
         this._currentSrc = options.url;
-
-        // Apply audio normalization for audio-only items
-        this._applyAudioNormalization(options);
     }
 
     /**

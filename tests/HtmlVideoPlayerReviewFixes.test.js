@@ -216,3 +216,56 @@ test('HtmlVideoPlayer: stop() drops a Play queued behind a seek', async (t) => {
     t.mock.timers.tick(1000);
     assert.strictEqual(video.playCalls, plays, "the previous item's queued Play started this paused item");
 });
+
+// ----------------------------------------------------------------------------
+// Audio normalization
+// ----------------------------------------------------------------------------
+
+class AudioContextStub {
+    constructor() {
+        this.state = 'running';
+        this.destination = {};
+    }
+    createMediaElementSource(element) {
+        this.capturedSrc = element.src;
+        return { connect() {}, disconnect() {} };
+    }
+    createGain() {
+        return { gain: { value: 1 }, connect() {}, disconnect() {} };
+    }
+    suspend() {
+        return Promise.resolve();
+    }
+    resume() {
+        return Promise.resolve();
+    }
+}
+
+const track = (gainDb) => ({
+    url: 'http://srv/Audio/1/stream.mp3',
+    item: { MediaType: 'Audio', NormalizationGain: gainDb },
+    mediaSource: {}
+});
+
+test('HtmlVideoPlayer: a normalized track plays through its gain from the start', async (t) => {
+    window.AudioContext = AudioContextStub;
+    t.after(() => delete window.AudioContext);
+    const { player } = createPlayer();
+
+    const first = player.play(track(-6));
+    const graph = player._audioGraph;
+    assert.ok(graph, 'track started at full level, normalization routed in after play()');
+    assert.strictEqual(graph.element, player._videoElement);
+    assert.strictEqual(graph.context.capturedSrc, '', 'element captured after its load started');
+    assert.ok(Math.abs(graph.gain.gain.value - 0.501) < 0.001);
+    await flush();
+    player._videoElement.fire('canplay');
+    await first;
+
+    // The next track (play() without stop()) gets its gain before it loads as well
+    const second = player.play(track(-12));
+    assert.ok(Math.abs(player._audioGraph.gain.gain.value - 0.251) < 0.001, 'played at the previous gain');
+    await flush();
+    player._videoElement.fire('canplay');
+    await second;
+});
