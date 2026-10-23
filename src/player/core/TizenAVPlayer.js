@@ -153,6 +153,10 @@ export class TizenAVPlayer {
         // which calls play() — violating the contract and causing native decoder freezes.
         this._seekInProgress = false;
 
+        // Set when the last seekTo() never called back and the failsafe in _safeSeekTo()
+        // gave up on it. Such a seek has not landed, whatever a clock reports.
+        this._seekTimedOut = false;
+
         // Tracks whether onbufferingcomplete fired during an active seek.
         // When seek is in progress, onbufferingcomplete is suppressed (can't call
         // _checkNativePlay). This flag lets the seek success callback know that
@@ -1929,6 +1933,7 @@ export class TizenAVPlayer {
         const seekStartTime = Date.now();
         // Track that a native hardware seek operation is actively in flight
         this._seekInProgress = true;
+        this._seekTimedOut = false;
 
         /*
          * ====================================================================
@@ -1946,6 +1951,7 @@ export class TizenAVPlayer {
             if (this._seekInProgress) {
                 log.warn(`[SeekTelemetry] hardware seekTo timed out after 6000ms for target=${requestedMs}ms — clearing seekInProgress flag`);
                 this._seekInProgress = false;
+                this._seekTimedOut = true;
             }
         }, 6000);
 
@@ -2086,18 +2092,32 @@ export class TizenAVPlayer {
         // 12s upper bound for high-bitrate 4K network seek & buffering on older Tizen CPUs
         const MAX_SEEK_WAIT_MS = 12000;
 
-        // Measure actual hardware decoder position vs target
-        const curSec = Math.max(
-            this.getCurrentTime(),
-            (Number(this._avplay?.getCurrentTime()) || 0) / 1000
-        );
-        // Measure drift between actual hardware decoder position and target
-        const drift = Math.abs(curSec - targetSeconds);
+        // Active execution condition: Seek, cooldown, or buffer still in flight
+        const isStillWorking = this._seekInProgress ||
+                               this._deferredSeekTimerId !== null ||
+                               this._isNativeBuffering;
+
+        // Measure both clocks against the target: the presentation clock (oncurrentplaytime
+        // or the seek's landing point) and the hardware decoder clock.
+        const presentationSec = this.getCurrentTime();
+        const decoderSec = (Number(this._avplay?.getCurrentTime()) || 0) / 1000;
+        const presentationDrift = Math.abs(presentationSec - targetSeconds);
+        const decoderDrift = Math.abs(decoderSec - targetSeconds);
+        // Position reported in the logs below: the clock closest to the target
+        const curSec = presentationDrift <= decoderDrift ? presentationSec : decoderSec;
         // Allow 15s keyframe drift tolerance (typical max GOP interval for compressed streams).
         // Must evaluate absolute drift exclusively: checking curSec >= (targetSeconds - 15)
         // produces a false-positive whenever seeking backwards and the hardware decoder
         // fails to seek, remaining stuck at a later presentation timestamp.
-        const isNear = drift < 15;
+        const presentationNear = presentationDrift < 15;
+        const decoderNear = decoderDrift < 15;
+        // Both clocks at the target: landed. A single clock is trusted only once the seek
+        // has settled: while seekTo() is in flight some firmware already reports the
+        // requested position, and a seekTo() that never called back has not landed. Once
+        // settled, one clock still at the old position (e.g. a backward seek whose other
+        // clock has not caught up) must not flag a seek that did land.
+        const seekSettled = !isStillWorking && !this._seekTimedOut;
+        const isNear = (presentationNear && decoderNear) || ((presentationNear || decoderNear) && seekSettled);
 
         // Success condition: Playhead reached target region
         if (isNear) {
@@ -2105,11 +2125,6 @@ export class TizenAVPlayer {
             this._clearDirectSeekVerification();
             return;
         }
-
-        // Active execution condition: Seek, cooldown, or buffer still in flight
-        const isStillWorking = this._seekInProgress ||
-                               this._deferredSeekTimerId !== null ||
-                               this._isNativeBuffering;
 
         if (isStillWorking) {
             // If still within maximum allowable seek window, continue polling
@@ -2490,6 +2505,7 @@ export class TizenAVPlayer {
         // Clear seek-in-progress flag so stale state doesn't block _checkNativePlay
         // on a future playback session
         this._seekInProgress = false;
+        this._seekTimedOut = false;
         this._bufferingCompleteDuringSeek = false;
         this._isNativeBuffering = false;
         this._lastSubtitleTrackChangeTime = 0;

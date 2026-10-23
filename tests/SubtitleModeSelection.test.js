@@ -312,6 +312,62 @@ test('resolveSubtitleStream: Subtitle mode "Smart" shows subtitles when audio do
     assert.equal(result, 2, 'Subtitle mode "Smart" should enable English subtitles when audio is Japanese');
 });
 
+test('resolveSubtitleStream: Subtitle mode "Smart" shows preferred-language subtitles when the audio has no language tag', () => {
+    const { resolveSubtitleStream } = setup({
+        subtitleMode: 'Smart',
+        subtitleLanguage: 'bul'
+    });
+
+    // A 4K movie as Jellyfin lists it: untagged AAC audio, an external Bulgarian
+    // SRT and embedded English (default) and Spanish PGS tracks. For a user with
+    // Bulgarian subtitles in Smart mode the server picks the Bulgarian SRT
+    const mediaSource = {
+        Id: 'test-source-smart-untagged-audio',
+        MediaStreams: [
+            {
+                Type: 'Subtitle',
+                Index: 0,
+                Language: 'bul',
+                Codec: 'subrip',
+                IsExternal: true,
+                IsDefault: false,
+                IsForced: false
+            },
+            { Type: 'Video', Index: 1, Codec: 'hevc', IsDefault: true },
+            { Type: 'Audio', Index: 2, Codec: 'aac', IsDefault: true },
+            { Type: 'Subtitle', Index: 3, Language: 'eng', Codec: 'PGSSUB', IsDefault: true, IsForced: false },
+            { Type: 'Subtitle', Index: 4, Language: 'spa', Codec: 'PGSSUB', IsDefault: false, IsForced: false }
+        ]
+    };
+
+    assert.equal(resolveSubtitleStream(mediaSource, { audioStreamIndex: 2 }), 0, 'untagged audio: Bulgarian subtitles');
+
+    mediaSource.MediaStreams[2].Language = 'und';
+    assert.equal(
+        resolveSubtitleStream(mediaSource, { audioStreamIndex: 2 }),
+        0,
+        'audio tagged "und": Bulgarian subtitles'
+    );
+});
+
+test('resolveSubtitleStream: Subtitle mode "Smart" keeps subtitles off when the audio is in the preferred language (guard)', () => {
+    const { resolveSubtitleStream } = setup({
+        subtitleMode: 'Smart',
+        subtitleLanguage: 'bul'
+    });
+
+    const mediaSource = {
+        Id: 'test-source-smart-same-language',
+        MediaStreams: [
+            { Type: 'Audio', Index: 1, Language: 'bul', IsDefault: true },
+            { Type: 'Subtitle', Index: 2, Language: 'bul', IsDefault: false, IsForced: false },
+            { Type: 'Subtitle', Index: 3, Language: 'eng', IsDefault: true, IsForced: false }
+        ]
+    };
+
+    assert.equal(resolveSubtitleStream(mediaSource, { audioStreamIndex: 1 }), -1);
+});
+
 test('Saved item subtitle guard discards previously saved non-forced track in "OnlyForced" mode', () => {
     const { isForcedStream, getEffectiveSubtitleMode } = setup({
         subtitleMode: 'OnlyForced'

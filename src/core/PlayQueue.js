@@ -34,7 +34,8 @@ const BUILT_QUEUE_FIELDS = [
     '_currentIndex',
     '_episodeSeriesId',
     '_seriesAllEpisodes',
-    '_seriesWindowStartIndex'
+    '_seriesWindowStartIndex',
+    '_seriesWindowEndIndex'
 ];
 
 // ============================================================================
@@ -82,6 +83,10 @@ class PlayQueue {
         this._episodeSeriesId = null;
         this._seriesAllEpisodes = null;
         this._seriesWindowStartIndex = 0;
+        // Series index after the last episode loaded. Not derived from the
+        // queue length: items inserted later (a Local Intros pre-roll, "play
+        // next") would move the next window one episode on for each of them.
+        this._seriesWindowEndIndex = 0;
         this._isLoadingMore = false;
     }
 
@@ -294,18 +299,32 @@ class PlayQueue {
             log.info('Dropping a queue built for an earlier playback');
             return;
         }
-        // Playback already started with the item alone (see init())
-        const playing = this._queue.length > 0 ? this.getCurrentItem() : null;
+        // Playback already started with the item alone (see init()). Items may
+        // have been added around it since (Local Intros' pre-roll, insertNext()),
+        // and the cursor is on the item that is actually playing.
+        const liveQueue = this._queue;
+        const liveIndex = this._currentIndex;
+        const liveUnshuffled = this._unshuffledQueue.length > 0 ? this._unshuffledQueue : liveQueue;
+        const playing = liveQueue.length > 0;
+        const built = staging._queue[staging._currentIndex];
         for (const field of BUILT_QUEUE_FIELDS) {
             this[field] = staging[field];
         }
-        // Keep the instance playback started with: PlayerPage merged the item's
-        // full details into it and holds on to it
-        const built = this.getCurrentItem();
-        if (playing && built && built !== playing && built.Id === playing.Id) {
-            this._queue[this._currentIndex] = playing;
+        // The live queue takes the place of the item the queue was built
+        // around. This also keeps the instance playback started with: PlayerPage
+        // merged the item's full details into it and holds on to it.
+        if (playing && built) {
+            const builtIndex = this._currentIndex;
+            this._queue = [...this._queue.slice(0, builtIndex), ...liveQueue, ...this._queue.slice(builtIndex + 1)];
+            this._currentIndex = builtIndex + liveIndex;
             const unshuffledIndex = this._unshuffledQueue.indexOf(built);
-            if (unshuffledIndex !== -1) this._unshuffledQueue[unshuffledIndex] = playing;
+            if (unshuffledIndex !== -1) {
+                this._unshuffledQueue = [
+                    ...this._unshuffledQueue.slice(0, unshuffledIndex),
+                    ...liveUnshuffled,
+                    ...this._unshuffledQueue.slice(unshuffledIndex + 1)
+                ];
+            }
         }
         // Shuffle toggled while the queue was loading
         if (this._shuffleMode !== staging._shuffleMode) {
@@ -422,6 +441,7 @@ class PlayQueue {
         this._episodeSeriesId = null;
         this._seriesAllEpisodes = null;
         this._seriesWindowStartIndex = 0;
+        this._seriesWindowEndIndex = 0;
         this._isLoadingMore = false;
         // Should NOT clear RepeatMode and ShuffleMode - they are user preferences
     }
@@ -577,8 +597,7 @@ class PlayQueue {
 
         // If at the end of the loaded slice, check if more series episodes remain in the manifest
         if (this._episodeSeriesId && this._seriesAllEpisodes?.length) {
-            const nextWindowEnd = this._seriesWindowStartIndex + this._queue.length;
-            if (nextWindowEnd < this._seriesAllEpisodes.length) {
+            if (this._seriesWindowEndIndex < this._seriesAllEpisodes.length) {
                 return true;
             }
         }
@@ -836,6 +855,7 @@ class PlayQueue {
             this._queue = [currentItem];
             this._currentIndex = 0;
         }
+        this._seriesWindowEndIndex = this._seriesWindowStartIndex + this._queue.length;
     }
 
     /**
@@ -848,13 +868,16 @@ class PlayQueue {
         if (!this._episodeSeriesId || !this._seriesAllEpisodes?.length || this._isLoadingMore) {
             return;
         }
+        // A queue put in place while the episodes load (setQueue() from a
+        // remote control, a new init()) is not this series' window any more
+        const generation = this._queueGeneration;
 
         const windowLimit = Math.max(10, PlayerSettings.get('playQueueEpisodeLimit') || 50);
         const threshold = Math.min(5, Math.floor(windowLimit / 4));
 
         if (direction === 'next') {
             const remainingAhead = this._queue.length - 1 - this._currentIndex;
-            const currentWindowEnd = this._seriesWindowStartIndex + this._queue.length;
+            const currentWindowEnd = this._seriesWindowEndIndex;
 
             if (remainingAhead <= threshold && currentWindowEnd < this._seriesAllEpisodes.length) {
                 this._isLoadingMore = true;
@@ -882,9 +905,14 @@ class PlayQueue {
                         newItems = res?.Items || [];
                     }
 
+                    if (generation !== this._queueGeneration) {
+                        log.info('[PlayQueue] Queue replaced while loading the next episodes — dropping them');
+                        return;
+                    }
                     if (newItems.length > 0) {
                         newItems.forEach(_stampPlaylistItemId);
                         this._queue.push(...newItems);
+                        this._seriesWindowEndIndex = currentWindowEnd + newItems.length;
                         log.info(`[PlayQueue] Appended ${newItems.length} episodes. Queue size: ${this._queue.length}`);
                         eventBus.emit('playqueue:updated', {
                             queue: this._queue,
@@ -896,7 +924,8 @@ class PlayQueue {
                 } catch (err) {
                     log.warn('[PlayQueue] Failed to preload next episodes:', err);
                 } finally {
-                    this._isLoadingMore = false;
+                    // clear() already reset it for the new queue
+                    if (generation === this._queueGeneration) this._isLoadingMore = false;
                 }
             }
         } else if (direction === 'previous') {
@@ -927,6 +956,10 @@ class PlayQueue {
                         prevItems = res?.Items || [];
                     }
 
+                    if (generation !== this._queueGeneration) {
+                        log.info('[PlayQueue] Queue replaced while loading the previous episodes — dropping them');
+                        return;
+                    }
                     if (prevItems.length > 0) {
                         prevItems.forEach(_stampPlaylistItemId);
                         this._queue.unshift(...prevItems);
@@ -943,7 +976,8 @@ class PlayQueue {
                 } catch (err) {
                     log.warn('[PlayQueue] Failed to preload previous episodes:', err);
                 } finally {
-                    this._isLoadingMore = false;
+                    // clear() already reset it for the new queue
+                    if (generation === this._queueGeneration) this._isLoadingMore = false;
                 }
             }
         }
