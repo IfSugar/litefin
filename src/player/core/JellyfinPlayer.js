@@ -2794,6 +2794,33 @@ export class JellyfinPlayer extends EventEmitter {
         // Disarm watchdog so we don't re-trigger or cascade
         this._clearRemuxStuckWatchdog();
 
+        /*
+         * ====================================================================
+         * AUTO-TRANSCODE ERROR ESCALATION GUARD:
+         *
+         * Respect the user's explicit preference for automatic transcode
+         * fallback on error. If autoTranscodeOnError is disabled, do not
+         * restart the session into server-side transcoding. Emit an error
+         * and stop playback cleanly instead of forcing unwanted transcode.
+         * ====================================================================
+         */
+        const isAutoTranscodeEnabled = typeof PlayerSettings !== 'undefined'
+            ? PlayerSettings.get('autoTranscodeOnError') !== false
+            : true;
+        if (!isAutoTranscodeEnabled) {
+            log.warn(
+                `[JellyfinPlayer] Remux playback stuck at ${(targetTicks / 10000000).toFixed(2)}s (${why}), ` +
+                'but autoTranscodeOnError is disabled — stopping playback without transcode escalation'
+            );
+            this.emit(PlayerEvent.ERROR, {
+                error: `Playback stuck (${why}) and auto-transcode fallback is disabled.`,
+                code: 3,
+                isPlaybackStuck: true
+            });
+            this.stop();
+            return;
+        }
+
         // Build transcode restart configuration preserving active stream selections
         const transcodeOptions = {
             ...this._currentPlayOptions,

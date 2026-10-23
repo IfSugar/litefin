@@ -207,5 +207,12 @@ test('HtmlVideoPlayer & JellyfinPlayer: HLS resume startup failure and transcode
         jellyfinSource.includes('this._armRemuxStuckWatchdog(effectiveStartPositionTicks);'),
         'JellyfinPlayer must arm remux watchdog when resuming in DirectStream/Remux mode'
     );
+
+    // 4. Verify _handleRemuxWatchdogTimeout respects autoTranscodeOnError
+    const handleTimeoutBody = jellyfinSource.slice(jellyfinSource.indexOf('_handleRemuxWatchdogTimeout()'));
+    assert.ok(
+        handleTimeoutBody.includes("PlayerSettings.get('autoTranscodeOnError') !== false"),
+        '_handleRemuxWatchdogTimeout must check autoTranscodeOnError before transcode restart'
+    );
 });
 

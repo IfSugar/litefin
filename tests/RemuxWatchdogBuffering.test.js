@@ -74,6 +74,7 @@ function createPlayer({ video }) {
         Date,
         Promise,
         Math,
+        PlayerSettings: { get: () => true },
         log: { info() {}, debug() {}, warn() {}, error() {} }
     });
     const methods = vm.runInContext(
