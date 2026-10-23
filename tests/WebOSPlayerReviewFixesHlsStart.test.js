@@ -11,7 +11,10 @@ import test from 'node:test';
  *     server stops answering (webOS 3/4 use Hls.js by default): 60 s for
  *     the playlists, then a slow first segment is up to hls.js's own policy
  *   - a native HLS load that got no data at all falls back to Hls.js only
- *     while the server still answers
+ *     while the server still answers, also when the TV gives up on it by
+ *     itself before the watchdog
+ *   - once a fallen-back Hls.js start has failed, the element's teardown
+ *     error does not replace that failure
  * ============================================================================
  */
 
@@ -347,4 +350,82 @@ test('WebOSPlayer: a native HLS load that got no data falls back to Hls.js while
 
     assert.strictEqual(result.hlsJsStarts, 1);
     assert.strictEqual(result.outcome, null);
+});
+
+/** A native HLS load that sends nothing; the test controls time (setTimeout and Date). */
+async function nativeLoadTheTvGivesUpOn(t, { hlsJs = 'count', silent = false } = {}) {
+    t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+    const { player, events } = createPlayer();
+    player._shouldUseNativeHls = () => true;
+    player._canUseHlsJs = () => true; // as on a TV with MSE
+    const result = { hlsJsStarts: 0, outcome: null, player, events };
+    if (hlsJs === 'count') {
+        player._playWithHlsJs = () => {
+            result.hlsJsStarts++;
+            return new Promise(() => {});
+        };
+    }
+    player.play(hlsOptions).catch((err) => (result.outcome = err));
+    for (let i = 0; i < 5; i++) await flush();
+    player._videoElement.readyState = 0;
+    // The server stops answering once the manifest poll is done
+    if (silent) serverAnswers = false;
+    // An LG C4 gives up on a silent server by itself after about 40 s:
+    // MEDIA_ERR_SRC_NOT_SUPPORTED on the <source>, before the 60 s watchdog
+    t.mock.timers.tick(40000);
+    player._videoElement.children[0].fire('error');
+    await flush();
+    return result;
+}
+
+test('WebOSPlayer: when the TV itself gives up on a native HLS load that got no data, a silent server ends the start', async (t) => {
+    let result;
+    try {
+        result = await nativeLoadTheTvGivesUpOn(t, { silent: true });
+        t.mock.timers.tick(5000); // the playlist request gets no answer either
+        for (let i = 0; i < 5; i++) await flush();
+    } finally {
+        serverAnswers = true;
+    }
+
+    assert.strictEqual(result.hlsJsStarts, 0, 'started Hls.js against a server that sent nothing');
+    assert.ok(result.outcome instanceof PlaybackLoadTimeoutError, `not a load timeout: ${result.outcome}`);
+    assert.strictEqual(result.outcome.isNetworkError, true, 'reported as an unsupported format');
+    assert.match(result.outcome.message, /for 45 s/);
+});
+
+test('WebOSPlayer: when the TV itself gives up on a native HLS load that got no data, Hls.js still takes over while the server answers (guard)', async (t) => {
+    const result = await nativeLoadTheTvGivesUpOn(t);
+    for (let i = 0; i < 5; i++) await flush();
+
+    assert.strictEqual(result.hlsJsStarts, 1);
+    assert.strictEqual(result.outcome, null);
+});
+
+test('WebOSPlayer: the element error after a failed Hls.js fallback does not replace the start failure', async (t) => {
+    stubHls(t);
+    const result = await nativeLoadTheTvGivesUpOn(t, { hlsJs: 'real' });
+    const { player, events } = result;
+    const video = player._videoElement;
+    video.play = () => new Promise(() => {}); // no media: Chromium keeps play() pending
+    for (let i = 0; i < 5; i++) await flush();
+
+    // Hls.js gets nothing either and gives up after its 60 s watchdog
+    t.mock.timers.tick(60000);
+    for (let i = 0; i < 5; i++) await flush();
+    assert.ok(result.outcome instanceof PlaybackLoadTimeoutError, `the Hls.js start did not fail: ${result.outcome}`);
+
+    // Hls.js detaches (src removed); the MediaSource it ended fires an error on the element
+    video.src = '';
+    video.error = {
+        code: 4,
+        message: 'DEMUXER_ERROR_COULD_NOT_OPEN: MediaSource endOfStream before demuxer initialization completes'
+    };
+    video.fire('error');
+    await flush();
+    assert.deepStrictEqual(
+        events.filter((e) => e.type === 'error'),
+        [],
+        'the teardown error was reported as an unsupported format'
+    );
 });

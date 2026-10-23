@@ -722,7 +722,16 @@ export class WebOSPlayer {
                 // A failing <source> leaves video.error null
                 const mediaError = video.error || { code: 4, message: 'The media source failed to load' };
                 const formatted = MediaHelper.formatMediaError(mediaError);
-                finish(video.error || Object.assign(new Error(formatted.message), { code: formatted.code }));
+                const err = video.error || Object.assign(new Error(formatted.message), { code: formatted.code });
+                // The pipeline's own error when nothing arrived (an LG C4 gives up on
+                // a silent server after about 40 s, before the watchdog): the caller
+                // checks the server before it falls back to Hls.js
+                try {
+                    err.gotNoData = !sawData && !(video.readyState > 0);
+                } catch (e) {
+                    // A MediaError that takes no property: treated as a load that got data
+                }
+                finish(err);
             };
 
             removers.push(this._listen(video, 'canplay', () => finish()));
@@ -1218,6 +1227,7 @@ export class WebOSPlayer {
         video.appendChild(source);
 
         video.load();
+        const loadStartedAt = Date.now();
 
         this._loadPending = true;
         try {
@@ -1233,12 +1243,13 @@ export class WebOSPlayer {
             // transcode can take over a minute to its first segment, but Hls.js would only
             // wait again for a server that stopped answering.
             if (this._canUseHlsJs(options) && !this._hlsFallbackAttempted) {
-                if (err?.isNetworkError) {
+                if (err?.isNetworkError || err?.gotNoData === true) {
                     const answers = await this._hlsServerAnswers(options.url);
                     if (!this._isSessionActive(session)) throw new PlaybackAbortedError();
                     if (!answers) {
                         log.warn('WebOSPlayer: the server does not answer either — no Hls.js fallback');
-                        throw err;
+                        // The pipeline's own error would read as an unsupported format
+                        throw err?.isNetworkError ? err : new PlaybackLoadTimeoutError(Date.now() - loadStartedAt, true);
                     }
                 }
                 log.info('WebOSPlayer: Native HLS load failed — attempting seamless fallback to Hls.js MSE pipeline');
@@ -1417,6 +1428,13 @@ export class WebOSPlayer {
     _playWithHlsJs(video, options) {
         return new Promise((resolve, reject) => {
             log.info('WebOSPlayer: Hls.js loading', options.url);
+
+            // A native HLS attempt leaves its <source>. With it in place, the error
+            // the element fires when Hls.js gives up and detaches passed the cleanup
+            // check in _onError and replaced Hls.js's own error in the dialog
+            Array.prototype.slice.call(video.children || video.childNodes || []).forEach((child) => {
+                if (child.tagName === 'SOURCE') video.removeChild(child);
+            });
 
             // -------------------------------------------------------------------------
             // HLS.js Buffer Configuration & Stall Prevention
