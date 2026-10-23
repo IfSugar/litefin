@@ -232,8 +232,10 @@ export class HtmlVideoPlayer {
         this._directSeekVerifyTimeout = null;
         clearTimeout(this._resumeFollowUpTimeout);
         this._resumeFollowUpTimeout = null;
+        // A Play queued behind a seek: the next item's first 'seeked' would run it
         clearTimeout(this._seekPlayFallbackTimer);
         this._seekPlayFallbackTimer = null;
+        this._pendingPlayAfterSeek = false;
         this._cancelResumeRevealOnSeeked();
         this._clearStallCheck();
     }

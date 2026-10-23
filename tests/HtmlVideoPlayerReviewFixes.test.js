@@ -192,3 +192,27 @@ test('HtmlVideoPlayer: bursts of timeupdate are throttled, but a jump is forward
     video.fire('timeupdate');
     assert.strictEqual(count(events, 'timeupdate'), 1);
 });
+
+// ----------------------------------------------------------------------------
+// A Play queued behind a seek
+// ----------------------------------------------------------------------------
+
+test('HtmlVideoPlayer: stop() drops a Play queued behind a seek', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const { player } = createPlayer();
+    await playAndStart(player, { url: 'http://srv/Videos/a/stream.mp4', mediaSource });
+    let video = player._videoElement;
+    video.paused = true;
+    video.seeking = true;
+    player.unpause(); // queued behind the seek
+    await player.stop(); // Back, or the next item, within 500 ms
+
+    // The next item starts paused (SyncPlay starts items with autoPlay: false)
+    await playAndStart(player, { url: 'http://srv/Videos/b/stream.mp4', mediaSource, autoPlay: false });
+    video = player._videoElement;
+    video.seeking = false;
+    const plays = video.playCalls;
+    video.fire('seeked'); // e.g. a group seek while paused
+    t.mock.timers.tick(1000);
+    assert.strictEqual(video.playCalls, plays, "the previous item's queued Play started this paused item");
+});
