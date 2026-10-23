@@ -109,11 +109,24 @@ const WEBOS_SAFE_RATES = [0.5, 1, 2, 4];
 const LOAD_WATCHDOG_HLS_MS = 60000;
 const LOAD_WATCHDOG_DIRECT_MS = 30000;
 
+/**
+ * After a native HLS load that got no data at all: how long the server gets
+ * to answer a playlist request before the load counts as a network failure.
+ */
+const SERVER_PROBE_TIMEOUT_MS = 5000;
+
 /** Polls (300 ms apart) of _applyRobustResume waiting for a seekable state. */
 const ROBUST_RESUME_MAX_POLLS = 40;
 
 /** Hls.js fatal network errors retried (1 s, 2 s, 4 s apart) before giving up. */
 const HLS_MAX_NETWORK_RETRIES = 3;
+
+/** Fatal Hls.js errors of the manifest request: retried with loadSource(), not startLoad(). */
+const HLS_MANIFEST_ERRORS = [
+    Hls.ErrorDetails.MANIFEST_LOAD_ERROR,
+    Hls.ErrorDetails.MANIFEST_LOAD_TIMEOUT,
+    Hls.ErrorDetails.MANIFEST_PARSING_ERROR
+];
 
 /**
  * Hls.js fatal media errors: a decoder reset, then a codec swap, are each
@@ -1153,8 +1166,19 @@ export class WebOSPlayer {
             log.error('WebOSPlayer: Native HLS source load error', err?.message || err);
 
             // If native HLS failed on this platform, fall back to Hls.js seamlessly
-            // only if the stream format and codecs are verified to be compatible with Hls.js MSE
+            // only if the stream format and codecs are verified to be compatible with Hls.js MSE.
+            // After a load that got no data at all, only if the server still answers: a cold
+            // transcode can take over a minute to its first segment, but Hls.js would only
+            // wait again for a server that stopped answering.
             if (this._canUseHlsJs(options) && !this._hlsFallbackAttempted) {
+                if (err?.isNetworkError) {
+                    const answers = await this._hlsServerAnswers(options.url);
+                    if (!this._isSessionActive(session)) throw new PlaybackAbortedError();
+                    if (!answers) {
+                        log.warn('WebOSPlayer: the server does not answer either — no Hls.js fallback');
+                        throw err;
+                    }
+                }
                 log.info('WebOSPlayer: Native HLS load failed — attempting seamless fallback to Hls.js MSE pipeline');
                 this._hlsFallbackAttempted = true;
                 return this._playWithHlsJs(video, options);
@@ -1170,6 +1194,27 @@ export class WebOSPlayer {
         return this._sessionPromise((resolve, reject) => {
             this._resumeSeekThenPlay(video, options, resolve, reject);
         });
+    }
+
+    /**
+     * Whether the server answers a request for the HLS playlist within
+     * SERVER_PROBE_TIMEOUT_MS.
+     * @private
+     * @param {string} url - Playlist URL
+     * @returns {Promise<boolean>}
+     */
+    async _hlsServerAnswers(url) {
+        try {
+            const text = await MediaHelper.fetchWithTimeout(
+                url,
+                { method: 'GET' },
+                SERVER_PROBE_TIMEOUT_MS,
+                (response) => (response.ok ? response.text() : '')
+            );
+            return typeof text === 'string' && text.indexOf('#EXTM3U') !== -1;
+        } catch (e) {
+            return false;
+        }
     }
 
     /**
@@ -1344,6 +1389,9 @@ export class WebOSPlayer {
 
             let bufferReady = false;
             let initialBufferTimer = null;
+            let loadWatchdog = null;
+            let sawData = false;
+            let playlistsLoaded = false;
             let resolved = false;
             let appendedSegmentsCount = 0;
 
@@ -1351,6 +1399,7 @@ export class WebOSPlayer {
                 if (resolved) return;
                 resolved = true;
                 clearTimeout(initialBufferTimer);
+                clearTimeout(loadWatchdog);
                 hls.off(Hls.Events.BUFFER_APPENDED, onBufferAppended);
                 resolve(value);
             };
@@ -1359,6 +1408,7 @@ export class WebOSPlayer {
                 if (resolved) return;
                 resolved = true;
                 clearTimeout(initialBufferTimer);
+                clearTimeout(loadWatchdog);
                 hls.off(Hls.Events.BUFFER_APPENDED, onBufferAppended);
                 reject(reason);
             };
@@ -1385,7 +1435,13 @@ export class WebOSPlayer {
                         .then(() => resolveOnce())
                         .catch(err => this._handleAutoplayError(err, video, options, resolveOnce, rejectOnce));
                 } else {
-                    resolveOnce();
+                    // Chromium 38 (webOS 3) returns no promise: the start is done once the element
+                    // plays. Resolving here cleared the load watchdog with nothing buffered yet,
+                    // and 'waiting' is not reported before the first frame.
+                    const removePlaying = this._listen(video, 'playing', () => {
+                        removePlaying();
+                        resolveOnce();
+                    });
                 }
             };
 
@@ -1488,13 +1544,56 @@ export class WebOSPlayer {
                 });
             };
 
-            const errorHandling = this._createHlsErrorHandler(hls, failHls);
+            const errorHandling = this._createHlsErrorHandler(hls, failHls, options.url);
             hls.on(Hls.Events.ERROR, errorHandling.onError);
             hls.on(Hls.Events.FRAG_LOADED, errorHandling.onFragLoaded);
             this._hlsElementErrorHandler = { hls, onError: errorHandling.onError };
 
             // Listen for the first segment buffered — triggers play()
             hls.on(Hls.Events.BUFFER_APPENDED, onBufferAppended);
+
+            /*
+             * -----------------------------------------------------------------
+             * Load watchdog, like the native path's (LOAD_WATCHDOG_HLS_MS):
+             * without one, a server that stopped answering left play() pending
+             * forever, as the 3 s fallback's video.play() never settles without
+             * media. It allows that long for the playlists. Once they are in, a
+             * slow first segment is up to hls.js's own fragment policy (a cold
+             * transcode can take over a minute; a fragment that never comes
+             * ends in a fatal error), so the watchdog only runs again from the
+             * next fragment request, re-armed by each request, loaded fragment
+             * and appended segment. When not even a playlist arrived, the server
+             * is not delivering at all, so the timeout counts as a network error
+             * (a transcode would not help).
+             * -----------------------------------------------------------------
+             */
+            const armLoadWatchdog = () => {
+                clearTimeout(loadWatchdog);
+                if (resolved) return;
+                loadWatchdog = setTimeout(() => {
+                    const noData = !sawData && !(video.readyState > 0);
+                    failHls(new PlaybackLoadTimeoutError(LOAD_WATCHDOG_HLS_MS, noData));
+                }, LOAD_WATCHDOG_HLS_MS);
+            };
+            const onManifestLoaded = () => {
+                sawData = true;
+            };
+            const onLevelLoaded = () => {
+                sawData = true;
+                if (playlistsLoaded) return;
+                playlistsLoaded = true;
+                clearTimeout(loadWatchdog);
+            };
+            const onMediaLoaded = () => {
+                sawData = true;
+                armLoadWatchdog();
+            };
+            hls.on(Hls.Events.MANIFEST_LOADED, onManifestLoaded);
+            hls.on(Hls.Events.LEVEL_LOADED, onLevelLoaded);
+            hls.on(Hls.Events.FRAG_LOADING, armLoadWatchdog);
+            hls.on(Hls.Events.FRAG_LOADED, onMediaLoaded);
+            hls.on(Hls.Events.BUFFER_APPENDED, onMediaLoaded);
+            armLoadWatchdog();
 
             hls.loadSource(options.url);
             hls.attachMedia(video);
@@ -1507,7 +1606,8 @@ export class WebOSPlayer {
      *
      * - Fatal network errors: retried with backoff (1 s, 2 s, 4 s); an HTTP
      *   4xx/5xx response or a fourth failure in a row gives up. A loaded
-     *   fragment resets the count.
+     *   fragment resets the count. A manifest that failed is requested again
+     *   with loadSource(): startLoad() does not reload it.
      * - Fatal media errors: recoverMediaError(), then swapAudioCodec() +
      *   recoverMediaError(), each at most once per 3 s window; a third error
      *   inside the window gives up (same policy as jellyfin-web).
@@ -1516,9 +1616,10 @@ export class WebOSPlayer {
      * @private
      * @param {Hls} hls
      * @param {Function} fail - (error) => void, called when recovery is exhausted
+     * @param {string} [url] - Manifest URL, loaded again after a manifest error (default: hls.url)
      * @returns {{onError: Function, onFragLoaded: Function}} Hls.js event handlers
      */
-    _createHlsErrorHandler(hls, fail) {
+    _createHlsErrorHandler(hls, fail, url) {
         let networkRetries = 0;
         let lastDecoderReset = 0;
         let lastCodecSwap = 0;
@@ -1546,8 +1647,17 @@ export class WebOSPlayer {
                 const delay = 1000 * Math.pow(2, networkRetries);
                 networkRetries++;
                 log.info(`WebOSPlayer: Retrying Hls.js load in ${delay} ms (attempt ${networkRetries}/${HLS_MAX_NETWORK_RETRIES})`);
+                // startLoad() does not request a manifest that never loaded (hls.js 1.7:
+                // with no levels it only flags a start for later), so that retry did
+                // nothing and no further event came
+                const reloadManifest = HLS_MANIFEST_ERRORS.indexOf(data.details) !== -1;
                 this._timer(() => {
-                    if (this._hlsPlayer === hls) hls.startLoad();
+                    if (this._hlsPlayer !== hls) return;
+                    if (reloadManifest) {
+                        hls.loadSource(url || hls.url);
+                    } else {
+                        hls.startLoad();
+                    }
                 }, delay);
                 return;
             }
