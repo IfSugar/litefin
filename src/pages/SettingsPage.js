@@ -38,6 +38,8 @@ import { settingsIcons, setIconStyle, getSupportedStyles } from '../utils/Icons.
 import { toast } from '../ui/Toast.js';
 import { pinManager } from '../utils/PinManager.js';
 import { pinDialog } from '../ui/PinDialog.js';
+import { customHeadersDialog } from '../ui/CustomHeadersDialog.js';
+import { customHeaders } from '../utils/CustomHeaders.js';
 import { seerr } from '../api/seerrClient.js';
 import { escapeHtml } from '../utils/Utils.js';
 import { watchProviderRegion, watchProviderRegionName } from '../utils/WatchProviders.js';
@@ -6632,6 +6634,22 @@ class SettingsPage extends Page {
                     </div>
                 </div>
 
+                <!-- Custom HTTP Reverse Proxy Headers -->
+                <h3 class="setting-section-title" data-i18n="CustomHttpHeaders">${i18n.t('CustomHttpHeaders') || 'Custom HTTP Headers'}</h3>
+                <div class="setting-item">
+                    <div class="setting-label">
+                        <span class="setting-name" data-i18n="ProxyAuthHeaders">${i18n.t('ProxyAuthHeaders') || 'Reverse Proxy Headers'}</span>
+                        <span class="setting-description" data-i18n="ProxyAuthHeadersDesc">
+                            ${i18n.t('ProxyAuthHeadersDesc') || 'Configure proxy gateway headers (e.g. Cloudflare Zero Trust, Pangolin) for this Jellyfin server.'}
+                        </span>
+                    </div>
+                    <div class="setting-control">
+                        <button class="btn btn-secondary btn-small focusable" id="btn-custom-headers" tabindex="0">
+                            ${i18n.t('ConfigureHeaders') || 'Configure Headers'}
+                        </button>
+                    </div>
+                </div>
+
                 <div class="setting-actions centered">
                     <!-- Navigate to the Who's Watching screen to pick a different profile -->
                     <button class="btn btn-secondary btn-small switch-profiles-btn focusable" 
@@ -10320,6 +10338,17 @@ class SettingsPage extends Page {
         this.$('.switch-user-btn')?.addEventListener('click', async () => {
             await auth.logout();
         });
+
+        // Custom Reverse Proxy Headers Dialog Trigger
+        const btnCustomHeaders = this.$('#btn-custom-headers');
+        if (btnCustomHeaders) {
+            btnCustomHeaders.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                const serverUrl = auth.getSavedServerUrl() || api.serverUrl;
+                customHeadersDialog.show({ serverUrl });
+            });
+        }
 
         // Theme Color Picker Dialog Trigger
         const btnThemeColorPicker = this.$('#btn-theme-color-picker');

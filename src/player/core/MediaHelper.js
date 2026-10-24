@@ -14,6 +14,7 @@
 import { storage } from '../../utils/StorageService.js';
 import { platformInfo } from '../../utils/PlatformInfo.js';
 import { state } from '../../core/StateManager.js';
+import { customHeaders } from '../../utils/CustomHeaders.js';
 import { logger } from '../../utils/Logger.js';
 
 const log = logger.create('MediaHelper');
@@ -668,7 +669,19 @@ export const MediaHelper = {
      * @returns {Promise<*>} What `read` returns
      */
     async fetchWithTimeout(url, init = {}, timeoutMs = 0, read = (response) => response) {
-        const request = (signal) => fetch(url, signal ? Object.assign({}, init, { signal }) : init).then(read);
+        // Resolve target server URL from application state
+        const serverUrl = state.get('server:url');
+
+        // Check if destination matches configured server and retrieve custom proxy headers
+        const proxyHeaders = customHeaders.getHeadersForUrl(url, serverUrl);
+        const mergedInit = Object.assign({}, init);
+
+        // Merge proxy headers with caller headers if applicable
+        if (proxyHeaders && typeof proxyHeaders === 'object' && Object.keys(proxyHeaders).length > 0) {
+            mergedInit.headers = Object.assign({}, mergedInit.headers, proxyHeaders);
+        }
+
+        const request = (signal) => fetch(url, signal ? Object.assign({}, mergedInit, { signal }) : mergedInit).then(read);
         if (!timeoutMs) return request(null);
 
         const controller = typeof AbortController === 'function' ? new AbortController() : null;

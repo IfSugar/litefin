@@ -14,6 +14,8 @@ import { logger } from '../../utils/Logger.js';
 import { PlayerSettings } from '../../utils/PlayerSettings.js';
 import { getDeviceCapabilities } from '../../api/DeviceProfile.js';
 import { platformInfo } from '../../utils/PlatformInfo.js';
+import { customHeaders } from '../../utils/CustomHeaders.js';
+import { api } from '../../api/ApiClient.js';
 
 const log = logger.create('HtmlVideoPlayer');
 
@@ -694,7 +696,26 @@ export class HtmlVideoPlayer {
                 enableWorker: true,
                 // Tolerates up to 500ms of MSE GOP boundary timestamp discrepancy
                 // between audio and video tracks without triggering bufferSeekOverHole.
-                maxBufferHole: 0.5
+                maxBufferHole: 0.5,
+                // =====================================================================
+                // Reverse Proxy Custom Headers Injection for HLS Requests
+                // Injects custom headers into all playlist (.m3u8) and segment (.ts/.m4s)
+                // requests destined for the Jellyfin server.
+                // =====================================================================
+                xhrSetup: (xhr, url) => {
+                    const headers = customHeaders.getHeadersForUrl(url, api.serverUrl);
+                    if (headers && typeof headers === 'object') {
+                        for (const [k, v] of Object.entries(headers)) {
+                            if (k && v) {
+                                try {
+                                    xhr.setRequestHeader(k, v);
+                                } catch (_) {
+                                    // Ignore errors on restricted header names
+                                }
+                            }
+                        }
+                    }
+                }
             });
 
             let bufferReady = false;

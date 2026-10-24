@@ -32,6 +32,8 @@ import { pinManager } from '../utils/PinManager.js';
 import { pinDialog } from '../ui/PinDialog.js';
 import { platformInfo } from '../utils/PlatformInfo.js';
 import { androidAdapter } from '../android/AndroidAdapter.js';
+import { customHeadersDialog } from '../ui/CustomHeadersDialog.js';
+import { customHeaders } from '../utils/CustomHeaders.js';
 
 const log = logger.create('Login');
 
@@ -67,6 +69,9 @@ class LoginPage extends Page {
         this._isDiscovering = false;
         this._hasSearchedManually = false; // Track if manual search fallback was triggered
         this._isLoggingIn = false;
+
+        // Custom reverse proxy headers pending server connection
+        this._pendingCustomHeaders = null;
 
         // Quick Connect polling state
         this._quickConnectSecret = null; // Secret returned by /QuickConnect/Initiate
@@ -131,6 +136,9 @@ class LoginPage extends Page {
                             >
                             <button type="button" class="btn btn-primary connect-btn" tabindex="0">
                                 <span data-i18n="Connect">Connect</span>
+                            </button>
+                            <button type="button" class="btn btn-secondary custom-headers-btn" id="server-headers-btn" tabindex="0" title="${i18n.t('CustomHttpHeaders') || 'Proxy Headers'}">
+                                <span>${i18n.t('ProxyHeaders') || 'Headers'}</span>
                             </button>
                         </div>
                         <p class="login-error" id="server-error"></p>
@@ -306,9 +314,14 @@ class LoginPage extends Page {
                                 readonly
                                 tabindex="0"
                             >
-                            <button type="button" class="btn btn-primary connect-btn" tabindex="0">
-                                <span data-i18n="Connect">Connect</span>
-                            </button>
+                            <div class="server-input-actions" style="display: flex; gap: 12px; margin-top: 12px;">
+                                <button type="button" class="btn btn-primary connect-btn" tabindex="0" style="flex: 1;">
+                                    <span data-i18n="Connect">Connect</span>
+                                </button>
+                                <button type="button" class="btn btn-secondary custom-headers-btn" id="server-headers-btn" tabindex="0" style="flex: 1;">
+                                    <span>${i18n.t('ProxyHeaders') || 'Headers'}</span>
+                                </button>
+                            </div>
                         </div>
                         <p class="login-error" id="server-error"></p>
 
@@ -568,6 +581,20 @@ class LoginPage extends Page {
     _bindEvents() {
         // Connect button
         this.$('.connect-btn')?.addEventListener('click', () => this._connectToServer());
+
+        // Custom Reverse Proxy Headers dialog button
+        this.$('#server-headers-btn')?.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const currentUrl = this._serverInput ? this._serverInput.value.trim() : '';
+            customHeadersDialog.show({
+                serverUrl: currentUrl,
+                existingHeaders: this._pendingCustomHeaders,
+                onSave: (headers) => {
+                    this._pendingCustomHeaders = headers;
+                    log.info(`Updated pending custom headers for server setup (${headers.length} items)`);
+                }
+            });
+        });
 
         // Refresh discovery button
         this.$('#refresh-discovery')?.addEventListener('click', () => {
@@ -1011,7 +1038,7 @@ class LoginPage extends Page {
             // Connect to server
             // Stop scanning first
             cancelDiscovery();
-            await auth.connectToServer(serverUrl);
+            await auth.connectToServer(serverUrl, this._pendingCustomHeaders);
 
             // If we already have saved sessions for this server, jump straight to the profiles picker
             // This prevents prompting the user to login again for a server they've already authenticated with.

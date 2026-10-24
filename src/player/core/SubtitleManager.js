@@ -25,6 +25,7 @@ import { logger } from '../../utils/Logger.js';
 import { PlayerSettings } from '../../utils/PlayerSettings.js';
 import { toast } from '../../ui/Toast.js';
 import { i18n } from '../../utils/i18n.js';
+import { customHeaders } from '../../utils/CustomHeaders.js';
 
 const log = logger.create('SubtitleManager');
 
@@ -149,6 +150,26 @@ export default class SubtitleManager {
         this._secondaryOffset = 0;
 
         log.info('SubtitleManager initialized');
+    }
+
+    /**
+     * Internal fetch helper that attaches custom reverse proxy headers (e.g.
+     * Cloudflare Zero Trust, Pangolin) if the target URL is hosted on the server.
+     *
+     * @param {string} url - Target URL to fetch
+     * @param {Object} [options={}] - Fetch configuration options
+     * @returns {Promise<Response>} Native fetch response
+     * @private
+     */
+    _fetchWithHeaders(url, options = {}) {
+        const proxyHeaders = customHeaders.getHeadersForUrl(url, this._serverUrl);
+        const merged = Object.assign({}, options);
+
+        if (proxyHeaders && typeof proxyHeaders === 'object' && Object.keys(proxyHeaders).length > 0) {
+            merged.headers = Object.assign({}, merged.headers, proxyHeaders);
+        }
+
+        return fetch(url, merged);
     }
 
     // ========================================================================
@@ -917,7 +938,7 @@ export default class SubtitleManager {
             // ================================================================
             // Start fetching subtitle content asynchronously
             // ================================================================
-            const subtitleFetchPromise = fetch(url).then(async (response) => {
+            const subtitleFetchPromise = this._fetchWithHeaders(url).then(async (response) => {
                 if (!response.ok) throw new Error(`HTTP ${response.status}`);
                 return response.text();
             });
@@ -1221,7 +1242,7 @@ export default class SubtitleManager {
             // ================================================================
             if (track.IsExternal) {
                 log.info(`Validating external PGS subtitle URL: ${url}`);
-                const probeResponse = await fetch(url, {
+                const probeResponse = await this._fetchWithHeaders(url, {
                     headers: { Range: 'bytes=0-0' }
                 });
 
@@ -1249,7 +1270,7 @@ export default class SubtitleManager {
                     while (offset < totalBytes) {
                         if (isStale()) return;
                         const end = Math.min(offset + chunkSize - 1, totalBytes - 1);
-                        const chunkResp = await fetch(url, {
+                        const chunkResp = await this._fetchWithHeaders(url, {
                             headers: { Range: `bytes=${offset}-${end}` }
                         });
 
@@ -1372,7 +1393,7 @@ export default class SubtitleManager {
             // ================================================================
             // Fetch the subtitle VTT text from server asynchronously
             // ================================================================
-            const response = await fetch(url);
+            const response = await this._fetchWithHeaders(url);
             if (!response.ok) {
                 throw new Error(`HTTP ${response.status}: ${response.statusText}`);
             }

@@ -40,6 +40,7 @@ import { buildJellyfinProfile, clearCapabilitiesCache } from './DeviceProfile.js
 import { focusManager } from '../ui/FocusManager.js';
 import { imageCache } from '../utils/ImageCache.js';
 import { seerr } from './seerrClient.js';
+import { customHeaders } from '../utils/CustomHeaders.js';
 import { logger } from '../utils/Logger.js';
 
 const log = logger.create('AuthManager');
@@ -442,10 +443,16 @@ class AuthManager {
      * time to boot up.
      * =========================================================================
      * @param {string} serverUrl - Target server URL
+     * @param {Array<{key: string, value: string, enabled: boolean}>} [headers] - Optional custom HTTP headers
      * @returns {Promise<Object>} Server public info object
      */
-    async connectToServer(serverUrl) {
+    async connectToServer(serverUrl, headers = null) {
         log.info(`Connecting to ${serverUrl}`);
+
+        // Persist custom proxy headers immediately if provided during connection flow
+        if (headers && Array.isArray(headers)) {
+            customHeaders.setServerHeaders(serverUrl, headers);
+        }
 
         api.setServer(serverUrl);
 

@@ -15,6 +15,7 @@ import { tizenAdapter } from '../tizen/TizenAdapter.js';
 import { logger } from '../utils/Logger.js';
 import { storage } from '../utils/StorageService.js';
 import { i18n } from '../utils/i18n.js';
+import { customHeaders } from '../utils/CustomHeaders.js';
 
 const log = logger.create('ApiClient');
 
@@ -46,7 +47,7 @@ export class ApiClient {
         this._deviceId = null;
         this._deviceName = 'Litefin'; // Default, will be updated by AuthManager.init()
         this._clientName = 'Litefin';
-        this._clientVersion = __APP_VERSION__;
+        this._clientVersion = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '1.0.0';
 
         // Track retries to prevent infinite loops on 401
         this._retryingRequests = new Set();
@@ -155,6 +156,9 @@ export class ApiClient {
         // Invalidate server-scoped plugin presence cache on server change
         this._hasLitefinServerPlugin = null;
         this._litefinPluginProbePromise = null;
+
+        // Synchronize active server URL with the custom headers manager
+        customHeaders.setActiveServer(this._serverUrl);
 
         log.info(`Server set to ${this._serverUrl}`);
     }
@@ -395,6 +399,17 @@ export class ApiClient {
             Accept: 'application/json', // Explicitly request JSON response
             ...options.headers
         };
+
+        // ------------------------------------------------------------------
+        // Custom HTTP Headers (Reverse Proxy / Gateway Authentication)
+        // If the user has configured custom headers (e.g. Cloudflare Zero
+        // Trust, Pangolin, Authelia) for this server, attach them to all
+        // outbound requests that match the server's origin and base path.
+        // ------------------------------------------------------------------
+        const proxyHeaders = customHeaders.getHeadersForUrl(url, this._serverUrl);
+        if (proxyHeaders && typeof proxyHeaders === 'object') {
+            Object.assign(headers, proxyHeaders);
+        }
 
         // ------------------------------------------------------------------
         // Accept-Language Header (Jellyfin 12+ Localization Middleware)
@@ -2984,7 +2999,7 @@ export class ApiClient {
  *     which makes subnet scanning unbearably slow on older platforms
  *   - XHR.timeout is a native hard-kill supported since Chrome 29
  */
-export function testServer(address, timeout = 1000, parentSignal = null) {
+export function testServer(address, timeout = 1000, parentSignal = null, headersOverride = null) {
     return new Promise((resolve) => {
         const xhr = new XMLHttpRequest();
         let resolved = false;
@@ -3082,6 +3097,25 @@ export function testServer(address, timeout = 1000, parentSignal = null) {
         xhr.onerror = () => done(null);
 
         xhr.open('GET', `${address}/System/Info/Public`, /* async */ true);
+
+        // ====================================================================
+        // Custom Reverse Proxy Headers (Cloudflare Access / Pangolin)
+        // If specific headers are provided for this probe, or stored for this
+        // server address, apply them so discovery and connection succeed.
+        // ====================================================================
+        const probeHeaders = headersOverride || customHeaders.getNormalizedHeaders(address);
+        if (probeHeaders && typeof probeHeaders === 'object') {
+            for (const [headerKey, headerVal] of Object.entries(probeHeaders)) {
+                if (headerKey && headerVal) {
+                    try {
+                        xhr.setRequestHeader(headerKey, headerVal);
+                    } catch (_) {
+                        // Ignore XHR header errors on older Chromium engines
+                    }
+                }
+            }
+        }
+
         xhr.send();
     });
 }

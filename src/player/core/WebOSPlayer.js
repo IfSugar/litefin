@@ -22,6 +22,8 @@
 
 import Hls from 'hls.js';
 import { MediaHelper } from './MediaHelper.js';
+import { customHeaders } from '../../utils/CustomHeaders.js';
+import { api } from '../../api/ApiClient.js';
 import { logger } from '../../utils/Logger.js';
 import { PlayerSettings } from '../../utils/PlayerSettings.js';
 import { platformInfo } from '../../utils/PlatformInfo.js';
@@ -1498,6 +1500,25 @@ export class WebOSPlayer {
                 // Do not force high maxBufferHole or aggressive watchdog nudging: setting maxBufferHole
                 // triggers premature _trySkipBufferHole seeks whenever the forward buffer drops below the
                 // threshold, making the player skip back and forth and causing subtitle desync.
+                // =====================================================================
+                // Reverse Proxy Custom Headers Injection for HLS Requests
+                // Injects custom headers into all playlist (.m3u8) and segment (.ts/.m4s)
+                // requests destined for the Jellyfin server.
+                // =====================================================================
+                xhrSetup: (xhr, url) => {
+                    const headers = customHeaders.getHeadersForUrl(url, api.serverUrl);
+                    if (headers && typeof headers === 'object') {
+                        for (const [k, v] of Object.entries(headers)) {
+                            if (k && v) {
+                                try {
+                                    xhr.setRequestHeader(k, v);
+                                } catch (_) {
+                                    // Ignore errors on restricted header names
+                                }
+                            }
+                        }
+                    }
+                }
             });
 
             let bufferReady = false;

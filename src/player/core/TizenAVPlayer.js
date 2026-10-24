@@ -11,6 +11,7 @@ import { MediaHelper } from './MediaHelper.js';
 import { logger } from '../../utils/Logger.js';
 import { detectTizenVersion, getDeviceCapabilities } from '../../api/profiles/TizenProfile.js';
 import { PlayerSettings } from '../../utils/PlayerSettings.js';
+import { customHeaders } from '../../utils/CustomHeaders.js';
 
 const log = logger.create('TizenAVPlayer');
 
@@ -668,6 +669,25 @@ export class TizenAVPlayer {
                         } catch (e2) {
                             log.warn('Failed to set USER_AGENT/USERAGENT:', e2.message || e2);
                         }
+                    }
+
+                    // ----------------------------------------------------------------
+                    // Custom Reverse Proxy Headers (Tizen AVPlay Native Engine)
+                    // If custom proxy auth headers are configured for this stream URL,
+                    // format and pass them via AVPlay's CUSTOM_MESSAGE property.
+                    // ----------------------------------------------------------------
+                    try {
+                        const targetUrl = options.url || this._currentSrc;
+                        const proxyHdrs = customHeaders.getHeadersForUrl(targetUrl, this._serverUrl);
+                        if (proxyHdrs && typeof proxyHdrs === 'object' && Object.keys(proxyHdrs).length > 0) {
+                            const headerPairs = Object.entries(proxyHdrs)
+                                .map(([k, v]) => `${k}: ${v}`)
+                                .join('\r\n') + '\r\n';
+                            this._avplay.setStreamingProperty("CUSTOM_MESSAGE", headerPairs);
+                            log.info('Attached custom headers to AVPlay pipeline');
+                        }
+                    } catch (eHdr) {
+                        log.warn('Failed to set AVPlay CUSTOM_MESSAGE streaming property:', eHdr.message || eHdr);
                     }
 
                     if (!isDirectPlay) {

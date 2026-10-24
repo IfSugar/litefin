@@ -2406,6 +2406,77 @@ html[data-layout-quirks="c26"] .media-fallback {
     font-weight: 600;
 }
 
+/* ============================================================================
+   Custom HTTP Headers Dialog (Lightweight / Low-Spec TV Optimized)
+   Zero backdrop-filter blur and zero box-shadows to conserve GPU memory
+   and prevent compositor frame drops on low-end Tizen and WebOS hardware.
+   ============================================================================ */
+
+.custom-headers-modal {
+    width: 820px;
+    max-width: 94vw;
+    background: #18181b;
+    border: 2px solid #2d2d34;
+    border-radius: 8px;
+    box-shadow: none !important;
+}
+
+.custom-headers-presets-bar button {
+    font-size: 0.95rem;
+    padding: 8px 14px;
+    background: #242429;
+    border: 2px solid #363640;
+    color: #e4e4e7;
+    margin: 0;
+    border-radius: 6px;
+    box-shadow: none !important;
+}
+
+.custom-headers-presets-bar button:focus,
+.custom-headers-presets-bar button.focused {
+    background: #2a2a32;
+    border-color: var(--jf-accent, #00a4dc);
+    outline: none;
+}
+
+.custom-header-row input {
+    box-shadow: none !important;
+    outline: none;
+}
+
+.custom-header-row input:focus,
+.custom-header-row input.focused {
+    border-color: var(--jf-accent, #00a4dc) !important;
+    background: #2c2c34 !important;
+}
+
+.custom-header-toggle.btn-toggle-active {
+    background: #163624 !important;
+    color: #4ade80 !important;
+    border: 2px solid #22c55e !important;
+    box-shadow: none !important;
+}
+
+.custom-header-toggle.btn-toggle-inactive {
+    background: #2a2a30 !important;
+    color: #a1a1aa !important;
+    border: 2px solid #3f3f46 !important;
+    box-shadow: none !important;
+}
+
+.custom-header-row .danger-btn {
+    background: #2d1818 !important;
+    color: #f87171 !important;
+    border: 2px solid #7f1d1d !important;
+    box-shadow: none !important;
+}
+
+.custom-header-row .danger-btn:focus,
+.custom-header-row .danger-btn.focused {
+    border-color: #ef4444 !important;
+    background: #451a1a !important;
+}
+
 
 
 
