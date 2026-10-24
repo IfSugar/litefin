@@ -137,8 +137,16 @@ class LoginPage extends Page {
                             <button type="button" class="btn btn-primary connect-btn" tabindex="0">
                                 <span data-i18n="Connect">Connect</span>
                             </button>
-                            <button type="button" class="btn btn-secondary custom-headers-btn" id="server-headers-btn" tabindex="0" title="${i18n.t('CustomHttpHeaders') || 'Proxy Headers'}">
-                                <span>${i18n.t('ProxyHeaders') || 'Headers'}</span>
+                        </div>
+                        <div class="server-proxy-headers-row">
+                            <button type="button" class="btn btn-secondary server-proxy-headers-btn" tabindex="0" title="${i18n.t('CustomHttpHeaders') || 'Proxy Headers'}">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="proxy-headers-icon">
+                                    <rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect>
+                                    <rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect>
+                                    <line x1="6" y1="6" x2="6.01" y2="6"></line>
+                                    <line x1="6" y1="18" x2="6.01" y2="18"></line>
+                                </svg>
+                                <span>${i18n.t('ProxyHeaders') || 'Proxy Headers'}</span>
                             </button>
                         </div>
                         <p class="login-error" id="server-error"></p>
@@ -314,12 +322,18 @@ class LoginPage extends Page {
                                 readonly
                                 tabindex="0"
                             >
-                            <div class="server-input-actions" style="display: flex; gap: 12px; margin-top: 12px;">
-                                <button type="button" class="btn btn-primary connect-btn" tabindex="0" style="flex: 1;">
+                            <div class="modern-server-buttons-row">
+                                <button type="button" class="btn btn-primary connect-btn" tabindex="0">
                                     <span data-i18n="Connect">Connect</span>
                                 </button>
-                                <button type="button" class="btn btn-secondary custom-headers-btn" id="server-headers-btn" tabindex="0" style="flex: 1;">
-                                    <span>${i18n.t('ProxyHeaders') || 'Headers'}</span>
+                                <button type="button" class="btn btn-secondary server-proxy-headers-btn" tabindex="0" title="${i18n.t('CustomHttpHeaders') || 'Proxy Headers'}">
+                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="proxy-headers-icon">
+                                        <rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect>
+                                        <rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect>
+                                        <line x1="6" y1="6" x2="6.01" y2="6"></line>
+                                        <line x1="6" y1="18" x2="6.01" y2="18"></line>
+                                    </svg>
+                                    <span>${i18n.t('ProxyHeaders') || 'Proxy Headers'}</span>
                                 </button>
                             </div>
                         </div>
@@ -561,8 +575,11 @@ class LoginPage extends Page {
 
             this._startDiscovery();
             this._showState(STATE.SERVER);
+            this.setActiveSection('login-server');
             setTimeout(() => {
-                this._serverInput.focus();
+                if (this._serverInput) {
+                    focusManager.focusElement(this._serverInput);
+                }
             }, 100);
 
             // Ensure splash hides after switching states (if it was up)
@@ -582,17 +599,19 @@ class LoginPage extends Page {
         // Connect button
         this.$('.connect-btn')?.addEventListener('click', () => this._connectToServer());
 
-        // Custom Reverse Proxy Headers dialog button
-        this.$('#server-headers-btn')?.addEventListener('click', (e) => {
-            e.stopPropagation();
-            const currentUrl = this._serverInput ? this._serverInput.value.trim() : '';
-            customHeadersDialog.show({
-                serverUrl: currentUrl,
-                existingHeaders: this._pendingCustomHeaders,
-                onSave: (headers) => {
-                    this._pendingCustomHeaders = headers;
-                    log.info(`Updated pending custom headers for server setup (${headers.length} items)`);
-                }
+        // Custom Reverse Proxy Headers dialog button (both classic and modern templates)
+        this.$$('.server-proxy-headers-btn').forEach((btn) => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const currentUrl = this._serverInput ? this._serverInput.value.trim() : '';
+                customHeadersDialog.show({
+                    serverUrl: currentUrl,
+                    existingHeaders: this._pendingCustomHeaders,
+                    onSave: (headers) => {
+                        this._pendingCustomHeaders = headers;
+                        log.info(`Updated pending custom headers for server setup (${headers.length} items)`);
+                    }
+                });
             });
         });
 
@@ -966,7 +985,9 @@ class LoginPage extends Page {
 
         // Force focus with a slight delay to allow visibility transition
         setTimeout(() => {
-            if (this._serverInput) this._serverInput.focus();
+            if (this._serverInput) {
+                focusManager.focusElement(this._serverInput);
+            }
         }, 150);
     }
 
@@ -1461,7 +1482,11 @@ class LoginPage extends Page {
             } else {
                 this._showState(STATE.SERVER);
                 this.setActiveSection('login-server');
-                this._serverInput.focus();
+                setTimeout(() => {
+                    if (this._serverInput) {
+                        focusManager.focusElement(this._serverInput);
+                    }
+                }, 100);
             }
             return true;
         } else if (this._state === STATE.MANUAL) {
@@ -1519,6 +1544,10 @@ class LoginPage extends Page {
     }
 
     onBack() {
+        if (customHeadersDialog && customHeadersDialog.isVisible) {
+            customHeadersDialog.close();
+            return true;
+        }
         return this._goBack();
     }
 

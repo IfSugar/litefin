@@ -27,6 +27,7 @@ import { syncPlayGroupMenu } from './syncplay/SyncPlayGroupMenu.js';
 import { exitDialog } from '../ui/ExitDialog.js';
 import { pinDialog } from '../ui/PinDialog.js';
 import { pinManager } from '../utils/PinManager.js';
+import { customHeadersDialog } from '../ui/CustomHeadersDialog.js';
 
 // Page imports (static to support Tizen 4's Chromium 56)
 import LoginPage from '../pages/LoginPage.js';
@@ -536,6 +537,12 @@ class App {
             // PIN entry dialog — Back cancels it (aborts the gated action).
             if (pinDialog && pinDialog.isVisible) {
                 pinDialog.close(true);
+                return;
+            }
+
+            // Custom HTTP Headers configuration dialog
+            if (customHeadersDialog && customHeadersDialog.isVisible) {
+                customHeadersDialog.close();
                 return;
             }
 

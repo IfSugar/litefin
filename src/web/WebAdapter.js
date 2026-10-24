@@ -170,10 +170,11 @@ class WebAdapter {
                 return;
             }
 
-            // Identify whether user is actively typing inside an input or textarea
+            // Identify whether user is actively typing inside an editable input or textarea
             const activeElem = document.activeElement;
             const isTextInput =
                 Boolean(activeElem) &&
+                !activeElem.readOnly &&
                 (activeElem.tagName === 'TEXTAREA' ||
                     activeElem.isContentEditable ||
                     (activeElem.tagName === 'INPUT' &&
@@ -200,9 +201,15 @@ class WebAdapter {
                     return;
                 }
 
-                // Let all other keys (letters, digits, backspace, enter, arrows, etc.)
-                // pass through to native text input handling without interference.
-                return;
+                // Allow Up and Down arrow keys in single-line inputs to navigate vertically
+                // across form controls rather than trapping focus.
+                if (activeElem.tagName === 'INPUT' && (keyCode === WEB_KEYS.UP || keyCode === WEB_KEYS.DOWN)) {
+                    // Fall through to directional event emissions below
+                } else {
+                    // Let all other keys (letters, digits, backspace, left/right caret movement)
+                    // pass through to native text input handling without interference.
+                    return;
+                }
             }
 
             // Detect if video player is currently active in view

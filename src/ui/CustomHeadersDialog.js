@@ -19,6 +19,7 @@ import { i18n } from '../utils/i18n.js';
 import { customHeaders, HEADER_PRESETS } from '../utils/CustomHeaders.js';
 import { logger } from '../utils/Logger.js';
 import { escapeHtml } from '../utils/Utils.js';
+import { eventBus } from '../core/EventBus.js';
 
 const log = logger.create('CustomHeadersDialog');
 
@@ -30,6 +31,7 @@ class CustomHeadersDialog {
         this._headers = [];
         this._onSave = null;
         this._onCancel = null;
+        this._boundOnBack = null;
     }
 
     /**
@@ -66,6 +68,17 @@ class CustomHeadersDialog {
         document.body.appendChild(this.overlay);
 
         this._renderDialog();
+
+        // Listen for hardware remote Back button
+        this._boundOnBack = () => {
+            if (this.isVisible) {
+                if (typeof this._onCancel === 'function') {
+                    this._onCancel();
+                }
+                this.close();
+            }
+        };
+        eventBus.on('key:back', this._boundOnBack);
     }
 
     /**
@@ -75,41 +88,49 @@ class CustomHeadersDialog {
     _renderDialog() {
         if (!this.overlay) return;
 
-        const serverLabel = this._serverUrl ? escapeHtml(this._serverUrl) : (i18n.t('CurrentServer') || 'Current Server');
-
         this.overlay.innerHTML = `
             <div class="settings-modal custom-headers-modal" role="dialog" aria-modal="true" aria-label="Custom HTTP Headers">
-                <div class="modal-header">
+                <!-- Dialog Title -->
+                <div class="modal-header custom-headers-dialog-header">
                     <h2>${i18n.t('CustomHttpHeadersTitle') || 'Custom HTTP Headers'}</h2>
-                    <p class="modal-subtitle" style="font-size: 0.95rem; color: #a0a0a8; margin: 4px 0 0 0;">
-                        ${i18n.t('CustomHttpHeadersSubtitle') || 'Configure proxy gateway headers for'} <strong>${serverLabel}</strong>
-                    </p>
                 </div>
 
-                <!-- Presets Quick Bar -->
-                <div class="custom-headers-presets-bar" id="custom-headers-presets-bar" style="display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px;">
-                    <button type="button" class="btn btn-secondary modal-action-btn" id="preset-cf-btn" tabindex="0">
-                        + Cloudflare Zero Trust
+                <!-- Presets Quick Bar and Add Row Action -->
+                <div class="custom-headers-toolbar" id="custom-headers-presets-bar">
+                    <div class="custom-headers-presets-group">
+                        <span class="custom-headers-presets-label">${i18n.t('Presets') || 'Presets'}:</span>
+                        <button type="button" class="preset-pill-btn" id="preset-cf-btn" tabindex="0">
+                            + Cloudflare Zero Trust
+                        </button>
+                        <button type="button" class="preset-pill-btn" id="preset-pangolin-btn" tabindex="0">
+                            + Pangolin
+                        </button>
+                    </div>
+                    <button type="button" class="add-header-action-btn" id="add-header-btn" tabindex="0">
+                        <span class="add-header-plus">+</span>
+                        <span>${i18n.t('AddCustomHeader') || 'Add Header'}</span>
                     </button>
-                    <button type="button" class="btn btn-secondary modal-action-btn" id="preset-pangolin-btn" tabindex="0">
-                        + Pangolin
-                    </button>
-                    <button type="button" class="btn btn-secondary modal-action-btn" id="add-header-btn" tabindex="0">
-                        + ${i18n.t('AddCustomHeader') || 'Add Header'}
-                    </button>
+                </div>
+
+                <!-- Column Header Labels for Television Readability -->
+                <div class="custom-headers-col-headers">
+                    <span class="col-head col-head-key">Header Name</span>
+                    <span class="col-head col-head-val">Header Value</span>
+                    <span class="col-head col-head-toggle">Status</span>
+                    <span class="col-head col-head-delete">Remove</span>
                 </div>
 
                 <!-- Headers List Container -->
-                <div class="modal-content custom-headers-content" id="custom-headers-list-container" style="max-height: 52vh; overflow-y: auto; padding: 4px 0;">
+                <div class="modal-content custom-headers-content" id="custom-headers-list-container">
                     ${this._renderHeadersList()}
                 </div>
 
-                <!-- Action Buttons -->
-                <div class="modal-actions" id="custom-headers-actions" style="margin-top: 16px; display: flex; justify-content: flex-end; gap: 12px;">
-                    <button type="button" class="btn btn-secondary modal-action-btn" id="custom-headers-cancel-btn" tabindex="0">
+                <!-- Unified Modal Actions Footer -->
+                <div class="modal-actions" id="custom-headers-actions">
+                    <button type="button" class="modal-action-btn close" id="custom-headers-cancel-btn" tabindex="0">
                         ${i18n.t('ButtonCancel') || 'Cancel'}
                     </button>
-                    <button type="button" class="btn btn-primary modal-action-btn" id="custom-headers-save-btn" tabindex="0">
+                    <button type="button" class="modal-action-btn apply" id="custom-headers-save-btn" tabindex="0">
                         ${i18n.t('Save') || 'Save'}
                     </button>
                 </div>
@@ -117,18 +138,22 @@ class CustomHeadersDialog {
         `;
 
         this._bindEvents();
-        this._updateFocusTrap();
+        this._bindRowInputs();
+        this._setupFocusTrap();
     }
 
     /**
      * Generates HTML markup for the configured header rows.
+     * Includes clear placeholders, status indicators, and delete actions.
+     * Starts inputs in read-only mode for smooth D-pad spatial navigation.
+     *
      * @private
      * @returns {string} HTML string
      */
     _renderHeadersList() {
         if (!this._headers || this._headers.length === 0) {
             return `
-                <div class="custom-headers-empty" style="padding: 24px 12px; text-align: center; color: #888892; font-size: 1rem;">
+                <div class="custom-headers-empty">
                     ${i18n.t('NoCustomHeadersConfigured') || 'No custom headers configured. Use a preset above or click Add Header to start.'}
                 </div>
             `;
@@ -142,39 +167,39 @@ class CustomHeadersDialog {
             const toggleClass = isEnabled ? 'btn-toggle-active' : 'btn-toggle-inactive';
 
             return `
-                <div class="custom-header-row" data-index="${index}" style="display: flex; gap: 8px; align-items: center; margin-bottom: 10px;">
+                <div class="custom-header-row" data-index="${index}">
                     <input
                         type="text"
-                        class="text-input tv-input custom-header-key"
-                        placeholder="Header Name"
+                        class="custom-header-input custom-header-key"
+                        placeholder="e.g. CF-Access-Client-Id"
                         value="${keyVal}"
                         data-index="${index}"
-                        style="flex: 2; padding: 10px 14px; font-size: 0.95rem; background: #222226; color: #fff; border: 2px solid transparent; border-radius: 6px;"
                         tabindex="0"
+                        readonly
                     />
                     <input
                         type="text"
-                        class="text-input tv-input custom-header-val"
-                        placeholder="Header Value"
+                        class="custom-header-input custom-header-val"
+                        placeholder="Header Value / Token"
                         value="${valVal}"
                         data-index="${index}"
-                        style="flex: 3; padding: 10px 14px; font-size: 0.95rem; background: #222226; color: #fff; border: 2px solid transparent; border-radius: 6px;"
                         tabindex="0"
+                        readonly
                     />
                     <button
                         type="button"
-                        class="btn btn-secondary modal-action-btn custom-header-toggle ${toggleClass}"
+                        class="custom-header-toggle ${toggleClass}"
                         data-index="${index}"
-                        style="padding: 10px 14px; font-size: 0.85rem; min-width: 90px; text-align: center;"
                         tabindex="0"
+                        title="${toggleText}"
                     >
-                        ${toggleText}
+                        <span class="toggle-status-dot"></span>
+                        <span>${toggleText}</span>
                     </button>
                     <button
                         type="button"
-                        class="btn btn-secondary modal-action-btn danger-btn custom-header-delete"
+                        class="custom-header-delete"
                         data-index="${index}"
-                        style="padding: 10px 14px; font-size: 0.85rem;"
                         tabindex="0"
                         title="${i18n.t('Delete') || 'Delete'}"
                     >
@@ -183,6 +208,46 @@ class CustomHeadersDialog {
                 </div>
             `;
         }).join('');
+    }
+
+    /**
+     * Wires click, keydown, and blur listeners to row inputs to seamlessly toggle
+     * between spatial navigation (readOnly = true) and active text entry (readOnly = false).
+     * @private
+     */
+    _bindRowInputs() {
+        if (!this.overlay) return;
+
+        const inputs = this.overlay.querySelectorAll('.custom-header-key, .custom-header-val');
+        inputs.forEach((input) => {
+            // Unlock on click/tap to allow editing
+            input.addEventListener('click', () => {
+                if (input.readOnly) {
+                    input.readOnly = false;
+                    input.focus();
+                }
+            });
+
+            // Enter key toggles between navigation and active editing
+            input.addEventListener('keydown', (e) => {
+                if (e.keyCode === 13) {
+                    if (!input.readOnly) {
+                        input.readOnly = true;
+                        this._syncInputsToMemory();
+                    } else {
+                        input.click();
+                    }
+                }
+            });
+
+            // Restore readonly and sync back to memory on blur
+            input.addEventListener('blur', () => {
+                setTimeout(() => {
+                    input.readOnly = true;
+                    this._syncInputsToMemory();
+                }, 200);
+            });
+        });
     }
 
     /**
@@ -229,7 +294,7 @@ class CustomHeadersDialog {
                         this._headers.push({ ...h, presetId: 'cloudflare' });
                     });
                 }
-                this._refreshList();
+                this._refreshList('#preset-cf-btn');
             };
         }
 
@@ -245,7 +310,7 @@ class CustomHeadersDialog {
                         this._headers.push({ ...h, presetId: 'pangolin' });
                     });
                 }
-                this._refreshList();
+                this._refreshList('#preset-pangolin-btn');
             };
         }
 
@@ -256,7 +321,8 @@ class CustomHeadersDialog {
                 e.stopPropagation();
                 this._syncInputsToMemory();
                 this._headers.push({ key: '', value: '', enabled: true });
-                this._refreshList();
+                const newIdx = this._headers.length - 1;
+                this._refreshList(`.custom-header-row[data-index="${newIdx}"] .custom-header-key`);
             };
         }
 
@@ -308,12 +374,15 @@ class CustomHeadersDialog {
                     e.stopPropagation();
                     this._syncInputsToMemory();
                     this._headers[idx].enabled = !this._headers[idx].enabled;
-                    this._refreshList();
+                    this._refreshList(`.custom-header-row[data-index="${idx}"] .custom-header-toggle`);
                 } else if (target.classList.contains('custom-header-delete')) {
                     e.stopPropagation();
                     this._syncInputsToMemory();
                     this._headers.splice(idx, 1);
-                    this._refreshList();
+                    const nextFocus = idx > 0
+                        ? `.custom-header-row[data-index="${idx - 1}"] .custom-header-delete`
+                        : (this._headers.length > 0 ? '.custom-header-row[data-index="0"] .custom-header-delete' : '#add-header-btn');
+                    this._refreshList(nextFocus);
                 }
             };
         }
@@ -330,28 +399,37 @@ class CustomHeadersDialog {
     }
 
     /**
-     * Refreshes the headers container without recreating the entire modal DOM.
+     * Refreshes the headers container without recreating the entire modal DOM or stacking traps.
+     * @param {string} [focusSelector=null] - Optional selector of element to focus after refresh
      * @private
      */
-    _refreshList() {
+    _refreshList(focusSelector = null) {
+        if (!this.overlay) return;
         const container = this.overlay.querySelector('#custom-headers-list-container');
         if (container) {
             container.innerHTML = this._renderHeadersList();
-            this._updateFocusTrap();
+            this._bindRowInputs();
+            focusManager.invalidateCache('__trap__');
+            if (focusSelector) {
+                const target = this.overlay.querySelector(focusSelector);
+                if (target) {
+                    focusManager.focusElement(target);
+                }
+            }
         }
     }
 
     /**
-     * Locks spatial navigation into the modal dialog and selects the initial focused control.
+     * Locks 2D grid spatial navigation into the modal dialog and selects the initial focused control.
      * @private
      */
-    _updateFocusTrap() {
+    _setupFocusTrap() {
         if (!this.overlay) return;
 
         const modalDialog = this.overlay.querySelector('.settings-modal');
         if (modalDialog) {
             focusManager.pushTrap(modalDialog, {
-                orientation: 'vertical',
+                orientation: 'grid',
                 defaultFocusSelector: '#custom-headers-save-btn'
             });
         }
@@ -363,6 +441,11 @@ class CustomHeadersDialog {
     close() {
         if (!this.isVisible) return;
         this.isVisible = false;
+
+        if (this._boundOnBack) {
+            eventBus.off('key:back', this._boundOnBack);
+            this._boundOnBack = null;
+        }
 
         // Disarm focus trap
         focusManager.popTrap();

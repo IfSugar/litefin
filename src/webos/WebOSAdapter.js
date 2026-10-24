@@ -234,6 +234,7 @@ class WebOSAdapter {
             const activeElem = document.activeElement;
             const isTextInput =
                 activeElem &&
+                !activeElem.readOnly &&
                 ((activeElem.tagName === 'INPUT' && activeElem.type !== 'range') || activeElem.tagName === 'TEXTAREA');
 
             /*
