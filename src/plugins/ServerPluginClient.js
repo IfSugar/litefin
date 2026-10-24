@@ -132,6 +132,14 @@ class ServerPluginClient {
         log.info('ServerPluginClient initialized');
     }
 
+    /**
+     * Check if the client has been initialized with an active ApiClient instance.
+     * @returns {boolean} True if initialized
+     */
+    isInitialized() {
+        return !!this._api;
+    }
+
     // ========================================================================
     // Public API
     // ========================================================================
@@ -147,6 +155,12 @@ class ServerPluginClient {
         // Return cached result if we have already fetched
         if (this._adminFetchAttempted) {
             return this._installedPlugins;
+        }
+
+        // If API client is not yet configured, return null gracefully without throwing
+        if (!this._api) {
+            log.debug('ServerPluginClient: API not yet configured, skipping /Plugins admin check');
+            return null;
         }
 
         this._adminFetchAttempted = true;

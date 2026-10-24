@@ -34,6 +34,7 @@ export function decorateStatusBadge(item) {
 export class SeerrClient {
     constructor() {
         this._status = null;
+        this._statusPromise = null;
         this._clearedLegacyCredentials = false;
         this._cache = new Map();
         this._cacheTtlMs = 5 * 60 * 1000;
@@ -68,6 +69,11 @@ export class SeerrClient {
 
         if (this._status && !force) return this._status;
 
+        // In-flight deduplication: return active shared probe promise
+        if (!force && this._statusPromise) {
+            return this._statusPromise;
+        }
+
         // Check session-level cache to ensure probe occurs once per session
         if (!force && typeof sessionStorage !== 'undefined') {
             try {
@@ -79,36 +85,46 @@ export class SeerrClient {
             } catch (_) {}
         }
 
-        // Verify Litefin companion server plugin is present before attempting endpoint request
-        const isLitefinAvailable = await api.isLitefinPluginAvailable();
-        if (!isLitefinAvailable) {
-            this._status = { configured: false, available: false };
-            return this._status;
-        }
-
-        try {
-            const payload = await api.get(`${API_ROOT}/Status`, {}, { silent: true, warnOnError: true });
-            this._status = {
-                configured: !!payload?.configured,
-                available: !!payload?.available
-            };
-            if (typeof sessionStorage !== 'undefined') {
-                try {
-                    sessionStorage.setItem('seerr:session_status', JSON.stringify(this._status));
-                } catch (_) {}
+        /*
+         * Wrap probing routine inside a shared promise to prevent multiple components
+         * (e.g. Sidebar, Search, Discover) from dispatching duplicate concurrent network probes.
+         */
+        this._statusPromise = (async () => {
+            // Verify Litefin companion server plugin is present before attempting endpoint request
+            const isLitefinAvailable = await api.isLitefinPluginAvailable();
+            if (!isLitefinAvailable) {
+                this._status = { configured: false, available: false };
+                return this._status;
             }
-            // Notify all components that seerr availability is now resolved so they
-            // can update their UI without an additional probe round-trip
-            eventBus.emit('seerr:statusResolved', this._status);
-        } catch (err) {
-            // Do NOT cache failure in this._status — the request may have failed due to
-            // an auth race condition (sidebar probing before session is fully restored).
-            // Leaving this._status null allows the next caller to retry cleanly.
-            log.debug('Litefin Seerr plugin endpoint is unavailable or not yet ready', err);
-            return { configured: false, available: false };
-        }
 
-        return this._status;
+            try {
+                const payload = await api.get(`${API_ROOT}/Status`, {}, { silent: true, warnOnError: true });
+                this._status = {
+                    configured: !!payload?.configured,
+                    available: !!payload?.available
+                };
+                if (typeof sessionStorage !== 'undefined') {
+                    try {
+                        sessionStorage.setItem('seerr:session_status', JSON.stringify(this._status));
+                    } catch (_) {}
+                }
+                // Notify all components that seerr availability is now resolved so they
+                // can update their UI without an additional probe round-trip
+                eventBus.emit('seerr:statusResolved', this._status);
+            } catch (err) {
+                // Do NOT cache failure in this._status — the request may have failed due to
+                // an auth race condition (sidebar probing before session is fully restored).
+                // Leaving this._status null allows the next caller to retry cleanly.
+                log.debug('Litefin Seerr plugin endpoint is unavailable or not yet ready', err);
+                return { configured: false, available: false };
+            } finally {
+                this._statusPromise = null;
+            }
+
+            return this._status;
+        })();
+
+        return this._statusPromise;
     }
 
     /**

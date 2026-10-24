@@ -63,6 +63,11 @@ export class ApiClient {
         // cached data when the server reports no change.
         this._etagCache = new Map();
         this._etagCacheMaxSize = 20;
+
+        // ── In-Flight Request Deduplication Promises ───────────────────────
+        // Prevents burst duplicate network requests during boot and navigation
+        this._userViewsPromise = null;
+        this._reportCapabilitiesPromise = null;
     }
 
     // ========================================================================
@@ -162,6 +167,11 @@ export class ApiClient {
     setAuth(accessToken, userId) {
         this._accessToken = accessToken;
         this._userId = userId;
+
+        // Reset user-scoped request promises
+        this._userViewsPromise = null;
+        this._reportCapabilitiesPromise = null;
+
         state.set('user:authenticated', !!accessToken);
         log.info(`Authenticated as user ${userId}`);
     }
@@ -186,6 +196,11 @@ export class ApiClient {
     clearAuth() {
         this._accessToken = null;
         this._userId = null;
+
+        // Reset user-scoped request promises
+        this._userViewsPromise = null;
+        this._reportCapabilitiesPromise = null;
+
         state.set('user:authenticated', false);
         state.set('user:data', null);
 
@@ -957,10 +972,30 @@ export class ApiClient {
     }
 
     /**
-     * Get user's library views
+     * Get user's library views with in-flight request deduplication.
+     * Prevents multiple components (Sidebar, HomePage, MobileNav) from firing
+     * duplicate concurrent HTTP GET requests for the same user library data.
+     *
+     * @returns {Promise<any>} User views list
      */
     async getUserViews() {
-        return this.get(`/Users/${this._userId}/Views`);
+        /*
+         * If an identical request for the active user's views is already in-flight
+         * or resolved within the last few seconds, return the shared active promise.
+         */
+        if (this._userViewsPromise) {
+            return this._userViewsPromise;
+        }
+
+        // Dispatch GET request and store promise
+        this._userViewsPromise = this.get(`/Users/${this._userId}/Views`).finally(() => {
+            // Keep active for 2.5 seconds so rapid concurrent mounting components share payload
+            setTimeout(() => {
+                this._userViewsPromise = null;
+            }, 2500);
+        });
+
+        return this._userViewsPromise;
     }
 
     // ========================================================================
@@ -1171,10 +1206,14 @@ export class ApiClient {
 
         this._litefinPluginProbePromise = (async () => {
             try {
-                // Strategy A: Check admin installed plugins list if accessible
+                // Strategy A: Check admin installed plugins list if already initialized
                 try {
                     const { serverPluginClient } = await import('../plugins/ServerPluginClient.js');
-                    if (serverPluginClient && typeof serverPluginClient.getInstalledPlugins === 'function') {
+                    if (
+                        serverPluginClient &&
+                        typeof serverPluginClient.isInitialized === 'function' &&
+                        serverPluginClient.isInitialized()
+                    ) {
                         if (force) {
                             serverPluginClient.reset();
                         }
@@ -2320,11 +2359,31 @@ export class ApiClient {
     /**
      * Report device capabilities to the server
      * CRITICAL: Must be called after login to establish session
-     * Without this, the server won't track playback status
+     * Without this, the server won't track playback status.
+     * Includes in-flight deduplication to avoid firing duplicate 15KB payloads
+     * when platform adapters and auth initialization handshake concurrently.
+     *
      * @param {Object} capabilities - Device/app capabilities
+     * @returns {Promise<any>}
      */
     async reportCapabilities(capabilities) {
-        return this.post('/Sessions/Capabilities/Full', capabilities);
+        /*
+         * Deduplicate rapid back-to-back capability reporting. On TV platforms,
+         * hardware detection and session restoration run in parallel and both
+         * attempt to report capabilities within ~500ms of each other.
+         */
+        if (this._reportCapabilitiesPromise) {
+            return this._reportCapabilitiesPromise;
+        }
+
+        this._reportCapabilitiesPromise = this.post('/Sessions/Capabilities/Full', capabilities).finally(() => {
+            // Keep guard active for 4 seconds to absorb initial boot bursts
+            setTimeout(() => {
+                this._reportCapabilitiesPromise = null;
+            }, 4000);
+        });
+
+        return this._reportCapabilitiesPromise;
     }
 
     /**

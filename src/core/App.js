@@ -334,10 +334,15 @@ class App {
         /*
          * Initialize Mobile Portrait Navigation Bar & Top Bar.
          * Mounts the responsive mobile navigation components into the application container.
-         * Activates specifically for mobile phones and tablets in portrait orientation.
+         * Only initialized for mobile/tablet/desktop web contexts — suppressed on TVs
+         * (LG webOS, Samsung Tizen, Android TV) to prevent redundant DOM overhead and network calls.
          */
-        this.mobileNav = new MobileNav();
-        this.mobileNav.mount(this.container);
+        if (!platformInfo.isTv) {
+            this.mobileNav = new MobileNav();
+            this.mobileNav.mount(this.container);
+        } else {
+            this.mobileNav = null;
+        }
 
         // Append trigger AFTER sidebar so we can use sibling selectors in CSS
         document
