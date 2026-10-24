@@ -134,3 +134,25 @@ test('CustomHeaders: getHeadersForUrl returns headers only when URL belongs to s
     const noMatch = customHeaders.getHeadersForUrl('https://image.tmdb.org/poster.jpg', serverUrl);
     assert.deepStrictEqual(noMatch, {});
 });
+
+test('CustomHeaders: getServerHeaders supports protocol-agnostic lookup fallback', () => {
+    const bareHost = 'jellyfin.myproxy.org';
+    const testHeaders = [
+        { key: 'CF-Access-Client-Id', value: 'token-999', enabled: true }
+    ];
+
+    customHeaders.setServerHeaders(bareHost, testHeaders);
+
+    // Should resolve when queried with full https:// URL
+    const retrievedWithHttps = customHeaders.getServerHeaders(`https://${bareHost}`);
+    assert.strictEqual(retrievedWithHttps.length, 1);
+    assert.strictEqual(retrievedWithHttps[0].key, 'CF-Access-Client-Id');
+    assert.strictEqual(retrievedWithHttps[0].value, 'token-999');
+
+    // And vice-versa: headers saved with full https:// URL can be queried with bare host
+    const fullUrl = 'https://emby.myproxy.org';
+    customHeaders.setServerHeaders(fullUrl, testHeaders);
+    const retrievedWithBare = customHeaders.getServerHeaders('emby.myproxy.org');
+    assert.strictEqual(retrievedWithBare.length, 1);
+    assert.strictEqual(retrievedWithBare[0].key, 'CF-Access-Client-Id');
+});

@@ -585,9 +585,16 @@ export class ApiClient {
 
             if (isTimeout || isNetworkError) {
                 const timeout = options.timeout || REQUEST_TIMEOUT;
-                const msg = isTimeout
+                let msg = isTimeout
                     ? `Connection timed out after ${timeout / 1000}s`
                     : `Server unreachable at ${this._serverUrl}`;
+
+                const activeProxyHeaders = customHeaders.getActiveHeaders();
+                const hasProxyHeaders = activeProxyHeaders && Object.keys(activeProxyHeaders).length > 0;
+
+                if (isNetworkError && hasProxyHeaders) {
+                    msg += ' (CORS or reverse proxy error)';
+                }
 
                 log.error(`${msg}:`, error.message);
 
@@ -637,7 +644,10 @@ export class ApiClient {
                     }
                 }
 
-                const networkError = new ServerUnreachableError(`${msg}. Please check your network and server status.`);
+                const extraHint = (isNetworkError && hasProxyHeaders)
+                    ? ' If using Cloudflare Access, verify that CORS is enabled in your Zero Trust Application settings and that the custom headers are allowed.'
+                    : ' Please check your network and server status.';
+                const networkError = new ServerUnreachableError(`${msg}.${extraHint}`);
                 eventBus.emit('api:offline', { url: this._serverUrl, isTimeout });
                 throw networkError;
             }

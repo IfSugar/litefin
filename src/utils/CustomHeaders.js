@@ -106,10 +106,25 @@ class CustomHeadersManager {
      */
     getServerHeaders(serverUrl) {
         if (!serverUrl) return [];
-        const key = this.getStorageKey(serverUrl);
+        const normalized = this.normalizeServerUrl(serverUrl);
+        const key = this.getStorageKey(normalized);
 
         try {
-            const raw = storage.getItem(key);
+            let raw = storage.getItem(key);
+
+            // Protocol-agnostic fallback lookup:
+            // Allows retrieving headers saved with or without http/https scheme,
+            // preventing configuration drops if user entered a bare hostname in the modal.
+            if (!raw) {
+                if (/^https?:\/\//i.test(normalized)) {
+                    const withoutProto = normalized.replace(/^https?:\/\//i, '');
+                    raw = storage.getItem(this.getStorageKey(withoutProto));
+                } else {
+                    raw = storage.getItem(this.getStorageKey(`https://${normalized}`)) ||
+                          storage.getItem(this.getStorageKey(`http://${normalized}`));
+                }
+            }
+
             if (!raw) return [];
             const parsed = JSON.parse(raw);
             return Array.isArray(parsed) ? parsed : [];

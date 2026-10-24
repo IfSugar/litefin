@@ -603,7 +603,8 @@ class LoginPage extends Page {
         this.$$('.server-proxy-headers-btn').forEach((btn) => {
             btn.addEventListener('click', (e) => {
                 e.stopPropagation();
-                const currentUrl = this._serverInput ? this._serverInput.value.trim() : '';
+                const rawUrl = this._serverInput ? this._serverInput.value.trim() : '';
+                const currentUrl = rawUrl ? this._normalizeServerUrl(rawUrl) : '';
                 customHeadersDialog.show({
                     serverUrl: currentUrl,
                     existingHeaders: this._pendingCustomHeaders,
@@ -1059,7 +1060,8 @@ class LoginPage extends Page {
             // Connect to server
             // Stop scanning first
             cancelDiscovery();
-            await auth.connectToServer(serverUrl, this._pendingCustomHeaders);
+            const headersToSend = this._pendingCustomHeaders || customHeaders.getServerHeaders(serverUrl);
+            await auth.connectToServer(serverUrl, headersToSend);
 
             // If we already have saved sessions for this server, jump straight to the profiles picker
             // This prevents prompting the user to login again for a server they've already authenticated with.

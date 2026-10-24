@@ -456,6 +456,13 @@ class AuthManager {
 
         api.setServer(serverUrl);
 
+        // Diagnostic log: confirm presence of active custom proxy headers
+        const activeHeaders = customHeaders.getNormalizedHeaders(serverUrl);
+        const headerKeys = Object.keys(activeHeaders);
+        if (headerKeys.length > 0) {
+            log.info(`Active reverse proxy headers for ${serverUrl}: [${headerKeys.join(', ')}]`);
+        }
+
         // =====================================================================
         // WAKE-ON-LAN (WOL) INVOCATION FOR CONNECT TO SERVER
         // =====================================================================
