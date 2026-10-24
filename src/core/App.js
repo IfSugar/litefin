@@ -557,9 +557,14 @@ class App {
             }
         });
 
+        // Track whether the application was genuinely transitioned into the background.
+        // Prevents initial window reveal on cold boot from triggering a false "resume" reload.
+        let wasBackgrounded = false;
+
         // Handle app visibility changes
         document.addEventListener('visibilitychange', () => {
             if (document.hidden) {
+                wasBackgrounded = true;
                 // App going to background — pause playback and save state,
                 // but do NOT stop the session or report stopped. The player
                 // stays alive and the server-side session remains active so
@@ -571,6 +576,14 @@ class App {
             } else {
                 log.debug('App visible (foreground)');
                 eventBus.emit('app:visible');
+
+                // If the app was never hidden first, this is the initial window display on boot.
+                // Do NOT trigger resume handlers or reload the active route.
+                if (!wasBackgrounded) {
+                    return;
+                }
+                wasBackgrounded = false;
+
                 // Reopen WebSocket when app becomes visible again
                 // This makes user appear online again without re-login
                 if (state.get('user:authenticated')) {

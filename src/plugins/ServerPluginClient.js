@@ -20,6 +20,7 @@
  */
 
 import { logger } from '../utils/Logger.js';
+import { state } from '../core/StateManager.js';
 
 const log = logger.create('ServerPluginClient');
 
@@ -160,6 +161,15 @@ class ServerPluginClient {
         // If API client is not yet configured, return null gracefully without throwing
         if (!this._api) {
             log.debug('ServerPluginClient: API not yet configured, skipping /Plugins admin check');
+            return null;
+        }
+
+        // Fast-path: Check if active user is known not to be an administrator
+        const userData = state.get('user:data');
+        if (userData && userData.Policy && userData.Policy.IsAdministrator === false) {
+            log.info('User is not admin (Policy.IsAdministrator=false). Skipping /Plugins check.');
+            this._installedPlugins = null;
+            this._isAdmin = false;
             return null;
         }
 
