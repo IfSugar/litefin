@@ -75,7 +75,7 @@ class TimeManager {
                 return tizenApi.time.getCurrentDateTime();
             }
         } catch (err) {
-            log.warn('[TimeManager] Error invoking tizen.time.getCurrentDateTime():', err);
+            log.warn('Error invoking tizen.time.getCurrentDateTime():', err);
         }
         return null;
     }
@@ -103,17 +103,17 @@ class TimeManager {
         try {
             // Record active configuration preferences
             const activeSource = (typeof PlayerSettings !== 'undefined' && PlayerSettings.get('timeSource')) || 'browser';
-            log.info(`[TimeManager] Active timeSource preference: "${activeSource}"`);
+            log.info(`Active timeSource preference: "${activeSource}"`);
 
             // Record baseline JavaScript Date engine state
             const baselineJsDate = new Date();
-            log.info(`[TimeManager] JS runtime Date baseline: "${baselineJsDate.toString()}" (epoch: ${baselineJsDate.getTime()}, tzOffset: ${baselineJsDate.getTimezoneOffset()})`);
+            log.info(`JS runtime Date baseline: "${baselineJsDate.toString()}" (epoch: ${baselineJsDate.getTime()}, tzOffset: ${baselineJsDate.getTimezoneOffset()})`);
 
             // Inspect Tizen native environment if present
             if (this._isTizen) {
                 const hasTime = Boolean(tizenObj && tizenObj.time);
                 const getCurrentDateTimeType = typeof tizenObj?.time?.getCurrentDateTime;
-                log.info(`[TimeManager] Tizen probe — tizen.time present: ${hasTime}, getCurrentDateTime type: "${getCurrentDateTimeType}"`);
+                log.info(`Tizen probe — tizen.time present: ${hasTime}, getCurrentDateTime type: "${getCurrentDateTimeType}"`);
 
                 // Execute live date query safely
                 const tz = this._getTizenDateTime();
@@ -121,7 +121,7 @@ class TimeManager {
                     try {
                         const secOffset = typeof tz.secondsFromUTC === 'function' ? tz.secondsFromUTC() : null;
                         const tzName = typeof tz.getTimezone === 'function' ? tz.getTimezone() : 'unknown';
-                        log.info(`[TimeManager] Tizen startup OS clock probe — toLocaleString: "${tz.toLocaleString()}", timezone: "${tzName}", secFromUTC: ${secOffset}, raw:`, {
+                        log.info(`Tizen startup OS clock probe — toLocaleString: "${tz.toLocaleString()}", timezone: "${tzName}", secFromUTC: ${secOffset}, raw:`, {
                             year: tz.getFullYear(),
                             month: tz.getMonth(),
                             date: tz.getDate(),
@@ -131,14 +131,14 @@ class TimeManager {
                             milliseconds: tz.getMilliseconds()
                         });
                     } catch (probeErr) {
-                        log.warn('[TimeManager] Tizen startup probe formatting failed:', probeErr);
+                        log.warn('Tizen startup probe formatting failed:', probeErr);
                     }
                 } else {
-                    log.warn('[TimeManager] Tizen OS date is currently unavailable via tizen.time.');
+                    log.warn('Tizen OS date is currently unavailable via tizen.time.');
                 }
             }
         } catch (diagErr) {
-            log.warn('[TimeManager] Startup diagnostic probe exception caught safely:', diagErr);
+            log.warn('Startup diagnostic probe exception caught safely:', diagErr);
         }
 
         // --------------------------------------------------------------------
@@ -175,12 +175,12 @@ class TimeManager {
                         const tz = this._getTizenDateTime();
                         if (tz) {
                             try {
-                                log.info(`[TimeManager] Tizen OS date on switch: toLocaleString="${tz.toLocaleString()}", timezone="${tz.getTimezone()}", raw=${tz.getFullYear()}-${tz.getMonth() + 1}-${tz.getDate()} ${tz.getHours()}:${tz.getMinutes()}:${tz.getSeconds()}`);
+                                log.info(`Tizen OS date on switch: toLocaleString="${tz.toLocaleString()}", timezone="${tz.getTimezone()}", raw=${tz.getFullYear()}-${tz.getMonth() + 1}-${tz.getDate()} ${tz.getHours()}:${tz.getMinutes()}:${tz.getSeconds()}`);
                             } catch (e) {
-                                log.warn('[TimeManager] Tizen OS switch probe error:', e);
+                                log.warn('Tizen OS switch probe error:', e);
                             }
                         } else {
-                            log.warn('[TimeManager] Tizen OS date unavailable on switch. Check time privilege.');
+                            log.warn('Tizen OS date unavailable on switch. Check time privilege.');
                         }
                     } else if (this._isWebOS) {
                         this._initWebOSClockDriver();
@@ -406,7 +406,7 @@ class TimeManager {
                             this._lastLoggedMinute = minuteKey;
                             const secOffset = typeof tz.secondsFromUTC === 'function' ? tz.secondsFromUTC() : null;
                             const tzName = typeof tz.getTimezone === 'function' ? tz.getTimezone() : 'unknown';
-                            log.info(`[TimeManager] Tizen OS active date: "${tz.toLocaleString()}" (tz: ${tzName}, secFromUTC: ${secOffset}, year: ${tz.getFullYear()}, hours: ${tz.getHours()}:${tz.getMinutes()}:${tz.getSeconds()})`);
+                            log.info(`Tizen OS active date: "${tz.toLocaleString()}" (tz: ${tzName}, secFromUTC: ${secOffset}, year: ${tz.getFullYear()}, hours: ${tz.getHours()}:${tz.getMinutes()}:${tz.getSeconds()})`);
                         }
 
                         // Construct native JavaScript Date instance using hardware clock fields
@@ -421,13 +421,13 @@ class TimeManager {
                         );
                     }
                 } catch (tizenErr) {
-                    log.warn('[TimeManager] Tizen native date calculation failed:', tizenErr);
+                    log.warn('Tizen native date calculation failed:', tizenErr);
                 }
 
                 // Log a throttled warning if Tizen time is unavailable
                 if (!this._warnedNoTizenTime) {
                     this._warnedNoTizenTime = true;
-                    log.warn('[TimeManager] "os" time source selected, but tizen.time.getCurrentDateTime() is unavailable.');
+                    log.warn('"os" time source selected, but tizen.time.getCurrentDateTime() is unavailable.');
                 }
             }
 

@@ -73,7 +73,7 @@ export class PrewarmManager {
                 if (bestStream) {
                     targetAudioIndex = bestStream.Index;
                     log.info(
-                        `[Prewarm] Auto-resolved DirectPlay audio track for "${item.Name}": Index ${targetAudioIndex} (${bestStream.Codec})`
+                        `Auto-resolved DirectPlay audio track for "${item.Name}": Index ${targetAudioIndex} (${bestStream.Codec})`
                     );
                 }
             }
@@ -114,14 +114,14 @@ export class PrewarmManager {
         const isSameForceTranscode = this._prewarmParams?.forceTranscode === activeForceTranscode;
 
         if (isSameItem && isFresh && isSameSource && isSameAudio && isSameSubtitle && isSameForceDirectPlay && isSameForceTranscode) {
-            log.debug(`[Prewarm] Item "${item.Name}" already pre-warmed with matching parameters, skipping duplicate.`);
+            log.debug(`Item "${item.Name}" already pre-warmed with matching parameters, skipping duplicate.`);
             return;
         }
 
         // Cancel any pending prewarm for a previous item or differing configuration
         this.clear();
 
-        log.info(`[Prewarm] Initiating zero-latency prewarm for "${item.Name}" (${item.Id})`, {
+        log.info(`Initiating zero-latency prewarm for "${item.Name}" (${item.Id})`, {
             mediaSourceId: targetMediaSourceId,
             audioStreamIndex: targetAudioIndex,
             subtitleStreamIndex: targetSubtitleIndex,
@@ -147,9 +147,9 @@ export class PrewarmManager {
         try {
             const fontId = SubtitleStyles.getCurrentFontId();
             if (fontId) {
-                FontLoader.loadFont(fontId).catch(() => {});
+                FontLoader.loadFont(fontId).catch(() => { });
             }
-        } catch (_) {}
+        } catch (_) { }
 
         // 2. Pre-fetch PlaybackInfo from Jellyfin server using ApiClient
         try {
@@ -391,18 +391,18 @@ export class PrewarmManager {
                 { signal: this._abortController.signal }
             )
                 .then((data) => {
-                    log.info(`[Prewarm] Successfully pre-fetched PlaybackInfo for "${item.Name}"!`);
+                    log.info(`Successfully pre-fetched PlaybackInfo for "${item.Name}"!`);
                     return data;
                 })
                 .catch((err) => {
                     // Suppress abort errors triggered by clean invalidation
                     if (err.name !== 'AbortError') {
-                        log.warn('[Prewarm] Background PlaybackInfo fetch failed:', err);
+                        log.warn('Background PlaybackInfo fetch failed:', err);
                     }
                     return null;
                 });
         } catch (err) {
-            log.warn('[Prewarm] Failed to setup background PlaybackInfo prewarm:', err);
+            log.warn('Failed to setup background PlaybackInfo prewarm:', err);
             this._playbackInfoPromise = null;
         }
     }
@@ -416,7 +416,7 @@ export class PrewarmManager {
     getPrewarmedItem(itemId) {
         // Ensure cache matches requested item ID and is within validity TTL window
         if (this._cachedItemId === itemId && this._cachedItem && Date.now() - this._timestamp < this._ttlMs) {
-            log.info(`[Prewarm] Cache hit! Reusing pre-loaded item metadata for: ${itemId}`);
+            log.info(`Cache hit! Reusing pre-loaded item metadata for: ${itemId}`);
             return this._cachedItem;
         }
         return null;
@@ -439,7 +439,7 @@ export class PrewarmManager {
         ) {
             // 1. Validate playback mode: If user forced transcode or remux, generic prewarm cannot be used
             if (options.playbackMode && options.playbackMode !== 'auto') {
-                log.debug('[Prewarm] Custom playbackMode requested, discarding generic prewarm.');
+                log.debug('Custom playbackMode requested, discarding generic prewarm.');
                 this.clear();
                 return null;
             }
@@ -450,7 +450,7 @@ export class PrewarmManager {
 
             if (this._prewarmParams?.forceDirectPlay !== undefined && this._prewarmParams.forceDirectPlay !== activeForceDirectPlay) {
                 log.info(
-                    `[Prewarm] ForceDirectPlay setting changed since prewarm ` +
+                    `ForceDirectPlay setting changed since prewarm ` +
                     `(prewarmed: ${this._prewarmParams.forceDirectPlay}, active: ${activeForceDirectPlay}). Discarding prewarm.`
                 );
                 this.clear();
@@ -459,7 +459,7 @@ export class PrewarmManager {
 
             if (this._prewarmParams?.forceTranscode !== undefined && this._prewarmParams.forceTranscode !== activeForceTranscode) {
                 log.info(
-                    `[Prewarm] ForceTranscode setting changed since prewarm ` +
+                    `ForceTranscode setting changed since prewarm ` +
                     `(prewarmed: ${this._prewarmParams.forceTranscode}, active: ${activeForceTranscode}). Discarding prewarm.`
                 );
                 this.clear();
@@ -470,7 +470,7 @@ export class PrewarmManager {
             if (options.mediaSourceId && this._prewarmParams?.mediaSourceId) {
                 if (options.mediaSourceId !== this._prewarmParams.mediaSourceId) {
                     log.info(
-                        `[Prewarm] MediaSource mismatch (expected ${this._prewarmParams.mediaSourceId}, requested ${options.mediaSourceId}). Discarding prewarm.`
+                        `MediaSource mismatch (expected ${this._prewarmParams.mediaSourceId}, requested ${options.mediaSourceId}). Discarding prewarm.`
                     );
                     this.clear();
                     return null;
@@ -498,7 +498,7 @@ export class PrewarmManager {
                     : null;
             if (prewarmedAudio !== requestedAudio) {
                 log.info(
-                    `[Prewarm] Audio stream mismatch (prewarmed: ${prewarmedAudio}, requested: ${requestedAudio}). Discarding prewarm.`
+                    `Audio stream mismatch (prewarmed: ${prewarmedAudio}, requested: ${requestedAudio}). Discarding prewarm.`
                 );
                 this.clear();
                 return null;
@@ -522,7 +522,7 @@ export class PrewarmManager {
                     : null;
             if (prewarmedSubtitle !== requestedSubtitle) {
                 log.info(
-                    `[Prewarm] Subtitle stream mismatch (prewarmed: ${prewarmedSubtitle}, requested: ${requestedSubtitle}). Discarding prewarm.`
+                    `Subtitle stream mismatch (prewarmed: ${prewarmedSubtitle}, requested: ${requestedSubtitle}). Discarding prewarm.`
                 );
                 this.clear();
                 return null;
@@ -538,13 +538,13 @@ export class PrewarmManager {
             const prewarmedBitrate = this._prewarmParams?.maxStreamingBitrate;
             if (options.maxStreamingBitrate && prewarmedBitrate && Number(options.maxStreamingBitrate) !== Number(prewarmedBitrate)) {
                 log.info(
-                    `[Prewarm] Bitrate limit mismatch (prewarmed: ${prewarmedBitrate}, requested: ${options.maxStreamingBitrate}). Discarding prewarm.`
+                    `Bitrate limit mismatch (prewarmed: ${prewarmedBitrate}, requested: ${options.maxStreamingBitrate}). Discarding prewarm.`
                 );
                 this.clear();
                 return null;
             }
 
-            log.info(`[Prewarm] Zero-Latency Cache Hit! Consuming prewarmed PlaybackInfo for: ${itemId}`);
+            log.info(`Zero-Latency Cache Hit! Consuming prewarmed PlaybackInfo for: ${itemId}`);
             const promise = this._playbackInfoPromise;
             // Prevent duplicate consumption; subsequent calls will trigger fresh request
             this._playbackInfoPromise = null;
@@ -563,7 +563,7 @@ export class PrewarmManager {
      */
     invalidateCache() {
         // Log cache invalidation event for playback diagnostics
-        log.info('[Prewarm] Invalidate cache requested — clearing prewarm manager memory and aborting requests');
+        log.info('Invalidate cache requested — clearing prewarm manager memory and aborting requests');
 
         // Flush all cached data and abort any ongoing network pre-fetches
         this.clear();
@@ -576,7 +576,7 @@ export class PrewarmManager {
      */
     discardUnconsumed() {
         if (!this._playbackInfoPromise) return;
-        log.info('[Prewarm] Device capabilities changed — discarding the prewarmed PlaybackInfo');
+        log.info('Device capabilities changed — discarding the prewarmed PlaybackInfo');
         this.clear();
     }
 
@@ -588,7 +588,7 @@ export class PrewarmManager {
         if (this._abortController) {
             try {
                 this._abortController.abort();
-            } catch (_) {}
+            } catch (_) { }
             this._abortController = null;
         }
         // Reset cached variables and tracked parameters

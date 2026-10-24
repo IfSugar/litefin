@@ -780,7 +780,7 @@ class DetailsPage extends Page {
         if (!this._itemId) return;
 
         try {
-            log.info(`[DetailsPage] Re-fetching item metadata and visual assets for ${this._itemId}`);
+            log.info(`Re-fetching item metadata and visual assets for ${this._itemId}`);
 
             // 1. Build metadata fields query
             // Default to 'genres-studios-writers' to prevent loading excessive tags that bloat DOM
@@ -866,7 +866,7 @@ class DetailsPage extends Page {
                 logoContainer.innerHTML = '';
             }
         } catch (err) {
-            log.error('[DetailsPage] Failed to refresh item data:', err.message || err);
+            log.error('Failed to refresh item data:', err.message || err);
         }
     }
 
@@ -1196,7 +1196,7 @@ class DetailsPage extends Page {
             const resolvedAudio = MediaHelper.resolveSavedTrack(source, 'Audio', savedAudioTrack, this._itemId);
             if (resolvedAudio !== undefined) {
                 this._selectedAudioIndex = resolvedAudio;
-                log.info(`[DetailsPage] Restored saved audio track for ${this._itemId}: ${resolvedAudio}`);
+                log.info(`Restored saved audio track for ${this._itemId}: ${resolvedAudio}`);
             } else {
                 this._selectedAudioIndex = undefined;
             }
@@ -1210,7 +1210,7 @@ class DetailsPage extends Page {
             if (resolvedSeriesAudio !== undefined) {
                 this._selectedAudioIndex = resolvedSeriesAudio;
                 log.info(
-                    `[DetailsPage] Restored series-level audio track for ${this._itemId}: ${resolvedSeriesAudio}`
+                    `Restored series-level audio track for ${this._itemId}: ${resolvedSeriesAudio}`
                 );
             }
         }
@@ -1230,7 +1230,7 @@ class DetailsPage extends Page {
             if (bestStream) {
                 this._selectedAudioIndex = bestStream.Index;
                 log.info(
-                    `[DetailsPage] Auto-selected DirectPlay audio track for ${this._itemId}: ${this._selectedAudioIndex} (${bestStream.Codec})`
+                    `Auto-selected DirectPlay audio track for ${this._itemId}: ${this._selectedAudioIndex} (${bestStream.Codec})`
                 );
             }
         }
@@ -1255,7 +1255,7 @@ class DetailsPage extends Page {
                     const candidateStream = source.MediaStreams?.find((s) => s.Type === 'Subtitle' && s.Index === resolvedSubtitle);
                     if (candidateStream && isForcedStream(candidateStream)) {
                         this._selectedSubtitleIndex = resolvedSubtitle;
-                        log.info(`[DetailsPage] Restored saved forced subtitle track for ${this._itemId}: ${resolvedSubtitle}`);
+                        log.info(`Restored saved forced subtitle track for ${this._itemId}: ${resolvedSubtitle}`);
                     } else {
                         this._selectedSubtitleIndex = undefined;
                     }
@@ -1265,7 +1265,7 @@ class DetailsPage extends Page {
                     this._selectedSubtitleIndex = undefined;
                 } else {
                     this._selectedSubtitleIndex = resolvedSubtitle;
-                    log.info(`[DetailsPage] Restored saved subtitle track for ${this._itemId}: ${resolvedSubtitle}`);
+                    log.info(`Restored saved subtitle track for ${this._itemId}: ${resolvedSubtitle}`);
                 }
             } else {
                 this._selectedSubtitleIndex = undefined;
@@ -1291,7 +1291,7 @@ class DetailsPage extends Page {
                 } else {
                     this._selectedSubtitleIndex = resolvedSeriesSubtitle;
                     log.info(
-                        `[DetailsPage] Restored series-level subtitle track for ${this._itemId}: ${resolvedSeriesSubtitle}`
+                        `Restored series-level subtitle track for ${this._itemId}: ${resolvedSeriesSubtitle}`
                     );
                 }
             }
@@ -1303,7 +1303,7 @@ class DetailsPage extends Page {
                 audioStreamIndex: this._selectedAudioIndex
             });
             log.info(
-                `[DetailsPage] Resolved subtitle track from Subtitle Mode (${effectiveSubtitleMode}): ${this._selectedSubtitleIndex}`
+                `Resolved subtitle track from Subtitle Mode (${effectiveSubtitleMode}): ${this._selectedSubtitleIndex}`
             );
         }
 
@@ -1383,7 +1383,7 @@ class DetailsPage extends Page {
                 if (bestStream) {
                     this._selectedAudioIndex = bestStream.Index;
                     log.info(
-                        `[DetailsPage] Auto-selected DirectPlay audio track for version ${id}: ${this._selectedAudioIndex} (${bestStream.Codec})`
+                        `Auto-selected DirectPlay audio track for version ${id}: ${this._selectedAudioIndex} (${bestStream.Codec})`
                     );
                 }
             }
@@ -6683,7 +6683,7 @@ class DetailsPage extends Page {
      */
     _navigateToAdjacentEpisode(targetEpisode) {
         if (!targetEpisode?.Id) return;
-        log.info(`[DetailsPage] Navigating to adjacent episode: ${targetEpisode.Id} (${targetEpisode.Name})`);
+        log.info(`Navigating to adjacent episode: ${targetEpisode.Id} (${targetEpisode.Name})`);
         router.navigate(`/details/${targetEpisode.Id}`);
     }
 
