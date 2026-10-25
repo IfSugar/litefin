@@ -406,7 +406,6 @@ class CardRenderer {
         const isExpanded = mediaLayout === 'expanded';
         const isModernPosters = mediaLayout === 'modern-posters';
         const isExpanding = mediaLayout === 'expanding';
-        const isModernOrExpanded = isModern || isExpanded || isModernPosters || isExpanding;
 
         const prefs = CardRenderer._getPrefs();
         const libraryThumbMode = prefs.libraryThumbMode;
@@ -961,7 +960,7 @@ class CardRenderer {
         const favoriteBadgeHtml = CardRenderer.getFavoriteBadgeHtml(item);
 
         // Played Badge (Check Mark)
-        let playedBadgeHtml = CardRenderer.getPlayedBadgeHtml(item);
+        const playedBadgeHtml = CardRenderer.getPlayedBadgeHtml(item);
 
         // Video Badge (Center Play Icon)
         let videoBadgeHtml = '';
@@ -990,12 +989,7 @@ class CardRenderer {
         // For recently added cards, episode identifiers are rendered in the subtitle line,
         // so we suppress the badge overlay to maintain a clean card presentation.
         // -------------------------------------------------------------
-        if (
-            item.Type === 'Episode' &&
-            item.IndexNumber !== undefined &&
-            useEpisodeBadges &&
-            contextType !== 'latest'
-        ) {
+        if (item.Type === 'Episode' && item.IndexNumber !== undefined && useEpisodeBadges && contextType !== 'latest') {
             const s = (item.ParentIndexNumber || 0).toString().padStart(2, '0');
             const e = (item.IndexNumber || 0).toString().padStart(2, '0');
             episodeBadgeHtml = `<div class="episode-badge">S${s}E${e}</div>`;
@@ -1004,7 +998,7 @@ class CardRenderer {
         }
 
         // Quality Badge (Resolution/HDR)
-        let qualityBadgeHtml = CardRenderer.getQualityBadgeHtml(item);
+        const qualityBadgeHtml = CardRenderer.getQualityBadgeHtml(item);
 
         let seerrTypeBadgeHtml = '';
         let seerrBadgeHtml = '';

@@ -55,8 +55,8 @@ class BackdropManager {
             item.BackdropImageTags && item.BackdropImageTags.length > 0
                 ? item.BackdropImageTags[0]
                 : item.ParentBackdropImageTags && item.ParentBackdropImageTags.length > 0
-                    ? item.ParentBackdropImageTags[0]
-                    : null;
+                  ? item.ParentBackdropImageTags[0]
+                  : null;
 
         // Assign tag parameter if not explicitly specified by caller
         if (backdropTag && !options.tag) {

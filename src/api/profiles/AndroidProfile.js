@@ -126,15 +126,16 @@ export function getDeviceCapabilities() {
     if (_cachedCapabilities) return _cachedCapabilities;
 
     // Detect HDR display capabilities via media queries
-    const hdr10 = typeof window !== 'undefined' && window.matchMedia
-        ? window.matchMedia('(color-gamut: rec2020)').matches || window.matchMedia('(color-gamut: p3)').matches
-        : true; // Default true on modern Android TV displays
+    const hdr10 =
+        typeof window !== 'undefined' && window.matchMedia
+            ? window.matchMedia('(color-gamut: rec2020)').matches || window.matchMedia('(color-gamut: p3)').matches
+            : true; // Default true on modern Android TV displays
 
     const hlg = hdr10;
 
     // Detect actual viewport and screen resolutions
-    const screenWidth = typeof window !== 'undefined' ? (window.screen?.width || window.innerWidth || 1920) : 1920;
-    const screenHeight = typeof window !== 'undefined' ? (window.screen?.height || window.innerHeight || 1080) : 1080;
+    const screenWidth = typeof window !== 'undefined' ? window.screen?.width || window.innerWidth || 1920 : 1920;
+    const screenHeight = typeof window !== 'undefined' ? window.screen?.height || window.innerHeight || 1080 : 1080;
     const uhd8K = screenWidth >= 7680 || screenHeight >= 4320;
     const uhd = (screenWidth >= 3840 || screenHeight >= 2160) && !uhd8K;
 
@@ -219,9 +220,8 @@ export function buildJellyfinProfile(options = {}) {
     // If the active playback request or user preference specifies HTML5 backend,
     // delegate profile creation directly to WebProfile for Chromium WebView.
     // -------------------------------------------------------------------------
-    const isHtml5 = typeof options === 'object'
-        ? options?.backend === 'html5'
-        : (PlayerSettings.get('playerBackend') === 'html5');
+    const isHtml5 =
+        typeof options === 'object' ? options?.backend === 'html5' : PlayerSettings.get('playerBackend') === 'html5';
 
     if (isHtml5) {
         log.info('Delegating Android DeviceProfile creation to WebProfile (HTML5 backend active)');
@@ -252,7 +252,7 @@ export function buildJellyfinProfile(options = {}) {
 
     // Enforce numeric channel count for DTO serialization
     const userMaxChannels = PlayerSettings.get('allowedAudioChannels');
-    const maxAudioChannelsNum = (userMaxChannels && userMaxChannels > 0) ? Number(userMaxChannels) : 8;
+    const maxAudioChannelsNum = userMaxChannels && userMaxChannels > 0 ? Number(userMaxChannels) : 8;
     const maxAudioChannelsStr = String(maxAudioChannelsNum);
 
     // -------------------------------------------------------------------------
@@ -282,9 +282,12 @@ export function buildJellyfinProfile(options = {}) {
     // -------------------------------------------------------------------------
     const directPlayProfiles = [];
 
-    if (playbackMode !== 'transcode' && playbackMode !== 'remux' &&
-        playbackMode !== 'transcodeVideo' && playbackMode !== 'transcodeAudio') {
-
+    if (
+        playbackMode !== 'transcode' &&
+        playbackMode !== 'remux' &&
+        playbackMode !== 'transcodeVideo' &&
+        playbackMode !== 'transcodeAudio'
+    ) {
         // MKV, MP4, WebM, and MPEG-TS containers
         directPlayProfiles.push({
             Container: 'mkv,mp4,m4v,mov,webm,ts,mpegts,m2ts,avi,wmv,asf',
@@ -314,15 +317,20 @@ export function buildJellyfinProfile(options = {}) {
     // -------------------------------------------------------------------------
     // Omitted in remux/transcode modes to ensure seekable segmented HLS delivery.
     // -------------------------------------------------------------------------
-    const directStreamProfiles = (playbackMode !== 'transcode' && playbackMode !== 'remux' &&
-        playbackMode !== 'transcodeVideo' && playbackMode !== 'transcodeAudio') ? [
-        {
-            Container: 'mp4',
-            Type: 'Video',
-            VideoCodec: videoCodecString,
-            AudioCodec: audioCodecString
-        }
-    ] : [];
+    const directStreamProfiles =
+        playbackMode !== 'transcode' &&
+        playbackMode !== 'remux' &&
+        playbackMode !== 'transcodeVideo' &&
+        playbackMode !== 'transcodeAudio'
+            ? [
+                  {
+                      Container: 'mp4',
+                      Type: 'Video',
+                      VideoCodec: videoCodecString,
+                      AudioCodec: audioCodecString
+                  }
+              ]
+            : [];
 
     // -------------------------------------------------------------------------
     // Codec Profiles (Levels and Audio Channel Ceiling)

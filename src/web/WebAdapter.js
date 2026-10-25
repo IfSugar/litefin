@@ -220,13 +220,7 @@ class WebAdapter {
             // -----------------------------------------------------------------
             // Prevent default browser scrolling when browsing outside form inputs
             if (!isTextInput) {
-                const navKeys = [
-                    WEB_KEYS.LEFT,
-                    WEB_KEYS.RIGHT,
-                    WEB_KEYS.UP,
-                    WEB_KEYS.DOWN,
-                    WEB_KEYS.ENTER
-                ];
+                const navKeys = [WEB_KEYS.LEFT, WEB_KEYS.RIGHT, WEB_KEYS.UP, WEB_KEYS.DOWN, WEB_KEYS.ENTER];
 
                 // Suppress browser page scroll on Space bar when player is rendering
                 if (isPlayerActive && keyCode === WEB_KEYS.SPACE) {
@@ -297,7 +291,11 @@ class WebAdapter {
                     case 'Esc':
                         if (this.isFullscreen()) {
                             // If a modal or menu popup is active, let back close the modal first
-                            if (document.querySelector('.track-menu.visible, .settings-menu.visible, .modal.visible, .osd-menu.visible')) {
+                            if (
+                                document.querySelector(
+                                    '.track-menu.visible, .settings-menu.visible, .modal.visible, .osd-menu.visible'
+                                )
+                            ) {
                                 break;
                             }
                             e.preventDefault();
@@ -310,7 +308,11 @@ class WebAdapter {
                     case 'ArrowUp':
                     case 'Up':
                         // Only intercept when no modal popup or selection menu is open in view
-                        if (!document.querySelector('.track-menu.visible, .settings-menu.visible, .modal.visible, .osd-menu.visible')) {
+                        if (
+                            !document.querySelector(
+                                '.track-menu.visible, .settings-menu.visible, .modal.visible, .osd-menu.visible'
+                            )
+                        ) {
                             e.preventDefault();
                             eventBus.emit('remote:volumeup');
                             return;
@@ -321,7 +323,11 @@ class WebAdapter {
                     case 'ArrowDown':
                     case 'Down':
                         // Only intercept when no modal popup or selection menu is open in view
-                        if (!document.querySelector('.track-menu.visible, .settings-menu.visible, .modal.visible, .osd-menu.visible')) {
+                        if (
+                            !document.querySelector(
+                                '.track-menu.visible, .settings-menu.visible, .modal.visible, .osd-menu.visible'
+                            )
+                        ) {
                             e.preventDefault();
                             eventBus.emit('remote:volumedown');
                             return;

@@ -566,13 +566,12 @@ class LazyLoader {
         }
 
         const isSupportedParent =
-            parent &&
-            (parent.classList.contains('card-image') ||
-                parent.classList.contains('queue-row__thumb-wrap'));
+            parent && (parent.classList.contains('card-image') || parent.classList.contains('queue-row__thumb-wrap'));
 
         if (isSupportedParent) {
             const mediaLayout = document.documentElement.getAttribute('data-layout-media-rows');
-            const isModernOrExpanded = mediaLayout === 'modern' || mediaLayout === 'expanded' || mediaLayout === 'modern-posters';
+            const isModernOrExpanded =
+                mediaLayout === 'modern' || mediaLayout === 'expanded' || mediaLayout === 'modern-posters';
 
             parent.classList.remove('skeleton-shimmer');
 
@@ -585,7 +584,9 @@ class LazyLoader {
 
             if (gradNum && initials && name && !parent.querySelector('.media-fallback')) {
                 const hideInitials = img.dataset.fbHideInitials === 'true';
-                const isLibrary = parent.closest('.library-grid, .library-row, .library-content') !== null || parent.dataset?.contextType === 'library';
+                const isLibrary =
+                    parent.closest('.library-grid, .library-row, .library-content') !== null ||
+                    parent.dataset?.contextType === 'library';
                 const showName = isLibrary || hideInitials || !isModernOrExpanded;
                 // dataset.* decodes the escaped attribute values back to raw
                 // strings — escape again before insertAdjacentHTML.
@@ -791,7 +792,6 @@ class LazyLoader {
             cancelAnimationFrame(this._deferredPreloadFrameId);
             this._deferredPreloadFrameId = null;
         }
-
 
         // Unobserve all images tracked by the main observer
         if (this.observer) {

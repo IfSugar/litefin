@@ -440,7 +440,10 @@ class Router {
             this._history = this._history.slice(-this._maxHistory);
         }
 
-        log.info('Navigation history seeded:', this._history.map((e) => e.path));
+        log.info(
+            'Navigation history seeded:',
+            this._history.map((e) => e.path)
+        );
     }
 
     /**

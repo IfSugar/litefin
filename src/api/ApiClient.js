@@ -330,8 +330,8 @@ export class ApiClient {
             const endsWithSingleItemId = /\/[0-9a-f]{32}$/i.test(endpoint.replace(/\?.*$/, ''));
 
             const isItemsEndpoint =
-                !endsWithSingleItemId && (
-                    (endpoint.includes('/Items') && !endpoint.includes('/Items/Thumbnails')) ||
+                !endsWithSingleItemId &&
+                ((endpoint.includes('/Items') && !endpoint.includes('/Items/Thumbnails')) ||
                     endpoint.includes('/Latest') ||
                     endpoint.includes('/Resume') ||
                     endpoint.includes('/NextUp') ||
@@ -340,8 +340,7 @@ export class ApiClient {
                     endpoint.includes('/Episodes') ||
                     endpoint.includes('/Search/Hints') ||
                     endpoint.includes('/Persons') ||
-                    endpoint.includes('/MergedRows')
-                );
+                    endpoint.includes('/MergedRows'));
 
             if (isItemsEndpoint) {
                 const targetKey = fieldsKey || 'Fields';
@@ -554,7 +553,10 @@ export class ApiClient {
                 // a serialized JSON array or object and parse it accordingly.
                 if (typeof body === 'string' && body.length > 0) {
                     const trimmed = body.trim();
-                    if ((trimmed.startsWith('{') && trimmed.endsWith('}')) || (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
+                    if (
+                        (trimmed.startsWith('{') && trimmed.endsWith('}')) ||
+                        (trimmed.startsWith('[') && trimmed.endsWith(']'))
+                    ) {
                         try {
                             body = JSON.parse(trimmed);
                         } catch {
@@ -608,11 +610,15 @@ export class ApiClient {
                 const wolMac = storage.getItem('pref:wolMacAddress');
 
                 if (wolTimeoutEnabled && wolMac && !options._isWolTimeoutRetry) {
-                    log.info(`Request failed/timed out. Wake-on-LAN on timeout active. Broadcasting packet to ${wolMac}...`);
+                    log.info(
+                        `Request failed/timed out. Wake-on-LAN on timeout active. Broadcasting packet to ${wolMac}...`
+                    );
 
                     try {
                         // Send Wake-on-LAN Magic Packet
-                        sendWakeOnLan(wolMac).catch((wolErr) => log.warn('Failed to send WOL packet on timeout:', wolErr));
+                        sendWakeOnLan(wolMac).catch((wolErr) =>
+                            log.warn('Failed to send WOL packet on timeout:', wolErr)
+                        );
 
                         // Retry loop: probe server status every 3s (up to 25 attempts / ~90s if Extended Wait is active)
                         const extendedWait = storage.getItem('pref:enableWolExtendedWait') === 'true';
@@ -633,10 +639,16 @@ export class ApiClient {
                                 if (testRes.ok) {
                                     log.info('Server responded to status probe! Re-executing failed API request...');
                                     // Re-run original request with _isWolTimeoutRetry flag set to prevent recursion loops
-                                    return await this.request(endpoint, { ...options, _isWolTimeoutRetry: true }, isRetry);
+                                    return await this.request(
+                                        endpoint,
+                                        { ...options, _isWolTimeoutRetry: true },
+                                        isRetry
+                                    );
                                 }
                             } catch (probeErr) {
-                                log.debug(`Server status probe ${attempt}/${maxAttempts} failed — server still booting...`);
+                                log.debug(
+                                    `Server status probe ${attempt}/${maxAttempts} failed — server still booting...`
+                                );
                             }
                         }
                     } catch (wolCycleErr) {
@@ -644,9 +656,10 @@ export class ApiClient {
                     }
                 }
 
-                const extraHint = (isNetworkError && hasProxyHeaders)
-                    ? ' If using Cloudflare Access, verify that CORS is enabled in your Zero Trust Application settings and that the custom headers are allowed.'
-                    : ' Please check your network and server status.';
+                const extraHint =
+                    isNetworkError && hasProxyHeaders
+                        ? ' If using Cloudflare Access, verify that CORS is enabled in your Zero Trust Application settings and that the custom headers are allowed.'
+                        : ' Please check your network and server status.';
                 const networkError = new ServerUnreachableError(`${msg}.${extraHint}`);
                 eventBus.emit('api:offline', { url: this._serverUrl, isTimeout });
                 throw networkError;
@@ -691,7 +704,10 @@ export class ApiClient {
                     let cleaned = (bodyText || '').trim();
                     if (cleaned.startsWith('<')) {
                         // Strip HTML markup and collapse whitespace
-                        cleaned = cleaned.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+                        cleaned = cleaned
+                            .replace(/<[^>]*>/g, ' ')
+                            .replace(/\s+/g, ' ')
+                            .trim();
                     }
                     if (cleaned) {
                         message = cleaned.length > 200 ? cleaned.slice(0, 200) + '…' : cleaned;
@@ -987,10 +1003,7 @@ export class ApiClient {
     async updateUserConfiguration(configuration) {
         if (this.isJF12Plus()) {
             // New JF12 canonical route — userId goes in the query string
-            return this.post(
-                `/Users/Configuration?userId=${encodeURIComponent(this._userId)}`,
-                configuration
-            );
+            return this.post(`/Users/Configuration?userId=${encodeURIComponent(this._userId)}`, configuration);
         }
         // Legacy path used by JF 10.10 / 10.11
         return this.post(`/Users/${this._userId}/Configuration`, configuration);
@@ -1255,11 +1268,14 @@ export class ApiClient {
                                     status === 'malfunctioned' ||
                                     status === 'notsupported' ||
                                     status === 'superseded';
-                                const isActive = !isExplicitlyDisabled && (!status || status === 'active' || status === 'restart');
+                                const isActive =
+                                    !isExplicitlyDisabled && (!status || status === 'active' || status === 'restart');
                                 return matchesName && isActive;
                             });
                             this._hasLitefinServerPlugin = match;
-                            log.info(`Litefin server companion plugin ${match ? 'detected & active' : 'not present or disabled'} via admin registry`);
+                            log.info(
+                                `Litefin server companion plugin ${match ? 'detected & active' : 'not present or disabled'} via admin registry`
+                            );
                             return match;
                         }
                     }
@@ -1276,7 +1292,9 @@ export class ApiClient {
             } catch (err) {
                 // 404 indicates the plugin is not installed or disabled on this server
                 if (err.status === 404 || err.message?.includes('Not found') || err.message?.includes('404')) {
-                    log.info('Litefin server companion plugin is not installed or disabled — using native Jellyfin routes');
+                    log.info(
+                        'Litefin server companion plugin is not installed or disabled — using native Jellyfin routes'
+                    );
                     this._hasLitefinServerPlugin = false;
                     return false;
                 }
@@ -1310,10 +1328,14 @@ export class ApiClient {
         if (!isAvailable) return null;
 
         try {
-            return await this.get('/Litefin/Items/Latest', {
-                parentIds: parentIds.join(','),
-                ...params
-            }, { warnOnError: true });
+            return await this.get(
+                '/Litefin/Items/Latest',
+                {
+                    parentIds: parentIds.join(','),
+                    ...params
+                },
+                { warnOnError: true }
+            );
         } catch (e) {
             return null;
         }
@@ -1332,9 +1354,13 @@ export class ApiClient {
         if (!isAvailable) return null;
 
         try {
-            return await this.get('/Litefin/Items/Thumbnails', {
-                parentIds: parentIds.join(',')
-            }, { warnOnError: true });
+            return await this.get(
+                '/Litefin/Items/Thumbnails',
+                {
+                    parentIds: parentIds.join(',')
+                },
+                { warnOnError: true }
+            );
         } catch (e) {
             return null;
         }
@@ -1543,12 +1569,16 @@ export class ApiClient {
             ...options
         };
 
-        return this.get(`/Playlists/${playlistId}/Items`, {
-            UserId: this._userId,
-            Fields: 'UserData,RunTimeTicks',
-            EnableImageTypes: 'Primary,Backdrop,Thumb',
-            ...params
-        }, requestOptions);
+        return this.get(
+            `/Playlists/${playlistId}/Items`,
+            {
+                UserId: this._userId,
+                Fields: 'UserData,RunTimeTicks',
+                EnableImageTypes: 'Primary,Backdrop,Thumb',
+                ...params
+            },
+            requestOptions
+        );
     }
 
     /**
@@ -1913,10 +1943,12 @@ export class ApiClient {
                 // Using clean names ensures uniform filtering across Jellyfin 10.x through 12.0+
                 // ------------------------------------------------------------------
                 const v2GenreNames = Array.isArray(v2.Genres)
-                    ? v2.Genres.map((g) => (typeof g === 'object' && g ? (g.Name || g.name || '') : g)).filter(Boolean)
+                    ? v2.Genres.map((g) => (typeof g === 'object' && g ? g.Name || g.name || '' : g)).filter(Boolean)
                     : [];
                 const legacyGenreNames = Array.isArray(legacy.Genres)
-                    ? legacy.Genres.map((g) => (typeof g === 'object' && g ? (g.Name || g.name || '') : g)).filter(Boolean)
+                    ? legacy.Genres.map((g) => (typeof g === 'object' && g ? g.Name || g.name || '' : g)).filter(
+                          Boolean
+                      )
                     : [];
 
                 // Deduplicate genres while preserving encounter order
@@ -1930,9 +1962,9 @@ export class ApiClient {
                 // Return combined, normalized filter structure
                 return {
                     // List of genre names ready for UI display and pipe-delimited item queries
-                    Genres: combinedGenres.length > 0 ? combinedGenres : (legacy.Genres || []),
+                    Genres: combinedGenres.length > 0 ? combinedGenres : legacy.Genres || [],
                     // Deduplicated tags available across items in the library
-                    Tags: combinedTags.length > 0 ? combinedTags : (legacy.Tags || []),
+                    Tags: combinedTags.length > 0 ? combinedTags : legacy.Tags || [],
                     // Ratings and Years only exist on the legacy endpoint
                     OfficialRatings: legacy.OfficialRatings || [],
                     Years: legacy.Years || [],
@@ -2752,12 +2784,16 @@ export class ApiClient {
 
                     // Throttle reconnect scheduling logs after the first few failures
                     if (this._wsReconnectAttempts <= 3 || this._wsReconnectAttempts % 5 === 0) {
-                        log.info(`Scheduling WebSocket reconnect in ${delaySec} seconds (attempt ${this._wsReconnectAttempts})...`);
+                        log.info(
+                            `Scheduling WebSocket reconnect in ${delaySec} seconds (attempt ${this._wsReconnectAttempts})...`
+                        );
                     }
 
                     // Diagnostic guidance on persistent disconnection
                     if (this._wsReconnectAttempts === 5) {
-                        log.warn('[ApiClient] WebSocket handshake continuously failing. If using a reverse proxy or Cloudflare Access, ensure path /socket (or /embywebsocket) has a Bypass policy configured.');
+                        log.warn(
+                            '[ApiClient] WebSocket handshake continuously failing. If using a reverse proxy or Cloudflare Access, ensure path /socket (or /embywebsocket) has a Bypass policy configured.'
+                        );
                     }
 
                     // Schedule next reconnect attempt
@@ -3084,14 +3120,14 @@ export function testServer(address, timeout = 1000, parentSignal = null, headers
         let abortTimer = setTimeout(() => {
             try {
                 xhr.abort();
-            } catch (_) { }
+            } catch (_) {}
             done(null);
         }, timeout);
 
         // Native timeout setting (supported natively in Chromium 29+)
         try {
             xhr.timeout = timeout;
-        } catch (_) { }
+        } catch (_) {}
 
         // If the parent discovery scan was cancelled, abort this probe too
         const onParentAbort = () => {
@@ -3182,7 +3218,9 @@ export function testServer(address, timeout = 1000, parentSignal = null, headers
  * @returns {boolean} True if running under Tauri runtime.
  */
 function _isTauriRuntime() {
-    return typeof window !== 'undefined' && !!(window.__TAURI__ || window.__TAURI_METADATA__ || window.__TAURI_INTERNALS__);
+    return (
+        typeof window !== 'undefined' && !!(window.__TAURI__ || window.__TAURI_METADATA__ || window.__TAURI_INTERNALS__)
+    );
 }
 
 /**
@@ -3448,7 +3486,7 @@ async function _discoverViaLunaService(onServerFound) {
                                 settled = true;
                                 try {
                                     request && request.cancel();
-                                } catch (_) { }
+                                } catch (_) {}
                                 resolve(foundServers);
                             }
                         }, DISCOVERY_WINDOW_MS);
@@ -3604,7 +3642,10 @@ export async function sendWakeOnLan(macAddress) {
                     return true;
                 }
             } catch (fetchErr) {
-                log.warn(`WOL request to local HTTP proxy attempt ${attempt}/${maxHttpRetries} failed (service cold-booting):`, fetchErr.message || fetchErr);
+                log.warn(
+                    `WOL request to local HTTP proxy attempt ${attempt}/${maxHttpRetries} failed (service cold-booting):`,
+                    fetchErr.message || fetchErr
+                );
                 if (attempt < maxHttpRetries) {
                     await new Promise((resolve) => setTimeout(resolve, httpRetryDelayMs));
                 }
@@ -3663,9 +3704,10 @@ export function hasBackgroundDiscoveryService() {
 export async function discoverServers(onProgress = null, onServerFound = null, options = {}) {
     // Parse options object or boolean flag for backwards compatibility
     const isManual = typeof options === 'object' && options !== null ? !!options.isManual : false;
-    const allowHttpFallback = typeof options === 'object' && options !== null && 'allowHttpFallback' in options
-        ? !!options.allowHttpFallback
-        : isManual;
+    const allowHttpFallback =
+        typeof options === 'object' && options !== null && 'allowHttpFallback' in options
+            ? !!options.allowHttpFallback
+            : isManual;
 
     // Cancel any existing scan first
     cancelDiscovery();

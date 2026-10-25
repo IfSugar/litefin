@@ -342,7 +342,7 @@ export class SeerrClient {
     /**
      * Gets person details along with combined cast and crew filmography from Seerr.
      * Normalizes and decorates each credit item with availability badges.
-     * 
+     *
      * @param {number} personId - The TMDB person identifier.
      * @returns {Promise<Object>} Normalized person details and appearances.
      */
@@ -354,8 +354,8 @@ export class SeerrClient {
                 this._request(`/Person/${personId}/combined_credits`)
             ]);
 
-            const raw = rawPersonRes.status === 'fulfilled' ? (rawPersonRes.value || {}) : {};
-            const creditsRaw = creditsRes.status === 'fulfilled' ? (creditsRes.value || {}) : {};
+            const raw = rawPersonRes.status === 'fulfilled' ? rawPersonRes.value || {} : {};
+            const creditsRaw = creditsRes.status === 'fulfilled' ? creditsRes.value || {} : {};
 
             if (!raw && !creditsRaw) throw new Error('SeerrInvalidResponse');
 
@@ -384,12 +384,19 @@ export class SeerrClient {
 
             // Deduplicate items appearing in both cast and crew roles
             const combined = [...cast, ...crew]
-                .filter((item, index, self) =>
-                    item &&
-                    index === self.findIndex((t) => t && (t.id || t.Id) === (item.id || item.Id) && (t.mediaType || t.media_type) === (item.mediaType || item.media_type))
+                .filter(
+                    (item, index, self) =>
+                        item &&
+                        index ===
+                            self.findIndex(
+                                (t) =>
+                                    t &&
+                                    (t.id || t.Id) === (item.id || item.Id) &&
+                                    (t.mediaType || t.media_type) === (item.mediaType || item.media_type)
+                            )
                 )
                 // Order credits by popularity descending for relevant filmography presentation
-                .sort((a, b) => ((b.popularity || b.voteAverage || 0) - (a.popularity || a.voteAverage || 0)));
+                .sort((a, b) => (b.popularity || b.voteAverage || 0) - (a.popularity || a.voteAverage || 0));
 
             // Convert TMDB credit entries to standard normalized cards with status badges
             const appearances = combined
@@ -448,9 +455,12 @@ export class SeerrClient {
         // -------------------------------------------------------------------
         const requestStatusToMediaStatus = (rs) => {
             switch (rs) {
-                case 1: return SEERR_STATUS.PENDING;     // Request pending → MediaStatus PENDING (2)
-                case 2: return SEERR_STATUS.PROCESSING;  // Request approved → MediaStatus PROCESSING (3)
-                default: return 0;                        // Declined or unknown → ignore
+                case 1:
+                    return SEERR_STATUS.PENDING; // Request pending → MediaStatus PENDING (2)
+                case 2:
+                    return SEERR_STATUS.PROCESSING; // Request approved → MediaStatus PROCESSING (3)
+                default:
+                    return 0; // Declined or unknown → ignore
             }
         };
 
@@ -506,7 +516,17 @@ export class SeerrClient {
      * @param {number} [params.userId]
      * @returns {Promise<Object>}
      */
-    async createRequest({ mediaType, tmdbId, seasons, serverId, profileId, rootFolder, languageProfileId, is4k, userId }) {
+    async createRequest({
+        mediaType,
+        tmdbId,
+        seasons,
+        serverId,
+        profileId,
+        rootFolder,
+        languageProfileId,
+        is4k,
+        userId
+    }) {
         const body = { mediaType, mediaId: tmdbId };
         if (mediaType === 'tv') body.seasons = seasons || [];
         if (serverId != null) body.serverId = serverId;
@@ -515,7 +535,9 @@ export class SeerrClient {
         if (languageProfileId != null) body.languageProfileId = languageProfileId;
         if (userId != null) body.userId = userId;
         body.is4k = !!is4k;
-        log.info(`Requesting ${mediaType} ${tmdbId}${seasons ? ` seasons ${seasons.join(',')}` : ''}${userId != null ? ` for user ${userId}` : ''}`);
+        log.info(
+            `Requesting ${mediaType} ${tmdbId}${seasons ? ` seasons ${seasons.join(',')}` : ''}${userId != null ? ` for user ${userId}` : ''}`
+        );
         return this._request('/Requests', { method: 'POST', body });
     }
 
@@ -627,7 +649,8 @@ export class SeerrClient {
                 const item = normalizeSeerrItem({
                     ...media,
                     id: tmdbId,
-                    mediaType: media.mediaType || req.type || (req.type === 1 ? 'movie' : req.type === 2 ? 'tv' : 'movie'),
+                    mediaType:
+                        media.mediaType || req.type || (req.type === 1 ? 'movie' : req.type === 2 ? 'tv' : 'movie'),
                     mediaInfo: media.mediaInfo || media,
                     requests: media.requests || [req]
                 });

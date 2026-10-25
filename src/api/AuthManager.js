@@ -319,8 +319,8 @@ class AuthManager {
         // transparently retry the connection up to 6 times (~15 seconds) to
         // allow the server sufficient time to wake up and bind its ports.
         // =====================================================================
+        // Active authenticated user object resolved from validation probe
         let user = null;
-        let serverInfoResolved = false;
 
         // Read Extended Wait preference key to allow cold shutdown server boots (~90s total)
         const extendedWait = storage.getItem('pref:enableWolExtendedWait') === 'true';
@@ -343,7 +343,6 @@ class AuthManager {
                         .getPublicInfo()
                         .then((info) => {
                             state.set('server:info', info);
-                            serverInfoResolved = true;
                         })
                         .catch((e) => log.warn(`Failed to fetch server info on attempt ${attempt}:`, e));
 
@@ -768,7 +767,7 @@ class AuthManager {
     async loginWithUser(user, password = '', options = {}) {
         // On legacy servers HasPassword correctly indicates whether a password
         // is needed; on JF12+ it's always true so we just pass through as-is.
-        const pw = api.isJF12Plus() ? password : (user.HasPassword ? password : '');
+        const pw = api.isJF12Plus() ? password : user.HasPassword ? password : '';
         return this.login(user.Name, pw, options);
     }
 

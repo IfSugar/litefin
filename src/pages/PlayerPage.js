@@ -22,7 +22,13 @@ import { playQueue } from '../core/PlayQueue.js';
 import { focusManager } from '../ui/FocusManager.js';
 import { layoutManager } from '../ui/LayoutManager.js';
 import OSDController from '../player/osd/OSDController.js';
-import { JellyfinPlayer, resolveBestAudioStream, resolveSubtitleStream, isForcedStream, getEffectiveSubtitleMode } from '../player/core/JellyfinPlayer.js';
+import {
+    JellyfinPlayer,
+    resolveBestAudioStream,
+    resolveSubtitleStream,
+    isForcedStream,
+    getEffectiveSubtitleMode
+} from '../player/core/JellyfinPlayer.js';
 import { MediaHelper } from '../player/core/MediaHelper.js';
 import SubtitleStyles from '../utils/SubtitleStyles.js';
 import FontLoader from '../utils/FontLoader.js';
@@ -519,7 +525,7 @@ class PlayerPage extends Page {
             // treated as total network failures or trigger auto-recovery reloads.
             this._onNetworkOffline = () => this._handleNetworkOffline();
             this._onNetworkOnline = () => this._handleNetworkOnline();
-            
+
             // Only listen to websocket:connected to accelerate reconnection polling
             // when the player is ALREADY actively in the auto-recovery state.
             eventBus.on('websocket:connected', this._onNetworkOnline);
@@ -559,7 +565,11 @@ class PlayerPage extends Page {
                 log.info('Remote: Pause');
 
                 // If user was preview scrubbing, commit the seek and remain paused
-                if (this._osd && typeof this._osd.hasPendingSeekConfirmation === 'function' && this._osd.hasPendingSeekConfirmation()) {
+                if (
+                    this._osd &&
+                    typeof this._osd.hasPendingSeekConfirmation === 'function' &&
+                    this._osd.hasPendingSeekConfirmation()
+                ) {
                     log.info('Remote Pause confirming pending timeline seek');
                     this._osd.confirmPendingSeek('pause');
                     this._reportPlaybackProgress('pause');
@@ -588,7 +598,11 @@ class PlayerPage extends Page {
                 log.info('Remote: Play/Resume');
 
                 // If user was preview scrubbing, commit the seek and unpause playback
-                if (this._osd && typeof this._osd.hasPendingSeekConfirmation === 'function' && this._osd.hasPendingSeekConfirmation()) {
+                if (
+                    this._osd &&
+                    typeof this._osd.hasPendingSeekConfirmation === 'function' &&
+                    this._osd.hasPendingSeekConfirmation()
+                ) {
                     log.info('Remote Play confirming pending timeline seek');
                     this._osd.confirmPendingSeek('play');
                     this._reportPlaybackProgress('unpause');
@@ -621,7 +635,11 @@ class PlayerPage extends Page {
                 log.info('Remote: PlayPause');
 
                 // If user was preview scrubbing, commit the seek and resume playback
-                if (this._osd && typeof this._osd.hasPendingSeekConfirmation === 'function' && this._osd.hasPendingSeekConfirmation()) {
+                if (
+                    this._osd &&
+                    typeof this._osd.hasPendingSeekConfirmation === 'function' &&
+                    this._osd.hasPendingSeekConfirmation()
+                ) {
                     log.info('Remote Play/Pause confirming pending timeline seek');
                     this._osd.confirmPendingSeek('playPause');
                     this._reportPlaybackProgress(this._player?.isPaused?.() ? 'pause' : 'unpause');
@@ -999,7 +1017,10 @@ class PlayerPage extends Page {
                 // Touch UX: on touchscreen devices (Android phones & tablets), tapping the video
                 // should reveal or dismiss the On-Screen Display controls gracefully
                 // rather than abruptly pausing playback.
-                if (document.documentElement.hasAttribute('data-litefin-touch') && !window.matchMedia('(pointer: fine)').matches) {
+                if (
+                    document.documentElement.hasAttribute('data-litefin-touch') &&
+                    !window.matchMedia('(pointer: fine)').matches
+                ) {
                     if (this._osd) {
                         if (this._osd.isOsdVisible) {
                             this._osd.hide();
@@ -1236,7 +1257,12 @@ class PlayerPage extends Page {
 
         if (playerBackend === 'avplay') {
             useTizenPlayer = true;
-        } else if (playerBackend === 'html5' || playerBackend === 'movi' || playerBackend === 'webos' || playerBackend === 'exoplayer') {
+        } else if (
+            playerBackend === 'html5' ||
+            playerBackend === 'movi' ||
+            playerBackend === 'webos' ||
+            playerBackend === 'exoplayer'
+        ) {
             useTizenPlayer = false;
         }
 
@@ -1249,7 +1275,9 @@ class PlayerPage extends Page {
          * hardware to avoid confusing logs on other platforms (Android, WebOS, Desktop, Web).
          */
         const tizenDiagnostic = platformInfo.isTizen ? ` (useTizenPlayer: ${useTizenPlayer})` : '';
-        log.info(`Resolved player backend: ${playerBackend} | platform: ${platformInfo.platformString}${tizenDiagnostic}`);
+        log.info(
+            `Resolved player backend: ${playerBackend} | platform: ${platformInfo.platformString}${tizenDiagnostic}`
+        );
 
         // Construct the player directly — no bridge, no window global
         this._player = new JellyfinPlayer({
@@ -1622,7 +1650,12 @@ class PlayerPage extends Page {
         if (savedSubtitleIndex === undefined && item?.Id) {
             const savedItemSubtitle = storage.getItem(`track:subtitle:${item.Id}`);
             if (savedItemSubtitle !== null && savedItemSubtitle !== undefined && effectiveSubtitleMode !== 'None') {
-                const resolvedSubtitle = MediaHelper.resolveSavedTrack(mediaSource, 'Subtitle', savedItemSubtitle, item.Id);
+                const resolvedSubtitle = MediaHelper.resolveSavedTrack(
+                    mediaSource,
+                    'Subtitle',
+                    savedItemSubtitle,
+                    item.Id
+                );
                 if (resolvedSubtitle !== undefined) {
                     if (effectiveSubtitleMode === 'OnlyForced') {
                         const streamMatch = mediaSource?.MediaStreams?.find(
@@ -1674,7 +1707,11 @@ class PlayerPage extends Page {
             // ---------------------------------------------------------------------
             // Do not restore series-level subtitle preferences if the user has
             // globally or server-side configured Subtitle Mode to 'None' or 'OnlyForced'.
-            if (savedSubtitleIndex === undefined && effectiveSubtitleMode !== 'None' && effectiveSubtitleMode !== 'OnlyForced') {
+            if (
+                savedSubtitleIndex === undefined &&
+                effectiveSubtitleMode !== 'None' &&
+                effectiveSubtitleMode !== 'OnlyForced'
+            ) {
                 const resolvedSeriesSubtitle = MediaHelper.resolveSeriesTrack(mediaSource, 'Subtitle', item.SeriesId);
                 if (resolvedSeriesSubtitle !== undefined) {
                     if (effectiveSubtitleMode === 'Always' && resolvedSeriesSubtitle === -1) {
@@ -1719,7 +1756,11 @@ class PlayerPage extends Page {
             // -----------------------------------------------------------------
             // Do not carry over session subtitle preferences if Subtitle Mode is
             // configured to 'None' or 'OnlyForced'. In Always mode, do not carry over 'none'.
-            if (savedSubtitleIndex === undefined && effectiveSubtitleMode !== 'None' && effectiveSubtitleMode !== 'OnlyForced') {
+            if (
+                savedSubtitleIndex === undefined &&
+                effectiveSubtitleMode !== 'None' &&
+                effectiveSubtitleMode !== 'OnlyForced'
+            ) {
                 const sessionSubtitleLang = storage.getItem('session:lastSubtitleLang');
                 const sessionSubtitleTitle = storage.getItem('session:lastSubtitleTitle');
                 if (sessionSubtitleLang) {
@@ -1762,7 +1803,8 @@ class PlayerPage extends Page {
             const audioStreams = mediaSource?.MediaStreams?.filter((s) => s.Type === 'Audio') || [];
 
             // Attempt best direct play match first, falling back to disposition default
-            const resolvedAudioStream = resolveBestAudioStream(mediaSource) ||
+            const resolvedAudioStream =
+                resolveBestAudioStream(mediaSource) ||
                 audioStreams.find((s) => s.IsDefault) ||
                 (mediaSource?.DefaultAudioStreamIndex !== undefined && mediaSource?.DefaultAudioStreamIndex !== null
                     ? audioStreams.find((s) => s.Index === mediaSource.DefaultAudioStreamIndex)
@@ -1787,7 +1829,9 @@ class PlayerPage extends Page {
             savedSubtitleIndex = resolveSubtitleStream(mediaSource, {
                 audioStreamIndex: savedAudioIndex
             });
-            log.info(`[Track Resolution] Resolved subtitle track from Subtitle Mode (${effectiveSubtitleMode}): Index ${savedSubtitleIndex}`);
+            log.info(
+                `[Track Resolution] Resolved subtitle track from Subtitle Mode (${effectiveSubtitleMode}): Index ${savedSubtitleIndex}`
+            );
         }
 
         log.info('Starting playback with resolved preferences:', {
@@ -2223,7 +2267,7 @@ class PlayerPage extends Page {
                 const userTransChannels = PlayerSettings.get('transcodeMaxAudioChannels');
                 if (userTransChannels && userTransChannels > 0) return userTransChannels;
                 const userChannels = PlayerSettings.get('allowedAudioChannels');
-                return (userChannels && userChannels > 0) ? userChannels : 6;
+                return userChannels && userChannels > 0 ? userChannels : 6;
             })(),
             SegmentContainer: 'ts',
             MinSegments: 1,
@@ -2736,7 +2780,10 @@ class PlayerPage extends Page {
                     const mediaSource = this._player?.getCurrentMediaSource?.();
                     const positionTicks = this._player?.getCurrentPositionTicks?.() || 0;
                     const durationTicks =
-                        this._player?.getDurationTicks?.() || mediaSource?.RunTimeTicks || outgoingItem?.RunTimeTicks || 0;
+                        this._player?.getDurationTicks?.() ||
+                        mediaSource?.RunTimeTicks ||
+                        outgoingItem?.RunTimeTicks ||
+                        0;
 
                     // If user was near end of outgoing item (based on configured watched threshold), mark ended
                     const thresholdFraction = this._getWatchedThresholdFraction();
@@ -2907,7 +2954,9 @@ class PlayerPage extends Page {
                         'session:lastAudioTitle',
                         activeAudioTrack.DisplayTitle || activeAudioTrack.Title || 'none'
                     );
-                    log.info(`[Track Memory] Saved Audio: ${activeAudioTrack.Language} - ${activeAudioTrack.DisplayTitle}`);
+                    log.info(
+                        `[Track Memory] Saved Audio: ${activeAudioTrack.Language} - ${activeAudioTrack.DisplayTitle}`
+                    );
                 }
             }
         }
@@ -2928,8 +2977,8 @@ class PlayerPage extends Page {
                     activeSubtitleIndex === -1
                         ? -1
                         : mediaSource.MediaStreams.find(
-                            (s) => s.Type === 'Subtitle' && s.Index === activeSubtitleIndex
-                        );
+                              (s) => s.Type === 'Subtitle' && s.Index === activeSubtitleIndex
+                          );
 
                 // Persist per-item selection so resuming this specific item restores the exact track.
                 // Uses MediaHelper.saveTrackMemory to record metadata (language, title, external status)
@@ -2942,7 +2991,9 @@ class PlayerPage extends Page {
                         mediaSource,
                         this._item.SeriesId || null
                     );
-                    log.info(`[Track Memory] Saved item subtitle track: ${this._item.Id} -> index ${activeSubtitleIndex}`);
+                    log.info(
+                        `[Track Memory] Saved item subtitle track: ${this._item.Id} -> index ${activeSubtitleIndex}`
+                    );
                 }
 
                 if (PlayerSettings.get('rememberTracksForSession') !== false) {
@@ -3027,7 +3078,10 @@ class PlayerPage extends Page {
              */
             const previousIndex = playQueue._queue?.findIndex((e) => e.Id === outgoingItem?.Id) ?? -1;
             const thresholdFraction = this._getWatchedThresholdFraction();
-            if (targetIndex === previousIndex + 1 || (durationTicks > 0 && positionTicks >= durationTicks * thresholdFraction)) {
+            if (
+                targetIndex === previousIndex + 1 ||
+                (durationTicks > 0 && positionTicks >= durationTicks * thresholdFraction)
+            ) {
                 this._isPlaybackEnded = true;
             }
 
@@ -3119,7 +3173,8 @@ class PlayerPage extends Page {
             error?.isNetworkError ||
             error?.code === 'PLAYER_ERROR_CONNECTION_FAILED' ||
             error?.message === 'PLAYER_ERROR_CONNECTION_FAILED' ||
-            (typeof error?.message === 'string' && /connection|network|offline|PLAYER_ERROR_CONNECTION_FAILED|MEDIA_ERR_NETWORK/i.test(error.message))
+            (typeof error?.message === 'string' &&
+                /connection|network|offline|PLAYER_ERROR_CONNECTION_FAILED|MEDIA_ERR_NETWORK/i.test(error.message))
         );
 
         const currentPosTicks = this._player?.getCurrentPositionTicks?.() || 0;
@@ -3231,7 +3286,12 @@ class PlayerPage extends Page {
         const currentPosTicks = this._player?.getCurrentPositionTicks?.() || this._resumePosition || 0;
 
         // Verify that the player is actively engaged before initiating auto-recovery
-        if (!this._isAutoRecovering && !this._isPaused && !this._isExiting && (this._hasReportedStart || currentPosTicks > 0)) {
+        if (
+            !this._isAutoRecovering &&
+            !this._isPaused &&
+            !this._isExiting &&
+            (this._hasReportedStart || currentPosTicks > 0)
+        ) {
             log.info('[AutoRecovery] Engaging immediate auto-recovery from network loss event');
             this._startAutoRecovery({
                 isNetworkError: true,
@@ -3342,7 +3402,9 @@ class PlayerPage extends Page {
                 statusEl.textContent = `Reconnecting to server... (${this._autoRecoveryAttempts}/${maxAttempts})`;
             }
 
-            log.info(`[AutoRecovery] Checking server connectivity (attempt ${this._autoRecoveryAttempts}/${maxAttempts})...`);
+            log.info(
+                `[AutoRecovery] Checking server connectivity (attempt ${this._autoRecoveryAttempts}/${maxAttempts})...`
+            );
 
             let isOnline = false;
 
@@ -3457,6 +3519,7 @@ class PlayerPage extends Page {
 
         // 2. Check secondary subtitle sync — clear if cue end time has passed.
         // Guard against clearing while seeking is in flight to prevent premature cue dismissal.
+        // prettier-ignore
         if (!this._player?.isSeeking && this._secondarySubtitleEndTime !== null && ticks >= this._secondarySubtitleEndTime) {
             this._clearSecondarySubtitle();
         }
@@ -3858,10 +3921,19 @@ class PlayerPage extends Page {
         const hasSecondaryTrack = secIdx !== -1 && secIdx !== null && secIdx !== undefined;
         const hasPrimaryTrack = primIdx !== -1 && primIdx !== null && primIdx !== undefined;
 
-        const hasPrimaryOverlay = !!(primaryOverlay && !primaryOverlay.classList.contains('hidden') && primaryOverlay.innerHTML.trim().length > 0);
-        const hasSecondaryOverlay = !!(secondaryOverlay && !secondaryOverlay.classList.contains('hidden') && secondaryOverlay.innerHTML.trim().length > 0);
+        const hasPrimaryOverlay = !!(
+            primaryOverlay &&
+            !primaryOverlay.classList.contains('hidden') &&
+            primaryOverlay.innerHTML.trim().length > 0
+        );
+        const hasSecondaryOverlay = !!(
+            secondaryOverlay &&
+            !secondaryOverlay.classList.contains('hidden') &&
+            secondaryOverlay.innerHTML.trim().length > 0
+        );
 
-        const isDual = (hasSecondaryTrack && (hasPrimaryTrack || hasPrimaryOverlay)) || (hasPrimaryOverlay && hasSecondaryOverlay);
+        const isDual =
+            (hasSecondaryTrack && (hasPrimaryTrack || hasPrimaryOverlay)) || (hasPrimaryOverlay && hasSecondaryOverlay);
         if (pageEl) pageEl.classList.toggle('has-dual-subtitles', isDual);
         if (playerContainer) playerContainer.classList.toggle('has-dual-subtitles', isDual);
 
@@ -4172,7 +4244,11 @@ class PlayerPage extends Page {
          * Prevents transient initialization ticks from overwriting saved progress.
          * ---------------------------------------------------------------------
          */
-        if ((!positionTicks || positionTicks === 0) && typeof this._resumePosition === 'number' && this._resumePosition > 0) {
+        if (
+            (!positionTicks || positionTicks === 0) &&
+            typeof this._resumePosition === 'number' &&
+            this._resumePosition > 0
+        ) {
             positionTicks = this._resumePosition;
         }
 
@@ -4363,7 +4439,7 @@ class PlayerPage extends Page {
             if (this._osd.activeMenu) {
                 try {
                     this._osd.activeMenu.hide();
-                } catch (e) { }
+                } catch (e) {}
                 this._osd.activeMenu = null;
             }
             this._osd.hide?.();
@@ -4473,7 +4549,7 @@ class PlayerPage extends Page {
             if (this._osd.activeMenu) {
                 try {
                     this._osd.activeMenu.hide();
-                } catch (e) { }
+                } catch (e) {}
                 this._osd.activeMenu = null;
             }
             this._osd.hide();
@@ -4542,7 +4618,7 @@ class PlayerPage extends Page {
             if (this._osd.activeMenu) {
                 try {
                     this._osd.activeMenu.hide();
-                } catch (e) { }
+                } catch (e) {}
                 this._osd.activeMenu = null;
             }
             this._osd.hide();
@@ -4775,7 +4851,7 @@ class PlayerPage extends Page {
                 return parsed / 100;
             }
             // Fallback to Jellyfin's standard factory default (90%)
-            return 0.90;
+            return 0.9;
         }
 
         // Parse explicit percentage choices (e.g. '80', '85', '90', '95', '100')
@@ -4785,7 +4861,7 @@ class PlayerPage extends Page {
         }
 
         // Standard Litefin fallback threshold
-        return 0.80;
+        return 0.8;
     }
 
     /**
@@ -4926,8 +5002,14 @@ class PlayerPage extends Page {
              * but a valid resume position was held, preserve the resume position.
              * -----------------------------------------------------------------
              */
-            if ((!rawPosition || rawPosition === 0) && typeof this._resumePosition === 'number' && this._resumePosition > 0) {
-                log.info(`Preserving initial resume position (${this._resumePosition} ticks) instead of 0 ticks on stop`);
+            if (
+                (!rawPosition || rawPosition === 0) &&
+                typeof this._resumePosition === 'number' &&
+                this._resumePosition > 0
+            ) {
+                log.info(
+                    `Preserving initial resume position (${this._resumePosition} ticks) instead of 0 ticks on stop`
+                );
                 rawPosition = this._resumePosition;
             }
 
@@ -4948,15 +5030,19 @@ class PlayerPage extends Page {
             // Live streams (TV channels, infinite streams, or active live stream IDs) have
             // rolling buffer durations (e.g. 5s chunks) and must never trigger PlayedToCompletion
             // position overrides.
-            const isLive = item?.Type === 'TvChannel' || Boolean(mediaSource?.LiveStreamId || mediaSource?.IsInfiniteStream);
+            const isLive =
+                item?.Type === 'TvChannel' || Boolean(mediaSource?.LiveStreamId || mediaSource?.IsInfiniteStream);
             const thresholdFraction = this._getWatchedThresholdFraction();
-            const _isNearComplete = !isLive && durationTicks > 0 && (this._isPlaybackEnded || rawPosition >= durationTicks * thresholdFraction);
+            const _isNearComplete =
+                !isLive &&
+                durationTicks > 0 &&
+                (this._isPlaybackEnded || rawPosition >= durationTicks * thresholdFraction);
             if (_isNearComplete) {
                 log.info(
                     `Overriding positionTicks with durationTicks (${durationTicks})` +
-                    (this._isPlaybackEnded
-                        ? ' due to natural end of playback / next item transition'
-                        : ` due to near-complete playback position (>= ${(thresholdFraction * 100).toFixed(0)}%)`)
+                        (this._isPlaybackEnded
+                            ? ' due to natural end of playback / next item transition'
+                            : ` due to near-complete playback position (>= ${(thresholdFraction * 100).toFixed(0)}%)`)
                 );
                 rawPosition = durationTicks;
             }
@@ -5132,7 +5218,11 @@ class PlayerPage extends Page {
         let positionTicks = this._player?.getCurrentPositionTicks?.() || 0;
 
         // Preserve resume position if player never progressed past 0
-        if ((!positionTicks || positionTicks === 0) && typeof this._resumePosition === 'number' && this._resumePosition > 0) {
+        if (
+            (!positionTicks || positionTicks === 0) &&
+            typeof this._resumePosition === 'number' &&
+            this._resumePosition > 0
+        ) {
             positionTicks = this._resumePosition;
         }
 
@@ -5172,15 +5262,12 @@ class PlayerPage extends Page {
 
         // Capture true playing state prior to pausing, ensuring we know whether playback
         // was running or already paused by the viewer when app enters background.
-        const wasPlaying = this._player?.isPaused
-            ? !this._player.isPaused()
-            : !this._isPaused;
+        const wasPlaying = this._player?.isPaused ? !this._player.isPaused() : !this._isPaused;
         this._resumePlaybackAfterProfileSelection = wasPlaying;
 
         // Determine if profile selection dialog should intercept on foreground resume
         const shouldGateProfileSelection =
-            storage.getItem('pref:showProfilesOnResume') === 'true' &&
-            state.get('user:sessionCount', 0) > 1;
+            storage.getItem('pref:showProfilesOnResume') === 'true' && state.get('user:sessionCount', 0) > 1;
 
         if (shouldGateProfileSelection) {
             this._resumeMutedAfterProfileSelection = Boolean(this._player?.isMuted?.());
@@ -5283,14 +5370,13 @@ class PlayerPage extends Page {
                     // due to memory pressure while in background), perform seamless stream reload
                     log.warn('[AVPlay] Decoder restore failed or surface evicted; triggering recovery watchdog');
 
-                    const savedMs = typeof backend.getSuspendedPositionMs === 'function'
-                        ? backend.getSuspendedPositionMs()
-                        : 0;
-                    const savedTicks = savedMs > 0
-                        ? savedMs * 10000
-                        : (this._player?.getCurrentPositionTicks?.() || 0);
+                    const savedMs =
+                        typeof backend.getSuspendedPositionMs === 'function' ? backend.getSuspendedPositionMs() : 0;
+                    const savedTicks = savedMs > 0 ? savedMs * 10000 : this._player?.getCurrentPositionTicks?.() || 0;
 
-                    log.info(`[RestoreWatchdog] Seamlessly reloading stream from ${(savedTicks / 10000000).toFixed(1)}s`);
+                    log.info(
+                        `[RestoreWatchdog] Seamlessly reloading stream from ${(savedTicks / 10000000).toFixed(1)}s`
+                    );
 
                     this._resumePosition = savedTicks;
                     this._showLoading(true);
@@ -5396,7 +5482,11 @@ class PlayerPage extends Page {
         let positionTicks = this._player?.getCurrentPositionTicks?.() || 0;
 
         // Preserve resume position if player never progressed past 0
-        if ((!positionTicks || positionTicks === 0) && typeof this._resumePosition === 'number' && this._resumePosition > 0) {
+        if (
+            (!positionTicks || positionTicks === 0) &&
+            typeof this._resumePosition === 'number' &&
+            this._resumePosition > 0
+        ) {
             positionTicks = this._resumePosition;
         }
 
@@ -5883,10 +5973,10 @@ class PlayerPage extends Page {
         if (platformInfo.isAndroid) {
             const shouldBeFs = androidAdapter.isAndroidTv || androidAdapter.isMobileFullscreenEnabled();
             androidAdapter.setFullscreen(shouldBeFs);
-            
+
             // Release keep-screen-on wake lock upon exiting player view
             androidAdapter.setKeepScreenOn(false);
-            
+
             // Clear registered MediaSession action handlers and reset system transport state
             androidAdapter.clearMediaSession();
         } else if (platformInfo.isWebOS) {

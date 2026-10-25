@@ -613,9 +613,7 @@ class SmartHubManager {
             // Determine the section title based on media semantics
             // TV episodes use the parent series name; Movies use their own title
             const sectionTitle =
-                item.Type === 'Episode' && item.SeriesName
-                    ? item.SeriesName
-                    : (item.Name || 'Continue Watching');
+                item.Type === 'Episode' && item.SeriesName ? item.SeriesName : item.Name || 'Continue Watching';
 
             // Add a dedicated section containing this item's tile.
             // Samsung only guarantees section order when 'position' is set
@@ -814,7 +812,7 @@ class SmartHubManager {
                 if (localPort !== null && listenerId !== null) {
                     try {
                         localPort.removeMessagePortListener(listenerId);
-                    } catch (_) { }
+                    } catch (_) {}
                     listenerId = null;
                 }
             };

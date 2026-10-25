@@ -265,7 +265,9 @@ class RemoteButtonManager {
             return;
         }
 
-        const initialMsg = i18n.t('SendingWolPacket') ? i18n.t('SendingWolPacket').replace('{0}', macAddress) : `Sending Wake-on-LAN packet to ${macAddress}...`;
+        const initialMsg = i18n.t('SendingWolPacket')
+            ? i18n.t('SendingWolPacket').replace('{0}', macAddress)
+            : `Sending Wake-on-LAN packet to ${macAddress}...`;
         toast.show(initialMsg, 3000);
 
         try {
@@ -311,7 +313,10 @@ class RemoteButtonManager {
      */
     _isPlayerActive() {
         const currentPage = router.getCurrentPage();
-        return !!(currentPage && (currentPage.constructor.name === 'PlayerPage' || currentPage._osd || currentPage.osd));
+        return !!(
+            currentPage &&
+            (currentPage.constructor.name === 'PlayerPage' || currentPage._osd || currentPage.osd)
+        );
     }
 
     /**
@@ -383,11 +388,12 @@ class RemoteButtonManager {
         }
 
         // Format user-friendly layout name for real-time visual Toast feedback
-        const layoutLabel = targetLayout === 'hidden'
-            ? 'Stealth'
-            : (targetLayout === 'centered'
-                ? (i18n.t('OsdLayoutCentered') || 'Centered')
-                : (i18n.t('OsdLayoutLeft') || 'Left Aligned'));
+        const layoutLabel =
+            targetLayout === 'hidden'
+                ? 'Stealth'
+                : targetLayout === 'centered'
+                  ? i18n.t('OsdLayoutCentered') || 'Centered'
+                  : i18n.t('OsdLayoutLeft') || 'Left Aligned';
 
         // Present subtle on-screen confirmation toast (replaces in-place to prevent pile-up)
         toast.show(`${i18n.t('OsdLayout') || 'OSD Layout'}: ${layoutLabel}`, 2000, {

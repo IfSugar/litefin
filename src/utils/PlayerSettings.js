@@ -44,18 +44,25 @@ function getRecommendedPlayerBackend() {
     // Native Android / Google TV hardware platform (verify native bridge is present)
     if (platformInfo.isAndroid) {
         // Only recommend ExoPlayer if native bridge exists (e.g. not a generic mobile browser)
-        const hasNativeBridge = typeof window !== 'undefined' && Boolean(
-            window.LitefinExoPlayer ||
-            window.LitefinAndroid ||
-            window.__TAURI_INTERNALS__?.invoke ||
-            window.__TAURI__?.core?.invoke
-        );
+        const hasNativeBridge =
+            typeof window !== 'undefined' &&
+            Boolean(
+                window.LitefinExoPlayer ||
+                window.LitefinAndroid ||
+                window.__TAURI_INTERNALS__?.invoke ||
+                window.__TAURI__?.core?.invoke
+            );
         if (hasNativeBridge || platformInfo._platform === 'android') {
             return 'exoplayer';
         }
     }
     // Modern Web browsers and Desktop shells supporting WebCodecs (excluded on TV builds)
-    if ((platformInfo.isDesktop || platformInfo.isWeb) && platformInfo.hasWebCodecsSupport && !platformInfo.isTizen && !platformInfo.isWebOS) {
+    if (
+        (platformInfo.isDesktop || platformInfo.isWeb) &&
+        platformInfo.hasWebCodecsSupport &&
+        !platformInfo.isTizen &&
+        !platformInfo.isWebOS
+    ) {
         return 'movi';
     }
     // Fallback standard HTML5 video player
@@ -585,7 +592,7 @@ const DEFAULTS = {
      * 'internal_iframe' (Legacy Iframe) on Web/Desktop browsers for maximum desktop
      * compatibility without requiring background proxy services.
      */
-    trailerPlaybackMode: (platformInfo.isTizen || platformInfo.isWebOS) ? 'internal_proxy' : 'internal_iframe',
+    trailerPlaybackMode: platformInfo.isTizen || platformInfo.isWebOS ? 'internal_proxy' : 'internal_iframe',
 
     /*
      * Await Tracks Before Playback
@@ -986,7 +993,9 @@ export const PlayerSettings = {
         // automatically fallback to libjass DOM rendering to prevent player crash.
         // =====================================================================
         if (key === 'assRenderer' && stored === 'libass-wasm' && !platformInfo.hasWasmSupport) {
-            log.info('Stored assRenderer is libass-wasm, but device lacks WebAssembly support; falling back to libjass');
+            log.info(
+                'Stored assRenderer is libass-wasm, but device lacks WebAssembly support; falling back to libjass'
+            );
             return 'libjass';
         }
 
@@ -1008,19 +1017,28 @@ export const PlayerSettings = {
                 return recommended;
             }
             // Fall back to html5 if movi is persisted but WebCodecs is unsupported or on TV builds
-            if (stored === 'movi' && (!platformInfo.hasWebCodecsSupport || platformInfo.isTizen || platformInfo.isWebOS)) {
-                log.warn('Stored playerBackend is movi, but not supported or included in this build; falling back to html5');
+            if (
+                stored === 'movi' &&
+                (!platformInfo.hasWebCodecsSupport || platformInfo.isTizen || platformInfo.isWebOS)
+            ) {
+                log.warn(
+                    'Stored playerBackend is movi, but not supported or included in this build; falling back to html5'
+                );
                 return 'html5';
             }
             // Fall back to html5 if exoplayer is persisted but native Android bridge is missing
-            const hasExoBridge = typeof window !== 'undefined' && Boolean(
-                window.LitefinExoPlayer ||
-                window.LitefinAndroid ||
-                window.__TAURI_INTERNALS__?.invoke ||
-                window.__TAURI__?.core?.invoke
-            );
+            const hasExoBridge =
+                typeof window !== 'undefined' &&
+                Boolean(
+                    window.LitefinExoPlayer ||
+                    window.LitefinAndroid ||
+                    window.__TAURI_INTERNALS__?.invoke ||
+                    window.__TAURI__?.core?.invoke
+                );
             if (stored === 'exoplayer' && !hasExoBridge && !platformInfo.isAndroid) {
-                log.warn('Stored playerBackend is exoplayer, but native Android bridge is missing; falling back to html5');
+                log.warn(
+                    'Stored playerBackend is exoplayer, but native Android bridge is missing; falling back to html5'
+                );
                 return 'html5';
             }
         }
@@ -1135,7 +1153,7 @@ export const PlayerSettings = {
 
         log.debug(
             `[ResumeRewind] Applied offset of ${rewindLengthMs}ms (${rewindTicks} ticks): ` +
-            `raw=${positionTicks} -> adjusted=${adjustedTicks}`
+                `raw=${positionTicks} -> adjusted=${adjustedTicks}`
         );
 
         return adjustedTicks;

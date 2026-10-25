@@ -31,11 +31,7 @@ const HEADER_NAME_REGEX = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
  * Protected header names that must not be overridden by custom headers.
  * Overriding these would break core Jellyfin or Emby session authentication.
  */
-const RESERVED_HEADER_NAMES = new Set([
-    'authorization',
-    'x-emby-authorization',
-    'x-emby-token'
-]);
+const RESERVED_HEADER_NAMES = new Set(['authorization', 'x-emby-authorization', 'x-emby-token']);
 
 /**
  * Ready-made header presets for standard reverse proxy setups.
@@ -140,8 +136,9 @@ class CustomHeadersManager {
                     const withoutProto = normalized.replace(/^https?:\/\//i, '');
                     raw = storage.getItem(this.getStorageKey(withoutProto));
                 } else {
-                    raw = storage.getItem(this.getStorageKey(`https://${normalized}`)) ||
-                          storage.getItem(this.getStorageKey(`http://${normalized}`));
+                    raw =
+                        storage.getItem(this.getStorageKey(`https://${normalized}`)) ||
+                        storage.getItem(this.getStorageKey(`http://${normalized}`));
                 }
             }
 
@@ -305,10 +302,7 @@ class CustomHeadersManager {
                 return true;
             }
 
-            return (
-                parsedReq.pathname === serverPath ||
-                parsedReq.pathname.startsWith(`${serverPath}/`)
-            );
+            return parsedReq.pathname === serverPath || parsedReq.pathname.startsWith(`${serverPath}/`);
         } catch (_) {
             return false;
         }
@@ -356,9 +350,7 @@ class CustomHeadersManager {
      */
     hasCustomHeaders(serverUrl) {
         // Resolve headers against specific server or fall back to globally active server
-        const headers = serverUrl
-            ? this.getNormalizedHeaders(serverUrl)
-            : this.getActiveHeaders();
+        const headers = serverUrl ? this.getNormalizedHeaders(serverUrl) : this.getActiveHeaders();
 
         // Check if header dictionary contains any valid key-value pairs
         return Boolean(headers && Object.keys(headers).length > 0);

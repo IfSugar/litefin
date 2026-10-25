@@ -261,9 +261,7 @@ class Toast {
         let existingToast = null;
         if (options.id) {
             // Find existing non-exiting toast with matching ID
-            existingToast = this._toasts.find(
-                (t) => t._toastId === options.id && !t.classList.contains('toast-exit')
-            );
+            existingToast = this._toasts.find((t) => t._toastId === options.id && !t.classList.contains('toast-exit'));
         } else if (options.replace && this._toasts.length > 0) {
             // Pick most recent active toast for replacement
             existingToast = this._toasts.find((t) => !t.classList.contains('toast-exit'));

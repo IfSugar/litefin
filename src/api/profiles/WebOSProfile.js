@@ -462,8 +462,8 @@ export function buildJellyfinProfile(options = {}) {
     // audio bitstreams. Defaulting to 6 channels causes Jellyfin server's CodecProfiles condition
     // (AudioChannels <= 6) to reject DirectPlay for 7.1 tracks with AudioChannelsNotSupported,
     // forcing unnecessary server transcoding to a 5.1 AC3 compatibility track.
-    const defaultMaxChannels = (enableDts || enableTrueHd) ? 8 : caps.maxAudioChannels;
-    const maxAudioChannels = (userMaxChannels && userMaxChannels > 0) ? userMaxChannels : defaultMaxChannels;
+    const defaultMaxChannels = enableDts || enableTrueHd ? 8 : caps.maxAudioChannels;
+    const maxAudioChannels = userMaxChannels && userMaxChannels > 0 ? userMaxChannels : defaultMaxChannels;
 
     // ProfileCondition.Value is always a string in Jellyfin's schema, so we keep
     // a separate string-form for use inside CodecProfile condition objects.
@@ -590,8 +590,12 @@ export function buildJellyfinProfile(options = {}) {
 
     // Exclude DirectPlay profiles for modes that force server-side processing.
     // transcodeVideo / transcodeAudio both bypass direct play entirely.
-    if (playbackMode !== 'transcode' && playbackMode !== 'remux' &&
-        playbackMode !== 'transcodeVideo' && playbackMode !== 'transcodeAudio') {
+    if (
+        playbackMode !== 'transcode' &&
+        playbackMode !== 'remux' &&
+        playbackMode !== 'transcodeVideo' &&
+        playbackMode !== 'transcodeAudio'
+    ) {
         // Standard web containers — available on both backends
         directPlayProfiles.push({
             Container: 'mp4,m4v,mov',
@@ -847,9 +851,9 @@ export function buildJellyfinProfile(options = {}) {
     const isVideoDirectStream = playbackMode === 'remux' || playbackMode === 'transcodeAudio';
     const effectiveSegmentLength = isVideoDirectStream
         ? undefined
-        : (isHtml5
-            ? PlayerSettings.get('html5SegmentLength') || 2
-            : PlayerSettings.get('webosSegmentLength') || 6);
+        : isHtml5
+          ? PlayerSettings.get('html5SegmentLength') || 2
+          : PlayerSettings.get('webosSegmentLength') || 6;
 
     const transAudioProfileCodecs = BaseProfile.getTranscodeAudioCodecs(transAudioCodecsArr);
 
@@ -1356,15 +1360,20 @@ export function buildJellyfinProfile(options = {}) {
     // headers (like chained SeekHead MKVs) get repackaged into seekable HLS chunks
     // via FFmpeg instead of re-serving the same unseekable static container stream.
     // -------------------------------------------------------------------------
-    const directStreamProfiles = (playbackMode !== 'transcode' && playbackMode !== 'remux' &&
-        playbackMode !== 'transcodeVideo' && playbackMode !== 'transcodeAudio') ? [
-        {
-            Container: 'mkv',
-            Type: 'Video',
-            VideoCodec: mkvVideoCodecs.join(','),
-            AudioCodec: directAudioCodecs
-        }
-    ] : [];
+    const directStreamProfiles =
+        playbackMode !== 'transcode' &&
+        playbackMode !== 'remux' &&
+        playbackMode !== 'transcodeVideo' &&
+        playbackMode !== 'transcodeAudio'
+            ? [
+                  {
+                      Container: 'mkv',
+                      Type: 'Video',
+                      VideoCodec: mkvVideoCodecs.join(','),
+                      AudioCodec: directAudioCodecs
+                  }
+              ]
+            : [];
 
     return {
         Name: `Litefin WebOS${isHtml5 ? ' (HTML5)' : ''}${playbackMode !== 'auto' ? ` (${playbackMode})` : ''}`,

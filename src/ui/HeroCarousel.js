@@ -16,7 +16,6 @@ import { router } from '../core/Router.js';
 import { storage } from '../utils/StorageService.js';
 import { imageService } from '../utils/ImageService.js';
 import { shouldShowScore } from '../utils/visibility.js';
-import { platformInfo } from '../utils/PlatformInfo.js';
 import { detailsIcons } from '../utils/Icons.js';
 import { escapeHtml } from '../utils/Utils.js';
 import { getMdbProviderInfo } from '../plugins/installed/mdblist-ratings/ratingsFormatter.js';
@@ -73,7 +72,8 @@ class HeroCarousel {
         const isZoomEnabled = storage.getItem('pref:heroCarouselZoom') === 'true';
         const isAnimationEnabled = storage.getItem('pref:heroCarouselIndicatorAnimation') !== 'false';
         // BlurHash ambient color fill is exclusive to Immersive (Performance) mode and disabled by default
-        const isBlurhashFill = carouselStyle === 'immersive-performance' && storage.getItem('pref:heroCarouselBlurhashFill') === 'true';
+        const isBlurhashFill =
+            carouselStyle === 'immersive-performance' && storage.getItem('pref:heroCarouselBlurhashFill') === 'true';
         const intervalInSeconds = (this._autoScrollInterval / 1000).toFixed(1) + 's';
 
         let navArrowsHtml = '';
@@ -111,14 +111,15 @@ class HeroCarousel {
                     <div class="hero-carousel-track">
                         ${itemsHtml}
                     </div>
-                    ${this._items.length > 1
-                ? `
+                    ${
+                        this._items.length > 1
+                            ? `
                     <div class="hero-indicators">
                         ${dotsHtml}
                     </div>
                     `
-                : ''
-            }
+                            : ''
+                    }
                 </div>
                 ${navArrowsHtml}
             </div>
@@ -140,8 +141,8 @@ class HeroCarousel {
             item.BackdropImageTags && item.BackdropImageTags.length > 0
                 ? item.BackdropImageTags[0]
                 : item.ParentBackdropImageTags && item.ParentBackdropImageTags.length > 0
-                    ? item.ParentBackdropImageTags[0]
-                    : item.ImageTags?.Backdrop;
+                  ? item.ParentBackdropImageTags[0]
+                  : item.ImageTags?.Backdrop;
 
         // Fall back to parent backdrop ID when the child item lacks its own artwork
         const backdropItemId =
@@ -218,7 +219,8 @@ class HeroCarousel {
         // Resolve BlurHash for the hero backdrop and ambient fill background
         const blurHash = this._resolveBlurHash(item);
         // Ambient BlurHash fill is exclusive to the Immersive (Performance) style and off by default
-        const isBlurhashFill = carouselStyle === 'immersive-performance' && storage.getItem('pref:heroCarouselBlurhashFill') === 'true';
+        const isBlurhashFill =
+            carouselStyle === 'immersive-performance' && storage.getItem('pref:heroCarouselBlurhashFill') === 'true';
 
         // ---------------------------------------------------------------------
         // Lazy Backdrop & BlurHash Texture Allocation
@@ -231,18 +233,22 @@ class HeroCarousel {
         // When reverse proxy headers are active, check the cached Blob URL first.
         // ---------------------------------------------------------------------
         const initialBackdrop = customHeaders?.hasCustomHeaders?.()
-            ? (customHeaders.getCachedBlobUrl(backdropUrl) || null)
+            ? customHeaders.getCachedBlobUrl(backdropUrl) || null
             : backdropUrl;
         const backdropStyle = isActive && initialBackdrop ? ` style="background-image: url('${initialBackdrop}')"` : '';
 
         return `
             <div class="hero-item ${isActive ? 'active' : ''}" data-index="${index}"${!isActive ? ' style="visibility:hidden"' : ''}>
-                ${isBlurhashFill && blurHash ? `
+                ${
+                    isBlurhashFill && blurHash
+                        ? `
                     <div class="hero-blurhash-fill-wrap">
                         <canvas class="hero-blurhash-fill-canvas" data-blurhash="${blurHash}"></canvas>
                         <div class="hero-blurhash-fill-vignette"></div>
                     </div>
-                ` : ''}
+                `
+                        : ''
+                }
                 <div class="hero-backdrop" data-backdrop="${backdropUrl}"${backdropStyle}>
                     ${blurHash && isActive ? `<canvas class="hero-blurhash-canvas" data-blurhash="${blurHash}" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; transition: opacity 500ms ease-out; z-index: 0; pointer-events: none; opacity: 1;"></canvas>` : ''}
                 </div>
@@ -261,7 +267,7 @@ class HeroCarousel {
      * Renders MDBList Ratings and Awards for the carousel row.
      * @private
      */
-     _renderMdbMetadata(data) {
+    _renderMdbMetadata(data) {
         if (!data) return '';
 
         let html = '';
@@ -637,7 +643,8 @@ class HeroCarousel {
         // Exclusive to the Immersive (Performance) style and disabled by default.
         // Extracts ambient colors from BlurHash to fill any empty canvas area.
         const carouselStyle = storage.getItem('pref:heroCarouselStyle') || 'immersive-performance';
-        const isBlurhashFill = carouselStyle === 'immersive-performance' && storage.getItem('pref:heroCarouselBlurhashFill') === 'true';
+        const isBlurhashFill =
+            carouselStyle === 'immersive-performance' && storage.getItem('pref:heroCarouselBlurhashFill') === 'true';
         if (isBlurhashFill) {
             const activeSlide = this._container.querySelector('.hero-item.active');
             if (activeSlide) {
@@ -906,7 +913,8 @@ class HeroCarousel {
         // Prepares the background ambient gradient before the slide transitions into view.
         // Exclusive to the Immersive (Performance) carousel style (disabled by default).
         const carouselStyle = storage.getItem('pref:heroCarouselStyle') || 'immersive-performance';
-        const isBlurhashFill = carouselStyle === 'immersive-performance' && storage.getItem('pref:heroCarouselBlurhashFill') === 'true';
+        const isBlurhashFill =
+            carouselStyle === 'immersive-performance' && storage.getItem('pref:heroCarouselBlurhashFill') === 'true';
         if (isBlurhashFill) {
             this._decodeBlurhashFill(item);
         }

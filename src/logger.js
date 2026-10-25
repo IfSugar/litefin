@@ -116,7 +116,7 @@
         // eslint-disable-next-line no-var -- ES5-only: file runs raw (never Babel-transpiled)
         var formattedLine = '[' + timeStr + '] [' + level + '] [EarlyBoot] ' + msg;
 
-        /* 
+        /*
          * In-Memory Early Log Buffer:
          * Retains early boot diagnostic messages in RAM without triggering synchronous
          * LevelDB/SQLite disk writes on the TV's slow flash storage. DebugOverlay drains
@@ -134,7 +134,7 @@
             }
         }
 
-        /* 
+        /*
          * Conditional Persistence:
          * Only write to localStorage if the debug overlay has been explicitly enabled
          * by the user or an error level is logged. Normal boots bypass flash disk I/O.
@@ -194,7 +194,7 @@
             if (_origLog) _origLog.apply(console, arguments);
         } catch (e) {}
     };
-    
+
     /* Patch console.info */
     console.info = function () {
         _write('INF', arguments);
@@ -202,7 +202,7 @@
             if (_origInfo) _origInfo.apply(console, arguments);
         } catch (e) {}
     };
-    
+
     /* Patch console.warn */
     console.warn = function () {
         _write('WARN', arguments);
@@ -210,7 +210,7 @@
             if (_origWarn) _origWarn.apply(console, arguments);
         } catch (e) {}
     };
-    
+
     /* Patch console.error */
     console.error = function () {
         _write('ERR', arguments);

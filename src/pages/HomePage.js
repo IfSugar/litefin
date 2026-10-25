@@ -471,7 +471,11 @@ class HomePage extends Page {
                             try {
                                 // Attempt fetching playlist items first; suppress unauthorized eviction if inaccessible
                                 const plRes = await api
-                                    .getPlaylistItems(settingVal, { Limit: homeRowLimit }, { suppressUnauthorized: true, warnOnError: true })
+                                    .getPlaylistItems(
+                                        settingVal,
+                                        { Limit: homeRowLimit },
+                                        { suppressUnauthorized: true, warnOnError: true }
+                                    )
                                     .catch(() => null);
                                 items = plRes?.Items;
                             } catch (_) {}
@@ -479,25 +483,31 @@ class HomePage extends Page {
                             // If not a playlist or empty, query as collection/folder BoxSet
                             if (!items || items.length === 0) {
                                 let boxRes = await api
-                                    .getItems({
-                                        ParentId: settingVal,
-                                        Limit: homeRowLimit,
-                                        IncludeItemTypes: type,
-                                        Fields: 'PrimaryImageAspectRatio,CanFilter,UserData',
-                                        Recursive: true
-                                    }, { suppressUnauthorized: true, warnOnError: true })
+                                    .getItems(
+                                        {
+                                            ParentId: settingVal,
+                                            Limit: homeRowLimit,
+                                            IncludeItemTypes: type,
+                                            Fields: 'PrimaryImageAspectRatio,CanFilter,UserData',
+                                            Recursive: true
+                                        },
+                                        { suppressUnauthorized: true, warnOnError: true }
+                                    )
                                     .catch(() => null);
                                 items = boxRes?.Items;
 
                                 // Fallback without item type restriction if initial query was empty
                                 if (!items || items.length === 0) {
                                     boxRes = await api
-                                        .getItems({
-                                            ParentId: settingVal,
-                                            Limit: homeRowLimit,
-                                            Fields: 'PrimaryImageAspectRatio,CanFilter,UserData',
-                                            Recursive: true
-                                        }, { suppressUnauthorized: true, warnOnError: true })
+                                        .getItems(
+                                            {
+                                                ParentId: settingVal,
+                                                Limit: homeRowLimit,
+                                                Fields: 'PrimaryImageAspectRatio,CanFilter,UserData',
+                                                Recursive: true
+                                            },
+                                            { suppressUnauthorized: true, warnOnError: true }
+                                        )
                                         .catch(() => null);
                                     items = boxRes?.Items;
                                 }
@@ -540,33 +550,43 @@ class HomePage extends Page {
                                 if (smartCollection.Type === 'Playlist') {
                                     // Query smart playlist items with unauthorized suppression
                                     const plRes = await api
-                                        .getPlaylistItems(smartCollection.Id, {
-                                            Limit: homeRowLimit
-                                        }, { suppressUnauthorized: true, warnOnError: true })
+                                        .getPlaylistItems(
+                                            smartCollection.Id,
+                                            {
+                                                Limit: homeRowLimit
+                                            },
+                                            { suppressUnauthorized: true, warnOnError: true }
+                                        )
                                         .catch(() => null);
                                     items = plRes?.Items;
                                 } else {
                                     // Query collection items with unauthorized suppression
                                     let boxRes = await api
-                                        .getItems({
-                                            ParentId: smartCollection.Id,
-                                            Limit: homeRowLimit,
-                                            IncludeItemTypes: type,
-                                            Fields: 'PrimaryImageAspectRatio,CanFilter,UserData',
-                                            Recursive: true
-                                        }, { suppressUnauthorized: true, warnOnError: true })
+                                        .getItems(
+                                            {
+                                                ParentId: smartCollection.Id,
+                                                Limit: homeRowLimit,
+                                                IncludeItemTypes: type,
+                                                Fields: 'PrimaryImageAspectRatio,CanFilter,UserData',
+                                                Recursive: true
+                                            },
+                                            { suppressUnauthorized: true, warnOnError: true }
+                                        )
                                         .catch(() => null);
                                     items = boxRes?.Items;
 
                                     // Secondary query without type filter if initially empty
                                     if (!items || items.length === 0) {
                                         boxRes = await api
-                                            .getItems({
-                                                ParentId: smartCollection.Id,
-                                                Limit: homeRowLimit,
-                                                Fields: 'PrimaryImageAspectRatio,CanFilter,UserData',
-                                                Recursive: true
-                                            }, { suppressUnauthorized: true, warnOnError: true })
+                                            .getItems(
+                                                {
+                                                    ParentId: smartCollection.Id,
+                                                    Limit: homeRowLimit,
+                                                    Fields: 'PrimaryImageAspectRatio,CanFilter,UserData',
+                                                    Recursive: true
+                                                },
+                                                { suppressUnauthorized: true, warnOnError: true }
+                                            )
                                             .catch(() => null);
                                         items = boxRes?.Items;
                                     }
@@ -649,7 +669,11 @@ class HomePage extends Page {
                         try {
                             // Query custom playlist items safely
                             const plRes = await api
-                                .getPlaylistItems(col.id, { Limit: homeRowLimit }, { suppressUnauthorized: true, warnOnError: true })
+                                .getPlaylistItems(
+                                    col.id,
+                                    { Limit: homeRowLimit },
+                                    { suppressUnauthorized: true, warnOnError: true }
+                                )
                                 .catch(() => null);
                             items = plRes?.Items;
                         } catch (_) {}
@@ -657,25 +681,31 @@ class HomePage extends Page {
                         // If not a playlist, query as a collection/library container
                         if (!items || items.length === 0) {
                             const boxRes = await api
-                                .getItems({
-                                    ParentId: col.id,
-                                    Limit: homeRowLimit,
-                                    IncludeItemTypes: 'Movie,Series',
-                                    Fields: 'PrimaryImageAspectRatio,CanFilter,UserData',
-                                    Recursive: true
-                                }, { suppressUnauthorized: true, warnOnError: true })
+                                .getItems(
+                                    {
+                                        ParentId: col.id,
+                                        Limit: homeRowLimit,
+                                        IncludeItemTypes: 'Movie,Series',
+                                        Fields: 'PrimaryImageAspectRatio,CanFilter,UserData',
+                                        Recursive: true
+                                    },
+                                    { suppressUnauthorized: true, warnOnError: true }
+                                )
                                 .catch(() => null);
                             items = boxRes?.Items;
 
                             // Secondary fallback query without type filters
                             if (!items || items.length === 0) {
                                 const fallbackRes = await api
-                                    .getItems({
-                                        ParentId: col.id,
-                                        Limit: homeRowLimit,
-                                        Fields: 'PrimaryImageAspectRatio,CanFilter,UserData',
-                                        Recursive: true
-                                    }, { suppressUnauthorized: true, warnOnError: true })
+                                    .getItems(
+                                        {
+                                            ParentId: col.id,
+                                            Limit: homeRowLimit,
+                                            Fields: 'PrimaryImageAspectRatio,CanFilter,UserData',
+                                            Recursive: true
+                                        },
+                                        { suppressUnauthorized: true, warnOnError: true }
+                                    )
                                     .catch(() => null);
                                 items = fallbackRes?.Items;
                             }
@@ -736,7 +766,9 @@ class HomePage extends Page {
                         }
 
                         if (hasCorruptIds) {
-                            log.warn('Litefin plugin returned items with zero or missing IDs; falling back to client merge.');
+                            log.warn(
+                                'Litefin plugin returned items with zero or missing IDs; falling back to client merge.'
+                            );
                         }
                     } catch (err) {
                         // Fall back to client-side merge if the plugin is not installed or returns an error
@@ -777,7 +809,8 @@ class HomePage extends Page {
                     const nextUpItems = (nextUpRes?.Items || [])
                         .filter((item) => {
                             // Defensive guard: Drop non-playable container folders (e.g. Season/Series)
-                            if (!item || item.Type === 'Season' || item.Type === 'Series' || item.IsFolder) return false;
+                            if (!item || item.Type === 'Season' || item.Type === 'Series' || item.IsFolder)
+                                return false;
 
                             // Filter out next-up items that have already been partially played,
                             // as those are already accounted for in the continue watching row list.
@@ -1219,12 +1252,9 @@ class HomePage extends Page {
             // slice up to and including that target row so its DOM position and focus
             // target are fully prepared before the splash overlay is dismissed.
             let eagerCount = Math.min(EAGER_ROW_COUNT, descriptors.length);
-            let mustAwaitTarget = false;
-            if (targetIndex !== -1) {
-                if (targetIndex >= eagerCount) {
-                    eagerCount = targetIndex + 1;
-                }
-                mustAwaitTarget = true; // Wait for target row to finish rendering before splash dismissal
+            if (targetIndex !== -1 && targetIndex >= eagerCount) {
+                // Ensure target row is included in the eagerly mounted batch
+                eagerCount = targetIndex + 1;
             }
 
             // Slice out the eager descriptors and queue the remaining for deferred loading
@@ -2042,7 +2072,8 @@ class HomePage extends Page {
             if (lastFocusedObj || legacyLastFocusedId) {
                 const rawTargetId = lastFocusedObj ? lastFocusedObj.itemId : legacyLastFocusedId;
                 const targetId = rawTargetId ? String(rawTargetId).replace(/-/g, '').toLowerCase() : null;
-                const targetRowId = lastFocusedObj ? lastFocusedObj.rowId : null;
+                // Mutable row identifier: reassigned if card is located in a different virtual row
+                let targetRowId = lastFocusedObj ? lastFocusedObj.rowId : null;
 
                 let savedCard = null;
 
@@ -2276,9 +2307,7 @@ class HomePage extends Page {
         const container = this.$('#home-rows');
         if (!container) return;
 
-        const liveSections = Array.from(
-            container.querySelectorAll('section[data-row-id]:not(.media-row--skeleton)')
-        );
+        const liveSections = Array.from(container.querySelectorAll('section[data-row-id]:not(.media-row--skeleton)'));
         const currentIndex = liveSections.indexOf(sectionEl);
         if (currentIndex === -1) return;
 

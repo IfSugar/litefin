@@ -277,7 +277,11 @@ class PluginWidgetHost {
                          * currently visible on screen. If Up Next is visible, it owns focus.
                          * ========================================================================
                          */
-                        if (this._osd && !this._osd.upNextDialog?.isVisible && typeof this._osd.restoreControlsFocus === 'function') {
+                        if (
+                            this._osd &&
+                            !this._osd.upNextDialog?.isVisible &&
+                            typeof this._osd.restoreControlsFocus === 'function'
+                        ) {
                             this._osd.restoreControlsFocus();
                         }
                     } catch (err) {
@@ -357,7 +361,12 @@ class PluginWidgetHost {
         /*
          * Do not pull focus back to controls if Up Next episode prompt is visible.
          */
-        if (hadVisibleWidget && this._osd && !this._osd.upNextDialog?.isVisible && typeof this._osd.restoreControlsFocus === 'function') {
+        if (
+            hadVisibleWidget &&
+            this._osd &&
+            !this._osd.upNextDialog?.isVisible &&
+            typeof this._osd.restoreControlsFocus === 'function'
+        ) {
             this._osd.restoreControlsFocus();
         } else {
             // No visible widgets were removed or Up Next dialog is on screen — refresh cache
@@ -383,7 +392,10 @@ class PluginWidgetHost {
 
         // Guard: During track transitions/lockouts, the player's position and duration
         // are unreliable and may briefly reflect the previous track's end state.
-        if (this._osd && (this._osd._trackTransitionLockoutActive || (this._osd._playerPage && this._osd._playerPage._isSwitching))) {
+        if (
+            this._osd &&
+            (this._osd._trackTransitionLockoutActive || (this._osd._playerPage && this._osd._playerPage._isSwitching))
+        ) {
             return;
         }
 
@@ -475,7 +487,11 @@ class PluginWidgetHost {
             } else if (!anyVisible) {
                 // All widgets are now hidden — return focus to the controls row
                 // only if the Up Next dialog is not currently visible on screen.
-                if (this._osd && !this._osd.upNextDialog?.isVisible && typeof this._osd.restoreControlsFocus === 'function') {
+                if (
+                    this._osd &&
+                    !this._osd.upNextDialog?.isVisible &&
+                    typeof this._osd.restoreControlsFocus === 'function'
+                ) {
                     this._osd.restoreControlsFocus();
                 } else {
                     this._refreshOSDCache();
@@ -560,7 +576,11 @@ class PluginWidgetHost {
                         /*
                          * If the Up Next episode dialog is visible, leave focus with it.
                          */
-                        if (this._osd && !this._osd.upNextDialog?.isVisible && typeof this._osd.restoreControlsFocus === 'function') {
+                        if (
+                            this._osd &&
+                            !this._osd.upNextDialog?.isVisible &&
+                            typeof this._osd.restoreControlsFocus === 'function'
+                        ) {
                             this._osd.restoreControlsFocus();
                         }
                         return true;

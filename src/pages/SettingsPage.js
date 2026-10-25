@@ -39,7 +39,6 @@ import { toast } from '../ui/Toast.js';
 import { pinManager } from '../utils/PinManager.js';
 import { pinDialog } from '../ui/PinDialog.js';
 import { customHeadersDialog } from '../ui/CustomHeadersDialog.js';
-import { customHeaders } from '../utils/CustomHeaders.js';
 import { seerr } from '../api/seerrClient.js';
 import { escapeHtml } from '../utils/Utils.js';
 import { watchProviderRegion, watchProviderRegionName } from '../utils/WatchProviders.js';
@@ -266,8 +265,8 @@ class SettingsPage extends Page {
                         <!-- Category Navigation Cards -->
                         <div class="settings-menu-list">
                         ${tabs
-                .map(
-                    (tab) => `
+                            .map(
+                                (tab) => `
                             <button class="settings-menu-btn ${this.activeTab === tab.id ? 'active' : ''}" 
                                     data-tab="${tab.id}" tabindex="0">
                                 <span class="menu-icon">${tab.icon}</span>
@@ -282,8 +281,8 @@ class SettingsPage extends Page {
                                 </span>
                             </button>
                         `
-                )
-                .join('')}
+                            )
+                            .join('')}
                             <!-- Bottom scrolling buffer so mobile navigation bar never obstructs the last category -->
                             <div class="settings-bottom-spacer" aria-hidden="true"></div>
                         </div>
@@ -433,12 +432,13 @@ class SettingsPage extends Page {
                         ${statusBadge(p)}
                     </span>
                     ${p.description ? `<span class="setting-description">${p.description}</span>` : ''}
-                    ${p.serverDependency
-                        ? `<span class="setting-description plugin-dep">
+                    ${
+                        p.serverDependency
+                            ? `<span class="setting-description plugin-dep">
                                ${i18n.t('RequiresPlugin', ['Requires'])}:
                                <code>${p.serverDependency}</code>
                            </span>`
-                        : ''
+                            : ''
                     }
                 </div>
                 <div class="setting-control">
@@ -612,10 +612,10 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-            'app-language-select',
-            this.uiLanguages,
-            storage.getItem('app_language') || 'en-us'
-        )}
+                            'app-language-select',
+                            this.uiLanguages,
+                            storage.getItem('app_language') || 'en-us'
+                        )}
                     </div>
                 </div>
 
@@ -627,7 +627,7 @@ class SettingsPage extends Page {
                     <div class="setting-control">
                         <button class="setting-action-btn select-btn" id="btn-manage-favorite-languages" tabindex="0" data-focusable="true">
                             <span class="btn-label" id="favorite-languages-count-label">
-                                ${languageManager.hasFavorites() ? i18n.t('LanguagesSelected', [languageManager.getFavorites().length]) : (i18n.t('AllLanguages') || 'All Languages')}
+                                ${languageManager.hasFavorites() ? i18n.t('LanguagesSelected', [languageManager.getFavorites().length]) : i18n.t('AllLanguages') || 'All Languages'}
                             </span>
                         </button>
                     </div>
@@ -640,27 +640,29 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-            'display-scale-select',
-            [
-                { value: 'auto', label: i18n.t('DisplayScaleAuto') || 'Auto (Fit 1080p)' },
-                { value: '0.67', label: '67%' },
-                { value: '0.75', label: '75%' },
-                { value: '0.8', label: '80%' },
-                { value: '0.85', label: '85%' },
-                { value: '0.9', label: '90%' },
-                { value: '0.95', label: '95%' },
-                { value: '1', label: '100% (Native / TV)' },
-                { value: '1.05', label: '105%' },
-                { value: '1.1', label: '110%' },
-                { value: '1.15', label: '115%' },
-                { value: '1.2', label: '120%' }
-            ],
-            layoutManager.getDisplayScale().toString()
-        )}
+                            'display-scale-select',
+                            [
+                                { value: 'auto', label: i18n.t('DisplayScaleAuto') || 'Auto (Fit 1080p)' },
+                                { value: '0.67', label: '67%' },
+                                { value: '0.75', label: '75%' },
+                                { value: '0.8', label: '80%' },
+                                { value: '0.85', label: '85%' },
+                                { value: '0.9', label: '90%' },
+                                { value: '0.95', label: '95%' },
+                                { value: '1', label: '100% (Native / TV)' },
+                                { value: '1.05', label: '105%' },
+                                { value: '1.1', label: '110%' },
+                                { value: '1.15', label: '115%' },
+                                { value: '1.2', label: '120%' }
+                            ],
+                            layoutManager.getDisplayScale().toString()
+                        )}
                     </div>
                 </div>
 
-                ${platformInfo.isAndroid ? `
+                ${
+                    platformInfo.isAndroid
+                        ? `
                 <div class="setting-item" id="mobile-fullscreen-setting-item">
                     <div class="setting-label">
                         <span class="setting-name" data-i18n="MobileFullscreen">${i18n.t('MobileFullscreen') || 'Fullscreen Mode'}</span>
@@ -674,7 +676,9 @@ class SettingsPage extends Page {
                         </button>
                     </div>
                 </div>
-                ` : ''}
+                `
+                        : ''
+                }
 
 
                 <div class="setting-item">
@@ -684,24 +688,24 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-            'text-scale-select',
-            [
-                { value: '0.8', label: '80%' },
-                { value: '0.85', label: '85%' },
-                { value: '0.9', label: '90%' },
-                { value: '0.95', label: '95%' },
-                { value: '1', label: 'Normal (100%)' },
-                { value: '1.05', label: '105%' },
-                { value: '1.1', label: '110%' },
-                { value: '1.15', label: '115%' },
-                { value: '1.2', label: '120%' },
-                { value: '1.25', label: '125%' },
-                { value: '1.3', label: '130%' },
-                { value: '1.35', label: '135%' },
-                { value: '1.4', label: '140%' }
-            ],
-            layoutManager.getTextScale().toString()
-        )}
+                            'text-scale-select',
+                            [
+                                { value: '0.8', label: '80%' },
+                                { value: '0.85', label: '85%' },
+                                { value: '0.9', label: '90%' },
+                                { value: '0.95', label: '95%' },
+                                { value: '1', label: 'Normal (100%)' },
+                                { value: '1.05', label: '105%' },
+                                { value: '1.1', label: '110%' },
+                                { value: '1.15', label: '115%' },
+                                { value: '1.2', label: '120%' },
+                                { value: '1.25', label: '125%' },
+                                { value: '1.3', label: '130%' },
+                                { value: '1.35', label: '135%' },
+                                { value: '1.4', label: '140%' }
+                            ],
+                            layoutManager.getTextScale().toString()
+                        )}
                     </div>
                 </div>
 
@@ -712,14 +716,14 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-            'layout-direction-select',
-            [
-                { value: 'auto', label: i18n.t('DirectionAuto', ['Auto']) },
-                { value: 'ltr', label: i18n.t('DirectionLTR', ['Left-to-Right']) },
-                { value: 'rtl', label: i18n.t('DirectionRTL', ['Right-to-Left']) }
-            ],
-            storage.getItem('layout_direction') || 'auto'
-        )}
+                            'layout-direction-select',
+                            [
+                                { value: 'auto', label: i18n.t('DirectionAuto', ['Auto']) },
+                                { value: 'ltr', label: i18n.t('DirectionLTR', ['Left-to-Right']) },
+                                { value: 'rtl', label: i18n.t('DirectionRTL', ['Right-to-Left']) }
+                            ],
+                            storage.getItem('layout_direction') || 'auto'
+                        )}
                     </div>
                 </div>
                         
@@ -730,44 +734,44 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-            'ui-font-select',
-            [
-                { value: 'poppins', label: i18n.t('ModernPoppins') },
-                {
-                    value: 'system',
-                    label: i18n.t(platformInfo.isWebOS ? 'DefaultWebOSSans' : 'DefaultTizenSans')
-                },
-                {
-                    value: 'fallback-font',
-                    label: i18n.t('JellyfinFallbackFont') || 'Jellyfin Fallback Font'
-                },
-                { value: 'noto-arabic', label: i18n.t('ArabicNotoSans') },
-                { value: 'roboto', label: i18n.t('FontRoboto') },
-                { value: 'google', label: i18n.t('FontGoogleSans') },
-                { value: 'typewriter', label: i18n.t('Typewriter') },
-                { value: 'print', label: i18n.t('Print') },
-                { value: 'console', label: i18n.t('Console') },
-                { value: 'cursive', label: i18n.t('Cursive') },
-                { value: 'casual', label: i18n.t('Casual') },
-                { value: 'smallcaps', label: i18n.t('SmallCaps') },
-                { value: 'silkscreen', label: i18n.t('FontSilkscreen') || 'Silkscreen' },
-                { value: 'space-grotesk', label: i18n.t('FontSpaceGrotesk') || 'Space Grotesk' },
-                { value: 'retrotech', label: i18n.t('FontRetrotech') || 'RETROTECH' },
-                { value: 'kitty', label: i18n.t('FontKitty') || 'Kitty' },
-                { value: 'inter', label: i18n.t('FontInter') || 'Inter' },
-                { value: 'proxima', label: i18n.t('FontProxima') || 'Proxima Nova' },
-                { value: 'baloo', label: i18n.t('FontBaloo') || 'Baloo Bhaijaan 2' },
-                { value: 'poiret-one', label: i18n.t('FontPoiretOne') || 'Poiret One' },
-                {
-                    value: 'zen-kaku-gothic-new',
-                    label: i18n.t('FontZenKakuGothicNew') || 'Zen Kaku Gothic New'
-                },
-                { value: 'opendyslexic', label: i18n.t('FontOpenDyslexic') || 'OpenDyslexic' },
-                { value: 'atkinson', label: i18n.t('FontAtkinson') || 'Atkinson Hyperlegible' },
-                { value: 'manrope', label: i18n.t('FontManrope') || 'Manrope' }
-            ],
-            layoutManager.getUiFont()
-        )}
+                            'ui-font-select',
+                            [
+                                { value: 'poppins', label: i18n.t('ModernPoppins') },
+                                {
+                                    value: 'system',
+                                    label: i18n.t(platformInfo.isWebOS ? 'DefaultWebOSSans' : 'DefaultTizenSans')
+                                },
+                                {
+                                    value: 'fallback-font',
+                                    label: i18n.t('JellyfinFallbackFont') || 'Jellyfin Fallback Font'
+                                },
+                                { value: 'noto-arabic', label: i18n.t('ArabicNotoSans') },
+                                { value: 'roboto', label: i18n.t('FontRoboto') },
+                                { value: 'google', label: i18n.t('FontGoogleSans') },
+                                { value: 'typewriter', label: i18n.t('Typewriter') },
+                                { value: 'print', label: i18n.t('Print') },
+                                { value: 'console', label: i18n.t('Console') },
+                                { value: 'cursive', label: i18n.t('Cursive') },
+                                { value: 'casual', label: i18n.t('Casual') },
+                                { value: 'smallcaps', label: i18n.t('SmallCaps') },
+                                { value: 'silkscreen', label: i18n.t('FontSilkscreen') || 'Silkscreen' },
+                                { value: 'space-grotesk', label: i18n.t('FontSpaceGrotesk') || 'Space Grotesk' },
+                                { value: 'retrotech', label: i18n.t('FontRetrotech') || 'RETROTECH' },
+                                { value: 'kitty', label: i18n.t('FontKitty') || 'Kitty' },
+                                { value: 'inter', label: i18n.t('FontInter') || 'Inter' },
+                                { value: 'proxima', label: i18n.t('FontProxima') || 'Proxima Nova' },
+                                { value: 'baloo', label: i18n.t('FontBaloo') || 'Baloo Bhaijaan 2' },
+                                { value: 'poiret-one', label: i18n.t('FontPoiretOne') || 'Poiret One' },
+                                {
+                                    value: 'zen-kaku-gothic-new',
+                                    label: i18n.t('FontZenKakuGothicNew') || 'Zen Kaku Gothic New'
+                                },
+                                { value: 'opendyslexic', label: i18n.t('FontOpenDyslexic') || 'OpenDyslexic' },
+                                { value: 'atkinson', label: i18n.t('FontAtkinson') || 'Atkinson Hyperlegible' },
+                                { value: 'manrope', label: i18n.t('FontManrope') || 'Manrope' }
+                            ],
+                            layoutManager.getUiFont()
+                        )}
                     </div>
                 </div>
             
@@ -778,10 +782,10 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-            'jellyfin-fallback-font-select',
-            [],
-            storage.getItem('pref:jellyfinFallbackFont') || ''
-        )}
+                            'jellyfin-fallback-font-select',
+                            [],
+                            storage.getItem('pref:jellyfinFallbackFont') || ''
+                        )}
                     </div>
                 </div>
 
@@ -792,13 +796,13 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-            'icon-style-select',
-            [
-                { value: 'default', label: 'Default' },
-                { value: 'material3', label: 'Material 3' }
-            ],
-            storage.getItem('pref:iconStyle') || 'default'
-        )}
+                            'icon-style-select',
+                            [
+                                { value: 'default', label: 'Default' },
+                                { value: 'material3', label: 'Material 3' }
+                            ],
+                            storage.getItem('pref:iconStyle') || 'default'
+                        )}
                     </div>
                 </div>
                 <div class="setting-item">
@@ -808,39 +812,39 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${(() => {
-                /*
-                 * Retrieve the support capability of the active icon set (e.g. 'both' or 'filled').
-                 * If a style theme only supports one visual format, we limit the dropdown options
-                 * list to that specific format but keep it interactively reachable and clickable
-                 * so the user can inspect the setting rather than it being disabled/unreachable.
-                 */
-                const supports = getSupportedStyles();
-                let options = [];
+                            /*
+                             * Retrieve the support capability of the active icon set (e.g. 'both' or 'filled').
+                             * If a style theme only supports one visual format, we limit the dropdown options
+                             * list to that specific format but keep it interactively reachable and clickable
+                             * so the user can inspect the setting rather than it being disabled/unreachable.
+                             */
+                            const supports = getSupportedStyles();
+                            let options = [];
 
-                // Determine available dropdown options based on current style capabilities
-                if (supports === 'both') {
-                    options = [
-                        { value: 'dynamic', label: 'Dynamic (Outlined/Filled)' },
-                        { value: 'outlined', label: 'Always Outlined' },
-                        { value: 'filled', label: 'Always Filled' }
-                    ];
-                } else if (supports === 'filled') {
-                    options = [{ value: 'filled', label: 'Always Filled' }];
-                } else if (supports === 'outlined') {
-                    options = [{ value: 'outlined', label: 'Always Outlined' }];
-                }
+                            // Determine available dropdown options based on current style capabilities
+                            if (supports === 'both') {
+                                options = [
+                                    { value: 'dynamic', label: 'Dynamic (Outlined/Filled)' },
+                                    { value: 'outlined', label: 'Always Outlined' },
+                                    { value: 'filled', label: 'Always Filled' }
+                                ];
+                            } else if (supports === 'filled') {
+                                options = [{ value: 'filled', label: 'Always Filled' }];
+                            } else if (supports === 'outlined') {
+                                options = [{ value: 'outlined', label: 'Always Outlined' }];
+                            }
 
-                // If only a single state is supported, fallback to it directly
-                const activeVal =
-                    supports === 'both' ? storage.getItem('pref:iconVariant') || 'dynamic' : supports;
+                            // If only a single state is supported, fallback to it directly
+                            const activeVal =
+                                supports === 'both' ? storage.getItem('pref:iconVariant') || 'dynamic' : supports;
 
-                /*
-                 * Render the dropdown element dynamically.
-                 * We pass false for the disabled parameter so that the setting remains accessible,
-                 * allowing users to navigate to it, click it, and open it.
-                 */
-                return this._renderDropdown('icon-variant-select', options, activeVal, false);
-            })()}
+                            /*
+                             * Render the dropdown element dynamically.
+                             * We pass false for the disabled parameter so that the setting remains accessible,
+                             * allowing users to navigate to it, click it, and open it.
+                             */
+                            return this._renderDropdown('icon-variant-select', options, activeVal, false);
+                        })()}
                     </div>
                 </div>
 
@@ -855,19 +859,19 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-                'image-quality-select',
-                [
-                    { value: 'low', label: i18n.t('Low') },
-                    { value: 'medium-low', label: i18n.t('MediumLow') || 'Medium Low' },
-                    { value: 'medium', label: i18n.t('Medium') },
-                    { value: 'medium-high', label: i18n.t('MediumHigh') || 'Medium High' },
-                    { value: 'high', label: i18n.t('High') },
-                    { value: 'very-high', label: i18n.t('VeryHigh') || 'Very High' },
-                    { value: 'ultra', label: i18n.t('Ultra') },
-                    { value: 'original', label: i18n.t('Original') }
-                ],
-                imageService.getPreset() || 'medium'
-            )}
+                            'image-quality-select',
+                            [
+                                { value: 'low', label: i18n.t('Low') },
+                                { value: 'medium-low', label: i18n.t('MediumLow') || 'Medium Low' },
+                                { value: 'medium', label: i18n.t('Medium') },
+                                { value: 'medium-high', label: i18n.t('MediumHigh') || 'Medium High' },
+                                { value: 'high', label: i18n.t('High') },
+                                { value: 'very-high', label: i18n.t('VeryHigh') || 'Very High' },
+                                { value: 'ultra', label: i18n.t('Ultra') },
+                                { value: 'original', label: i18n.t('Original') }
+                            ],
+                            imageService.getPreset() || 'medium'
+                        )}
                     </div>
                 </div>
 
@@ -878,20 +882,20 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-                'details-image-quality-select',
-                [
-                    { value: 'default', label: i18n.t('Default') || 'Default' },
-                    { value: 'low', label: i18n.t('Low') || 'Low' },
-                    { value: 'medium-low', label: i18n.t('MediumLow') || 'Medium Low' },
-                    { value: 'medium', label: i18n.t('Medium') || 'Medium' },
-                    { value: 'medium-high', label: i18n.t('MediumHigh') || 'Medium High' },
-                    { value: 'high', label: i18n.t('High') || 'High' },
-                    { value: 'very-high', label: i18n.t('VeryHigh') || 'Very High' },
-                    { value: 'ultra', label: i18n.t('Ultra') },
-                    { value: 'original', label: i18n.t('Original') }
-                ],
-                imageService.getDetailsPreset() || 'very-high'
-            )}
+                            'details-image-quality-select',
+                            [
+                                { value: 'default', label: i18n.t('Default') || 'Default' },
+                                { value: 'low', label: i18n.t('Low') || 'Low' },
+                                { value: 'medium-low', label: i18n.t('MediumLow') || 'Medium Low' },
+                                { value: 'medium', label: i18n.t('Medium') || 'Medium' },
+                                { value: 'medium-high', label: i18n.t('MediumHigh') || 'Medium High' },
+                                { value: 'high', label: i18n.t('High') || 'High' },
+                                { value: 'very-high', label: i18n.t('VeryHigh') || 'Very High' },
+                                { value: 'ultra', label: i18n.t('Ultra') },
+                                { value: 'original', label: i18n.t('Original') }
+                            ],
+                            imageService.getDetailsPreset() || 'very-high'
+                        )}
                     </div>
                 </div>
 
@@ -905,14 +909,14 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-                'time-format-select',
-                [
-                    { value: '12h', label: i18n.t('TimeFormat12h') || '12-hour' },
-                    { value: '24h', label: i18n.t('TimeFormat24h') || '24-hour' },
-                    { value: 'none', label: i18n.t('TimeFormatNone') || 'Hidden' }
-                ],
-                PlayerSettings.get('timeFormat') || '12h'
-            )}
+                            'time-format-select',
+                            [
+                                { value: '12h', label: i18n.t('TimeFormat12h') || '12-hour' },
+                                { value: '24h', label: i18n.t('TimeFormat24h') || '24-hour' },
+                                { value: 'none', label: i18n.t('TimeFormatNone') || 'Hidden' }
+                            ],
+                            PlayerSettings.get('timeFormat') || '12h'
+                        )}
                     </div>
                 </div>
 
@@ -923,14 +927,14 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-                'time-source-select',
-                [
-                    { value: 'browser', label: i18n.t('TimeSourceBrowser') || 'Browser' },
-                    { value: 'os', label: i18n.t('TimeSourceOS') || 'Device OS' },
-                    { value: 'server', label: i18n.t('TimeSourceServer') || 'Jellyfin Server' }
-                ],
-                PlayerSettings.get('timeSource') || 'browser'
-            )}
+                            'time-source-select',
+                            [
+                                { value: 'browser', label: i18n.t('TimeSourceBrowser') || 'Browser' },
+                                { value: 'os', label: i18n.t('TimeSourceOS') || 'Device OS' },
+                                { value: 'server', label: i18n.t('TimeSourceServer') || 'Jellyfin Server' }
+                            ],
+                            PlayerSettings.get('timeSource') || 'browser'
+                        )}
                     </div>
                 </div>
 
@@ -941,50 +945,50 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-                'time-timezone-select',
-                [
-                    { value: 'auto', label: i18n.t('TimezoneAuto') || 'Automatic (Device Timezone)' },
-                    { value: '-720', label: 'UTC-12:00 (Baker Island)' },
-                    { value: '-660', label: 'UTC-11:00 (Samoa, Niue)' },
-                    { value: '-600', label: 'UTC-10:00 (Hawaii, Tahiti)' },
-                    { value: '-570', label: 'UTC-09:30 (Marquesas Islands)' },
-                    { value: '-540', label: 'UTC-09:00 (Alaska)' },
-                    { value: '-480', label: 'UTC-08:00 (Pacific Time - US/Canada)' },
-                    { value: '-420', label: 'UTC-07:00 (Mountain Time - US/Canada)' },
-                    { value: '-360', label: 'UTC-06:00 (Central Time - US/Canada, Mexico)' },
-                    { value: '-300', label: 'UTC-05:00 (Eastern Time - US/Canada, Bogota)' },
-                    { value: '-240', label: 'UTC-04:00 (Atlantic Time, Santiago, Caracas)' },
-                    { value: '-210', label: 'UTC-03:30 (Newfoundland)' },
-                    { value: '-180', label: 'UTC-03:00 (Buenos Aires, Sao Paulo)' },
-                    { value: '-120', label: 'UTC-02:00 (South Georgia, Mid-Atlantic)' },
-                    { value: '-60', label: 'UTC-01:00 (Azores, Cape Verde)' },
-                    { value: '0', label: 'UTC+00:00 (London, Dublin, Lisbon, Casablanca, UTC)' },
-                    { value: '60', label: 'UTC+01:00 (Berlin, Paris, Rome, Madrid, Warsaw)' },
-                    { value: '120', label: 'UTC+02:00 (Cairo, Athens, Jerusalem, Helsinki, Kyiv)' },
-                    { value: '180', label: 'UTC+03:00 (Riyadh, Moscow, Istanbul, Nairobi, Baghdad)' },
-                    { value: '210', label: 'UTC+03:30 (Tehran)' },
-                    { value: '240', label: 'UTC+04:00 (Dubai, Baku, Tbilisi, Yerevan)' },
-                    { value: '270', label: 'UTC+04:30 (Kabul)' },
-                    { value: '300', label: 'UTC+05:00 (Karachi, Tashkent, Yekaterinburg)' },
-                    { value: '330', label: 'UTC+05:30 (India Standard Time - New Delhi, Mumbai)' },
-                    { value: '345', label: 'UTC+05:45 (Kathmandu)' },
-                    { value: '360', label: 'UTC+06:00 (Dhaka, Almaty, Astana)' },
-                    { value: '390', label: 'UTC+06:30 (Yangon, Cocos Islands)' },
-                    { value: '420', label: 'UTC+07:00 (Bangkok, Jakarta, Hanoi)' },
-                    { value: '480', label: 'UTC+08:00 (Singapore, Beijing, Hong Kong, Perth)' },
-                    { value: '525', label: 'UTC+08:45 (Eucla)' },
-                    { value: '540', label: 'UTC+09:00 (Tokyo, Seoul)' },
-                    { value: '570', label: 'UTC+09:30 (Adelaide, Darwin)' },
-                    { value: '600', label: 'UTC+10:00 (Sydney, Melbourne, Brisbane, Vladivostok)' },
-                    { value: '630', label: 'UTC+10:30 (Lord Howe Island)' },
-                    { value: '660', label: 'UTC+11:00 (Solomon Islands, Noumea)' },
-                    { value: '720', label: 'UTC+12:00 (Auckland, Fiji, Kamchatka)' },
-                    { value: '765', label: 'UTC+12:45 (Chatham Islands)' },
-                    { value: '780', label: 'UTC+13:00 (Tonga, Samoa, Phoenix Islands)' },
-                    { value: '840', label: 'UTC+14:00 (Line Islands, Kiritimati)' }
-                ],
-                PlayerSettings.get('timeZoneOffset') || 'auto'
-            )}
+                            'time-timezone-select',
+                            [
+                                { value: 'auto', label: i18n.t('TimezoneAuto') || 'Automatic (Device Timezone)' },
+                                { value: '-720', label: 'UTC-12:00 (Baker Island)' },
+                                { value: '-660', label: 'UTC-11:00 (Samoa, Niue)' },
+                                { value: '-600', label: 'UTC-10:00 (Hawaii, Tahiti)' },
+                                { value: '-570', label: 'UTC-09:30 (Marquesas Islands)' },
+                                { value: '-540', label: 'UTC-09:00 (Alaska)' },
+                                { value: '-480', label: 'UTC-08:00 (Pacific Time - US/Canada)' },
+                                { value: '-420', label: 'UTC-07:00 (Mountain Time - US/Canada)' },
+                                { value: '-360', label: 'UTC-06:00 (Central Time - US/Canada, Mexico)' },
+                                { value: '-300', label: 'UTC-05:00 (Eastern Time - US/Canada, Bogota)' },
+                                { value: '-240', label: 'UTC-04:00 (Atlantic Time, Santiago, Caracas)' },
+                                { value: '-210', label: 'UTC-03:30 (Newfoundland)' },
+                                { value: '-180', label: 'UTC-03:00 (Buenos Aires, Sao Paulo)' },
+                                { value: '-120', label: 'UTC-02:00 (South Georgia, Mid-Atlantic)' },
+                                { value: '-60', label: 'UTC-01:00 (Azores, Cape Verde)' },
+                                { value: '0', label: 'UTC+00:00 (London, Dublin, Lisbon, Casablanca, UTC)' },
+                                { value: '60', label: 'UTC+01:00 (Berlin, Paris, Rome, Madrid, Warsaw)' },
+                                { value: '120', label: 'UTC+02:00 (Cairo, Athens, Jerusalem, Helsinki, Kyiv)' },
+                                { value: '180', label: 'UTC+03:00 (Riyadh, Moscow, Istanbul, Nairobi, Baghdad)' },
+                                { value: '210', label: 'UTC+03:30 (Tehran)' },
+                                { value: '240', label: 'UTC+04:00 (Dubai, Baku, Tbilisi, Yerevan)' },
+                                { value: '270', label: 'UTC+04:30 (Kabul)' },
+                                { value: '300', label: 'UTC+05:00 (Karachi, Tashkent, Yekaterinburg)' },
+                                { value: '330', label: 'UTC+05:30 (India Standard Time - New Delhi, Mumbai)' },
+                                { value: '345', label: 'UTC+05:45 (Kathmandu)' },
+                                { value: '360', label: 'UTC+06:00 (Dhaka, Almaty, Astana)' },
+                                { value: '390', label: 'UTC+06:30 (Yangon, Cocos Islands)' },
+                                { value: '420', label: 'UTC+07:00 (Bangkok, Jakarta, Hanoi)' },
+                                { value: '480', label: 'UTC+08:00 (Singapore, Beijing, Hong Kong, Perth)' },
+                                { value: '525', label: 'UTC+08:45 (Eucla)' },
+                                { value: '540', label: 'UTC+09:00 (Tokyo, Seoul)' },
+                                { value: '570', label: 'UTC+09:30 (Adelaide, Darwin)' },
+                                { value: '600', label: 'UTC+10:00 (Sydney, Melbourne, Brisbane, Vladivostok)' },
+                                { value: '630', label: 'UTC+10:30 (Lord Howe Island)' },
+                                { value: '660', label: 'UTC+11:00 (Solomon Islands, Noumea)' },
+                                { value: '720', label: 'UTC+12:00 (Auckland, Fiji, Kamchatka)' },
+                                { value: '765', label: 'UTC+12:45 (Chatham Islands)' },
+                                { value: '780', label: 'UTC+13:00 (Tonga, Samoa, Phoenix Islands)' },
+                                { value: '840', label: 'UTC+14:00 (Line Islands, Kiritimati)' }
+                            ],
+                            PlayerSettings.get('timeZoneOffset') || 'auto'
+                        )}
                     </div>
                 </div>
 
@@ -998,16 +1002,16 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-                'screensaver-delay-select',
-                [
-                    { value: 0, label: i18n.t('Never') || 'Never' },
-                    { value: 60, label: i18n.t('1Minute') || '1 Minute' },
-                    { value: 300, label: i18n.t('5Minutes') || '5 Minutes' },
-                    { value: 600, label: i18n.t('10Minutes') || '10 Minutes' },
-                    { value: 1800, label: i18n.t('30Minutes') || '30 Minutes' }
-                ],
-                storage.getItem('pref:screensaverDelay') || 0
-            )}
+                            'screensaver-delay-select',
+                            [
+                                { value: 0, label: i18n.t('Never') || 'Never' },
+                                { value: 60, label: i18n.t('1Minute') || '1 Minute' },
+                                { value: 300, label: i18n.t('5Minutes') || '5 Minutes' },
+                                { value: 600, label: i18n.t('10Minutes') || '10 Minutes' },
+                                { value: 1800, label: i18n.t('30Minutes') || '30 Minutes' }
+                            ],
+                            storage.getItem('pref:screensaverDelay') || 0
+                        )}
                     </div>
                 </div>
 
@@ -1018,14 +1022,14 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-                'screensaver-type-select',
-                [
-                    { value: 'backdrop', label: i18n.t('Backdrop') || 'Backdrop' },
-                    { value: 'logo', label: i18n.t('Logo') || 'Logo' },
-                    { value: 'black', label: i18n.t('ScreensaverBlack') || 'Black' }
-                ],
-                storage.getItem('pref:screensaverType') || 'backdrop'
-            )}
+                            'screensaver-type-select',
+                            [
+                                { value: 'backdrop', label: i18n.t('Backdrop') || 'Backdrop' },
+                                { value: 'logo', label: i18n.t('Logo') || 'Logo' },
+                                { value: 'black', label: i18n.t('ScreensaverBlack') || 'Black' }
+                            ],
+                            storage.getItem('pref:screensaverType') || 'backdrop'
+                        )}
                     </div>
                 </div>
 
@@ -1036,21 +1040,21 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-                'backdrop-dimmer-select',
-                [
-                    { value: '0', label: i18n.t('Off') || 'Off' },
-                    { value: '0.1', label: '10%' },
-                    { value: '0.2', label: '20%' },
-                    { value: '0.3', label: '30%' },
-                    { value: '0.4', label: '40%' },
-                    { value: '0.5', label: '50%' },
-                    { value: '0.6', label: '60%' },
-                    { value: '0.7', label: '70%' },
-                    { value: '0.8', label: '80%' },
-                    { value: '0.9', label: '90%' }
-                ],
-                storage.getItem('pref:backdropDimmer') || '0.3'
-            )}
+                            'backdrop-dimmer-select',
+                            [
+                                { value: '0', label: i18n.t('Off') || 'Off' },
+                                { value: '0.1', label: '10%' },
+                                { value: '0.2', label: '20%' },
+                                { value: '0.3', label: '30%' },
+                                { value: '0.4', label: '40%' },
+                                { value: '0.5', label: '50%' },
+                                { value: '0.6', label: '60%' },
+                                { value: '0.7', label: '70%' },
+                                { value: '0.8', label: '80%' },
+                                { value: '0.9', label: '90%' }
+                            ],
+                            storage.getItem('pref:backdropDimmer') || '0.3'
+                        )}
                     </div>
                 </div>
 
@@ -1080,7 +1084,9 @@ class SettingsPage extends Page {
                     </div>
                 </div>
  
-                ${(platformInfo.isWebOS || webosAdapter.isWebOS) ? `
+                ${
+                    platformInfo.isWebOS || webosAdapter.isWebOS
+                        ? `
                 <div class="setting-item" id="screensaver-playback-suppression-item">
                     <div class="setting-label">
                         <span class="setting-name" data-i18n="PreventScreensaverOnPlayback">${i18n.t('PreventScreensaverOnPlayback') || 'Prevent screensaver during playback'}</span>
@@ -1093,7 +1099,9 @@ class SettingsPage extends Page {
                         </button>
                     </div>
                 </div>
-                ` : ''}
+                `
+                        : ''
+                }
                 
                 <!-- Theme Section -->
                 <h3 class="setting-section-title" data-i18n="ColorTheme">${i18n.t('ColorTheme')}</h3>
@@ -1105,53 +1113,52 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-                'theme-mode-select',
-                [
-                    
-                    // Black OLED theme for extreme battery saving and deep contrast profiles.
-                    { value: 'black', label: i18n.t('ThemeBlack') || 'Black (OLED)' },
-                    
-                    // Ambient Glow Theme Mode
-                    { value: 'ambient', label: i18n.t('ThemeAmbient') || 'Ambient Glow' },
+                            'theme-mode-select',
+                            [
+                                // Black OLED theme for extreme battery saving and deep contrast profiles.
+                                { value: 'black', label: i18n.t('ThemeBlack') || 'Black (OLED)' },
 
-                    // Ember: the only warm dark mode — candlelit roast canvas with firelight glow.
-                    { value: 'ember', label: i18n.t('ThemeEmber') || 'Ember' },
+                                // Ambient Glow Theme Mode
+                                { value: 'ambient', label: i18n.t('ThemeAmbient') || 'Ambient Glow' },
 
-                    // Sunset: cinematic gradient dusk with plum-to-amber sky and sun bloom.
-                    { value: 'sunset', label: i18n.t('ThemeSunset') || 'Sunset' },
+                                // Ember: the only warm dark mode — candlelit roast canvas with firelight glow.
+                                { value: 'ember', label: i18n.t('ThemeEmber') || 'Ember' },
 
-                    // Nocturne: the projection booth — booth-ink canvas under a single
-                    // tungsten beam with theater haze, light pool and dust motes.
-                    { value: 'nocturne', label: i18n.t('ThemeNocturne') || 'Nocturne' },
+                                // Sunset: cinematic gradient dusk with plum-to-amber sky and sun bloom.
+                                { value: 'sunset', label: i18n.t('ThemeSunset') || 'Sunset' },
 
-                    // Abyss: bioluminescent deep-sea — pressure canvas lit by an
-                    // off-center lure glow under surface god rays.
-                    { value: 'abyss', label: i18n.t('ThemeAbyss') || 'Abyss' },
+                                // Nocturne: the projection booth — booth-ink canvas under a single
+                                // tungsten beam with theater haze, light pool and dust motes.
+                                { value: 'nocturne', label: i18n.t('ThemeNocturne') || 'Nocturne' },
 
-                    // Cyberpunk: night-city signage — violet-ink canvas under
-                    // asymmetric neon sign blooms and a CRT scanline raster.
-                    { value: 'cyberpunk', label: i18n.t('ThemeCyberpunk') || 'Cyberpunk' },
+                                // Abyss: bioluminescent deep-sea — pressure canvas lit by an
+                                // off-center lure glow under surface god rays.
+                                { value: 'abyss', label: i18n.t('ThemeAbyss') || 'Abyss' },
 
-                    // Tinted background theme mapping closely with specific selected colors.
-                    { value: 'tinted', label: i18n.t('ThemeTinted') || 'Tinted' },
+                                // Cyberpunk: night-city signage — violet-ink canvas under
+                                // asymmetric neon sign blooms and a CRT scanline raster.
+                                { value: 'cyberpunk', label: i18n.t('ThemeCyberpunk') || 'Cyberpunk' },
 
-                    // Light Tinted theme providing a luminous, warm tinted base derived from accent color.
-                    { value: 'tinted-light', label: i18n.t('ThemeTintedLight') || 'Light Tinted' },
+                                // Tinted background theme mapping closely with specific selected colors.
+                                { value: 'tinted', label: i18n.t('ThemeTinted') || 'Tinted' },
 
-                    // Traditional Dark Theme with deep charcoal shades.
-                    { value: 'classic-dark', label: i18n.t('ThemeDarkClassic') || 'Dark Classic' },
+                                // Light Tinted theme providing a luminous, warm tinted base derived from accent color.
+                                { value: 'tinted-light', label: i18n.t('ThemeTintedLight') || 'Light Tinted' },
 
-                    // Frost: the only glacial light mode — gradient ice canvas with slate typography.
-                    { value: 'frost', label: i18n.t('ThemeFrost') || 'Frost' },
+                                // Traditional Dark Theme with deep charcoal shades.
+                                { value: 'classic-dark', label: i18n.t('ThemeDarkClassic') || 'Dark Classic' },
 
-                    // Paper: warm sepia reading mode — parchment tones with ink typography.
-                    { value: 'paper', label: i18n.t('ThemePaper') || 'Paper' },                 
+                                // Frost: the only glacial light mode — gradient ice canvas with slate typography.
+                                { value: 'frost', label: i18n.t('ThemeFrost') || 'Frost' },
 
-                    // Traditional Light Theme utilizing classic paper/white gradients.
-                    { value: 'classic-light', label: i18n.t('ThemeLightClassic') || 'Light Classic' }
-                ],
-                layoutManager.getThemeMode()
-            )}
+                                // Paper: warm sepia reading mode — parchment tones with ink typography.
+                                { value: 'paper', label: i18n.t('ThemePaper') || 'Paper' },
+
+                                // Traditional Light Theme utilizing classic paper/white gradients.
+                                { value: 'classic-light', label: i18n.t('ThemeLightClassic') || 'Light Classic' }
+                            ],
+                            layoutManager.getThemeMode()
+                        )}
                     </div>
                 </div>
 
@@ -1162,14 +1169,13 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${(() => {
-                const currentColorHex = (layoutManager.getThemeColor() || '#00a4dc').toLowerCase();
-                const colors = this._getThemeColors();
-                const matched =
-                    colors.find((c) => c.hex.toLowerCase() === currentColorHex) || {
-                        name: 'Jellyfin Blue',
-                        hex: currentColorHex
-                    };
-                return `
+                            const currentColorHex = (layoutManager.getThemeColor() || '#00a4dc').toLowerCase();
+                            const colors = this._getThemeColors();
+                            const matched = colors.find((c) => c.hex.toLowerCase() === currentColorHex) || {
+                                name: 'Jellyfin Blue',
+                                hex: currentColorHex
+                            };
+                            return `
                                 <button class="setting-action-btn theme-color-select-btn" 
                                         id="btn-theme-color-picker" 
                                         tabindex="0"
@@ -1179,7 +1185,7 @@ class SettingsPage extends Page {
                                     <span class="btn-label" id="theme-color-btn-label">${escapeHtml(matched.name)}</span>
                                 </button>
                             `;
-            })()}
+                        })()}
                     </div>
                 </div>
 
@@ -1201,7 +1207,7 @@ class SettingsPage extends Page {
                 <div class="setting-item ${!['ember', 'sunset', 'frost', 'paper', 'nocturne', 'abyss', 'cyberpunk'].includes(layoutManager.getThemeMode()) ? 'hidden' : ''}" id="signature-accent-item">
                     <div class="setting-label">
                         <span class="setting-name" data-i18n="OverrideThemeColor">${i18n.t('OverrideThemeColor') || 'Override Theme Color'}</span>
-                        <span class="setting-description" data-i18n="OverrideThemeColorDescription">${i18n.t('OverrideThemeColorDescription') || 'Replace the theme color with this theme\'s own unique signature color.'}</span>
+                        <span class="setting-description" data-i18n="OverrideThemeColorDescription">${i18n.t('OverrideThemeColorDescription') || "Replace the theme color with this theme's own unique signature color."}</span>
                     </div>
                     <div class="setting-control">
                         <button class="toggle-switch ${layoutManager.getSignatureAccent() ? 'active' : ''}" 
@@ -1219,23 +1225,23 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${(() => {
-                const currentStyle = layoutManager.getLoaderStyle() || 'dots';
-                const styleNames = {
-                    'dots': i18n.t('LoaderStyleDots') || 'Pulsing Dots',
-                    'ring': i18n.t('LoaderStyleRing') || 'Rotating Ring',
-                    'dual-ring': i18n.t('LoaderStyleDualRing') || 'Dual Ring',
-                    'orbit': i18n.t('LoaderStyleOrbit') || 'Orbital Bead',
-                    'satellite': i18n.t('LoaderStyleSatellite') || 'Satellite Ring',
-                    'triple-ring': i18n.t('LoaderStyleTripleRing') || 'Triple Gyro',
-                    'dotted-ring': i18n.t('LoaderStyleDottedRing') || 'Dotted Eclipse',
-                    'eclipse-sweep': i18n.t('LoaderStyleEclipseSweep') || 'Crescent Sweep',
-                    'sonar-ring': i18n.t('LoaderStyleSonarRing') || 'Sonar Aperture',
-                    'push-pulse': i18n.t('LoaderStylePushPulse') || 'Push Pulse',
-                    'horizontal-dots': i18n.t('LoaderStyleHorizontalDots') || 'Fading Trio',
-                    'pulsing-grid': i18n.t('LoaderStylePulsingGrid') || 'Morphing Grid'
-                };
-                const activeName = styleNames[currentStyle] || 'Pulsing Dots';
-                return `
+                            const currentStyle = layoutManager.getLoaderStyle() || 'dots';
+                            const styleNames = {
+                                dots: i18n.t('LoaderStyleDots') || 'Pulsing Dots',
+                                ring: i18n.t('LoaderStyleRing') || 'Rotating Ring',
+                                'dual-ring': i18n.t('LoaderStyleDualRing') || 'Dual Ring',
+                                orbit: i18n.t('LoaderStyleOrbit') || 'Orbital Bead',
+                                satellite: i18n.t('LoaderStyleSatellite') || 'Satellite Ring',
+                                'triple-ring': i18n.t('LoaderStyleTripleRing') || 'Triple Gyro',
+                                'dotted-ring': i18n.t('LoaderStyleDottedRing') || 'Dotted Eclipse',
+                                'eclipse-sweep': i18n.t('LoaderStyleEclipseSweep') || 'Crescent Sweep',
+                                'sonar-ring': i18n.t('LoaderStyleSonarRing') || 'Sonar Aperture',
+                                'push-pulse': i18n.t('LoaderStylePushPulse') || 'Push Pulse',
+                                'horizontal-dots': i18n.t('LoaderStyleHorizontalDots') || 'Fading Trio',
+                                'pulsing-grid': i18n.t('LoaderStylePulsingGrid') || 'Morphing Grid'
+                            };
+                            const activeName = styleNames[currentStyle] || 'Pulsing Dots';
+                            return `
                                 <button class="setting-action-btn loader-style-select-btn" 
                                         id="btn-loader-style-picker" 
                                         tabindex="0"
@@ -1244,7 +1250,7 @@ class SettingsPage extends Page {
                                     <span class="btn-label" id="loader-style-btn-label">${escapeHtml(activeName)}</span>
                                 </button>
                             `;
-            })()}
+                        })()}
                     </div>
                 </div>
 
@@ -1255,22 +1261,22 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-                'button-style-select',
-                [
-                    {
-                        value: 'theme-default',
-                        label: i18n.t('BtnStyleThemeDefault') || 'Theme Accent (Default)'
-                    },
-                    { value: 'theme-inverted', label: i18n.t('BtnStyleThemeInverted') || 'Theme Inverted' },
-                    { value: 'monochrome-bw', label: i18n.t('BtnStyleMonoBW') || 'White & Black' },
-                    { value: 'monochrome-wb', label: i18n.t('BtnStyleMonoWB') || 'Black & White' },
-                    { value: 'white-accent', label: i18n.t('BtnStyleWhiteAccent') || 'White & Accent' },
-                    { value: 'black-accent', label: i18n.t('BtnStyleBlackAccent') || 'Black & Accent' },
-                    { value: 'accent-white', label: i18n.t('BtnStyleAccentWhite') || 'Accent & White' },
-                    { value: 'accent-black', label: i18n.t('BtnStyleAccentBlack') || 'Accent & Black' }
-                ],
-                layoutManager.getButtonStyle()
-            )}
+                            'button-style-select',
+                            [
+                                {
+                                    value: 'theme-default',
+                                    label: i18n.t('BtnStyleThemeDefault') || 'Theme Accent (Default)'
+                                },
+                                { value: 'theme-inverted', label: i18n.t('BtnStyleThemeInverted') || 'Theme Inverted' },
+                                { value: 'monochrome-bw', label: i18n.t('BtnStyleMonoBW') || 'White & Black' },
+                                { value: 'monochrome-wb', label: i18n.t('BtnStyleMonoWB') || 'Black & White' },
+                                { value: 'white-accent', label: i18n.t('BtnStyleWhiteAccent') || 'White & Accent' },
+                                { value: 'black-accent', label: i18n.t('BtnStyleBlackAccent') || 'Black & Accent' },
+                                { value: 'accent-white', label: i18n.t('BtnStyleAccentWhite') || 'Accent & White' },
+                                { value: 'accent-black', label: i18n.t('BtnStyleAccentBlack') || 'Accent & Black' }
+                            ],
+                            layoutManager.getButtonStyle()
+                        )}
                     </div>
                 </div>
 
@@ -1294,16 +1300,16 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-                'focus-border-style-select',
-                [
-                    { value: 'hidden', label: i18n.t('FocusBorderHidden') || 'Hidden' },
-                    { value: 'follow-theme', label: i18n.t('FocusBorderFollowTheme') || 'Follow Theme' },
-                    { value: 'inverted', label: i18n.t('FocusBorderInverted') || 'Inverted' },
-                    { value: 'white', label: i18n.t('FocusBorderWhite') || 'White' },
-                    { value: 'black', label: i18n.t('FocusBorderBlack') || 'Black' }
-                ],
-                layoutManager.getFocusBorderStyle()
-            )}
+                            'focus-border-style-select',
+                            [
+                                { value: 'hidden', label: i18n.t('FocusBorderHidden') || 'Hidden' },
+                                { value: 'follow-theme', label: i18n.t('FocusBorderFollowTheme') || 'Follow Theme' },
+                                { value: 'inverted', label: i18n.t('FocusBorderInverted') || 'Inverted' },
+                                { value: 'white', label: i18n.t('FocusBorderWhite') || 'White' },
+                                { value: 'black', label: i18n.t('FocusBorderBlack') || 'Black' }
+                            ],
+                            layoutManager.getFocusBorderStyle()
+                        )}
                     </div>
                 </div>
 
@@ -1314,16 +1320,16 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-                'hover-border-style-select',
-                [
-                    { value: 'white', label: i18n.t('HoverBorderWhite') || 'White' },
-                    { value: 'follow-theme', label: i18n.t('HoverBorderFollowTheme') || 'Follow Theme' },
-                    { value: 'inverted', label: i18n.t('HoverBorderInverted') || 'Inverted' },
-                    { value: 'black', label: i18n.t('HoverBorderBlack') || 'Black' },
-                    { value: 'hidden', label: i18n.t('HoverBorderHidden') || 'Hidden' }
-                ],
-                layoutManager.getHoverBorderStyle()
-            )}
+                            'hover-border-style-select',
+                            [
+                                { value: 'white', label: i18n.t('HoverBorderWhite') || 'White' },
+                                { value: 'follow-theme', label: i18n.t('HoverBorderFollowTheme') || 'Follow Theme' },
+                                { value: 'inverted', label: i18n.t('HoverBorderInverted') || 'Inverted' },
+                                { value: 'black', label: i18n.t('HoverBorderBlack') || 'Black' },
+                                { value: 'hidden', label: i18n.t('HoverBorderHidden') || 'Hidden' }
+                            ],
+                            layoutManager.getHoverBorderStyle()
+                        )}
                     </div>
                 </div>
 
@@ -1379,16 +1385,16 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-                'osd-logo-size-select',
-                [
-                    { value: 'small', label: i18n.t('Small') || 'Small' },
-                    { value: 'medium', label: i18n.t('Medium') || 'Medium' },
-                    { value: 'large', label: i18n.t('Large') || 'Large' },
-                    { value: 'extralarge', label: i18n.t('ExtraLarge') || 'Extra Large' },
-                    { value: 'xxl', label: i18n.t('DoubleExtraLarge') || 'XXL' }
-                ],
-                PlayerSettings.get('osdLogoSize') || 'medium'
-            )}
+                            'osd-logo-size-select',
+                            [
+                                { value: 'small', label: i18n.t('Small') || 'Small' },
+                                { value: 'medium', label: i18n.t('Medium') || 'Medium' },
+                                { value: 'large', label: i18n.t('Large') || 'Large' },
+                                { value: 'extralarge', label: i18n.t('ExtraLarge') || 'Extra Large' },
+                                { value: 'xxl', label: i18n.t('DoubleExtraLarge') || 'XXL' }
+                            ],
+                            PlayerSettings.get('osdLogoSize') || 'medium'
+                        )}
                     </div>
                 </div>
 
@@ -1427,13 +1433,13 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-                'osd-time-display-select',
-                [
-                    { value: 'total', label: i18n.t('OsdTimeTotal') || 'Total Duration' },
-                    { value: 'remaining', label: i18n.t('OsdTimeRemaining') || 'Remaining Time' }
-                ],
-                PlayerSettings.get('osdTimeDisplayMode') || 'total'
-            )}
+                            'osd-time-display-select',
+                            [
+                                { value: 'total', label: i18n.t('OsdTimeTotal') || 'Total Duration' },
+                                { value: 'remaining', label: i18n.t('OsdTimeRemaining') || 'Remaining Time' }
+                            ],
+                            PlayerSettings.get('osdTimeDisplayMode') || 'total'
+                        )}
                     </div>
                 </div>
 
@@ -1444,12 +1450,12 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control slider-control">
                         ${this._renderSlider(
-                'osd-track-menu-bg-opacity',
-                PlayerSettings.get('osdTrackMenuBgOpacity') ?? 85,
-                0,
-                100,
-                5
-            )}
+                            'osd-track-menu-bg-opacity',
+                            PlayerSettings.get('osdTrackMenuBgOpacity') ?? 85,
+                            0,
+                            100,
+                            5
+                        )}
                     </div>
                 </div>
 
@@ -1460,20 +1466,20 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-                'osd-button-style-select',
-                [
-                    { value: 'follow-global', label: i18n.t('OsdStyleFollowGlobal') || 'Follow Global' },
-                    { value: 'theme-default', label: i18n.t('BtnStyleThemeDefault') || 'Theme Default' },
-                    { value: 'theme-inverted', label: i18n.t('BtnStyleThemeInverted') || 'Theme Inverted' },
-                    { value: 'monochrome-bw', label: i18n.t('BtnStyleMonoBW') || 'White & Black' },
-                    { value: 'monochrome-wb', label: i18n.t('BtnStyleMonoWB') || 'Black & White' },
-                    { value: 'white-accent', label: i18n.t('BtnStyleWhiteAccent') || 'White & Accent' },
-                    { value: 'black-accent', label: i18n.t('BtnStyleBlackAccent') || 'Black & Accent' },
-                    { value: 'accent-white', label: i18n.t('BtnStyleAccentWhite') || 'Accent & White' },
-                    { value: 'accent-black', label: i18n.t('BtnStyleAccentBlack') || 'Accent & Black' }
-                ],
-                layoutManager.getOsdButtonStyle()
-            )}
+                            'osd-button-style-select',
+                            [
+                                { value: 'follow-global', label: i18n.t('OsdStyleFollowGlobal') || 'Follow Global' },
+                                { value: 'theme-default', label: i18n.t('BtnStyleThemeDefault') || 'Theme Default' },
+                                { value: 'theme-inverted', label: i18n.t('BtnStyleThemeInverted') || 'Theme Inverted' },
+                                { value: 'monochrome-bw', label: i18n.t('BtnStyleMonoBW') || 'White & Black' },
+                                { value: 'monochrome-wb', label: i18n.t('BtnStyleMonoWB') || 'Black & White' },
+                                { value: 'white-accent', label: i18n.t('BtnStyleWhiteAccent') || 'White & Accent' },
+                                { value: 'black-accent', label: i18n.t('BtnStyleBlackAccent') || 'Black & Accent' },
+                                { value: 'accent-white', label: i18n.t('BtnStyleAccentWhite') || 'Accent & White' },
+                                { value: 'accent-black', label: i18n.t('BtnStyleAccentBlack') || 'Accent & Black' }
+                            ],
+                            layoutManager.getOsdButtonStyle()
+                        )}
                     </div>
                 </div>
 
@@ -1484,17 +1490,17 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-                'osd-focus-border-style-select',
-                [
-                    { value: 'follow-global', label: i18n.t('OsdStyleFollowGlobal') || 'Follow Global' },
-                    { value: 'hidden', label: i18n.t('FocusBorderHidden') || 'Hidden' },
-                    { value: 'follow-theme', label: i18n.t('FocusBorderFollowTheme') || 'Follow Theme' },
-                    { value: 'inverted', label: i18n.t('FocusBorderInverted') || 'Inverted' },
-                    { value: 'white', label: i18n.t('FocusBorderWhite') || 'White' },
-                    { value: 'black', label: i18n.t('FocusBorderBlack') || 'Black' }
-                ],
-                layoutManager.getOsdFocusBorderStyle()
-            )}
+                            'osd-focus-border-style-select',
+                            [
+                                { value: 'follow-global', label: i18n.t('OsdStyleFollowGlobal') || 'Follow Global' },
+                                { value: 'hidden', label: i18n.t('FocusBorderHidden') || 'Hidden' },
+                                { value: 'follow-theme', label: i18n.t('FocusBorderFollowTheme') || 'Follow Theme' },
+                                { value: 'inverted', label: i18n.t('FocusBorderInverted') || 'Inverted' },
+                                { value: 'white', label: i18n.t('FocusBorderWhite') || 'White' },
+                                { value: 'black', label: i18n.t('FocusBorderBlack') || 'Black' }
+                            ],
+                            layoutManager.getOsdFocusBorderStyle()
+                        )}
                     </div>
                 </div>
 
@@ -1505,18 +1511,18 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-                'osd-button-shape-select',
-                [
-                    { value: 'circle', label: i18n.t('OsdShapeCircle') || 'Circle' },
-                    { value: 'rounded-square', label: i18n.t('OsdShapeRoundedSquare') || 'Rounded Square' },
-                    { value: 'squircle', label: i18n.t('OsdShapeSquircle') || 'Squircle' },
-                    { value: 'organic-leaf', label: i18n.t('OsdShapeLeaf') || 'Leaf Shape' },
-                    { value: 'hexagon', label: i18n.t('OsdShapeHexagon') || 'Hexagon' },
-                    { value: 'outline', label: i18n.t('OsdShapeOutline') || 'Outline' },
-                    { value: 'icon-only', label: i18n.t('OsdShapeIconOnly') || 'Icon Only' }
-                ],
-                layoutManager.getOsdButtonShape()
-            )}
+                            'osd-button-shape-select',
+                            [
+                                { value: 'circle', label: i18n.t('OsdShapeCircle') || 'Circle' },
+                                { value: 'rounded-square', label: i18n.t('OsdShapeRoundedSquare') || 'Rounded Square' },
+                                { value: 'squircle', label: i18n.t('OsdShapeSquircle') || 'Squircle' },
+                                { value: 'organic-leaf', label: i18n.t('OsdShapeLeaf') || 'Leaf Shape' },
+                                { value: 'hexagon', label: i18n.t('OsdShapeHexagon') || 'Hexagon' },
+                                { value: 'outline', label: i18n.t('OsdShapeOutline') || 'Outline' },
+                                { value: 'icon-only', label: i18n.t('OsdShapeIconOnly') || 'Icon Only' }
+                            ],
+                            layoutManager.getOsdButtonShape()
+                        )}
                     </div>
                 </div>
 
@@ -1527,17 +1533,17 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-                'osd-unfocused-button-style-select',
-                [
-                    { value: 'icon-only', label: i18n.t('OsdUnfocusedStyleIconOnly') || 'Icon Only' },
-                    { value: 'outline', label: i18n.t('OsdUnfocusedStyleOutline') || 'Outline' },
-                    {
-                        value: 'semi-transparent',
-                        label: i18n.t('OsdUnfocusedStyleSemiTransparent') || 'Semi-Transparent'
-                    }
-                ],
-                layoutManager.getOsdUnfocusedButtonStyle()
-            )}
+                            'osd-unfocused-button-style-select',
+                            [
+                                { value: 'icon-only', label: i18n.t('OsdUnfocusedStyleIconOnly') || 'Icon Only' },
+                                { value: 'outline', label: i18n.t('OsdUnfocusedStyleOutline') || 'Outline' },
+                                {
+                                    value: 'semi-transparent',
+                                    label: i18n.t('OsdUnfocusedStyleSemiTransparent') || 'Semi-Transparent'
+                                }
+                            ],
+                            layoutManager.getOsdUnfocusedButtonStyle()
+                        )}
                     </div>
                 </div>
 
@@ -1548,15 +1554,15 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-                'osd-seekbar-thumb-color-select',
-                [
-                    { value: 'white', label: i18n.t('OsdThumbWhite') || 'White' },
-                    { value: 'black', label: i18n.t('OsdThumbBlack') || 'Black' },
-                    { value: 'theme-accent', label: i18n.t('OsdThumbAccent') || 'Theme Accent' },
-                    { value: 'theme-inverted', label: i18n.t('OsdThumbInverted') || 'Theme Inverted' }
-                ],
-                layoutManager.getOsdSeekBarThumbColor()
-            )}
+                            'osd-seekbar-thumb-color-select',
+                            [
+                                { value: 'white', label: i18n.t('OsdThumbWhite') || 'White' },
+                                { value: 'black', label: i18n.t('OsdThumbBlack') || 'Black' },
+                                { value: 'theme-accent', label: i18n.t('OsdThumbAccent') || 'Theme Accent' },
+                                { value: 'theme-inverted', label: i18n.t('OsdThumbInverted') || 'Theme Inverted' }
+                            ],
+                            layoutManager.getOsdSeekBarThumbColor()
+                        )}
                     </div>
                 </div>
 
@@ -1567,15 +1573,15 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-                'osd-seekbar-progress-color-select',
-                [
-                    { value: 'theme-accent', label: i18n.t('OsdThumbAccent') || 'Theme Accent' },
-                    { value: 'white', label: i18n.t('OsdThumbWhite') || 'White' },
-                    { value: 'black', label: i18n.t('OsdThumbBlack') || 'Black' },
-                    { value: 'theme-inverted', label: i18n.t('OsdThumbInverted') || 'Theme Inverted' }
-                ],
-                layoutManager.getOsdSeekBarProgressColor()
-            )}
+                            'osd-seekbar-progress-color-select',
+                            [
+                                { value: 'theme-accent', label: i18n.t('OsdThumbAccent') || 'Theme Accent' },
+                                { value: 'white', label: i18n.t('OsdThumbWhite') || 'White' },
+                                { value: 'black', label: i18n.t('OsdThumbBlack') || 'Black' },
+                                { value: 'theme-inverted', label: i18n.t('OsdThumbInverted') || 'Theme Inverted' }
+                            ],
+                            layoutManager.getOsdSeekBarProgressColor()
+                        )}
                     </div>
                 </div>
 
@@ -1588,15 +1594,15 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-                'next-up-dialog-style-select',
-                [
-                    { value: 'normal', label: i18n.t('OptionStyleNormal') || 'Normal' },
-                    { value: 'no_image', label: i18n.t('OptionStyleNoImage') || 'No Image' },
-                    { value: 'compact', label: i18n.t('OptionStyleCompact') || 'Compact' },
-                    { value: 'button', label: i18n.t('OptionStyleButton') || 'Button' }
-                ],
-                PlayerSettings.get('nextUpDialogStyle') || 'normal'
-            )}
+                            'next-up-dialog-style-select',
+                            [
+                                { value: 'normal', label: i18n.t('OptionStyleNormal') || 'Normal' },
+                                { value: 'no_image', label: i18n.t('OptionStyleNoImage') || 'No Image' },
+                                { value: 'compact', label: i18n.t('OptionStyleCompact') || 'Compact' },
+                                { value: 'button', label: i18n.t('OptionStyleButton') || 'Button' }
+                            ],
+                            PlayerSettings.get('nextUpDialogStyle') || 'normal'
+                        )}
                     </div>
                 </div>
 
@@ -1608,16 +1614,16 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-                'next-up-dialog-scale-select',
-                [
-                    { value: 0.5, label: i18n.t('ExtraSmall') || 'Extra Small' },
-                    { value: 0.75, label: i18n.t('Small') || 'Small' },
-                    { value: 1.0, label: i18n.t('Medium') || 'Medium' },
-                    { value: 1.25, label: i18n.t('Large') || 'Large' },
-                    { value: 1.5, label: i18n.t('ExtraLarge') || 'Extra Large' }
-                ],
-                PlayerSettings.get('nextUpDialogScale') || 1.0
-            )}
+                            'next-up-dialog-scale-select',
+                            [
+                                { value: 0.5, label: i18n.t('ExtraSmall') || 'Extra Small' },
+                                { value: 0.75, label: i18n.t('Small') || 'Small' },
+                                { value: 1.0, label: i18n.t('Medium') || 'Medium' },
+                                { value: 1.25, label: i18n.t('Large') || 'Large' },
+                                { value: 1.5, label: i18n.t('ExtraLarge') || 'Extra Large' }
+                            ],
+                            PlayerSettings.get('nextUpDialogScale') || 1.0
+                        )}
                     </div>
                 </div>
 
@@ -1657,21 +1663,21 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-                'theme-song-volume-select',
-                [
-                    { value: '0.1', label: '10%' },
-                    { value: '0.2', label: '20%' },
-                    { value: '0.3', label: '30%' },
-                    { value: '0.4', label: '40%' },
-                    { value: '0.5', label: '50%' },
-                    { value: '0.6', label: '60%' },
-                    { value: '0.7', label: '70%' },
-                    { value: '0.8', label: '80%' },
-                    { value: '0.9', label: '90%' },
-                    { value: '1.0', label: '100%' }
-                ],
-                storage.getItem('pref:themeSongVolume') || '0.3'
-            )}
+                            'theme-song-volume-select',
+                            [
+                                { value: '0.1', label: '10%' },
+                                { value: '0.2', label: '20%' },
+                                { value: '0.3', label: '30%' },
+                                { value: '0.4', label: '40%' },
+                                { value: '0.5', label: '50%' },
+                                { value: '0.6', label: '60%' },
+                                { value: '0.7', label: '70%' },
+                                { value: '0.8', label: '80%' },
+                                { value: '0.9', label: '90%' },
+                                { value: '1.0', label: '100%' }
+                            ],
+                            storage.getItem('pref:themeSongVolume') || '0.3'
+                        )}
                     </div>
                 </div>
 
@@ -1736,7 +1742,7 @@ class SettingsPage extends Page {
                 </div>
 
                 <!-- Conditional container for MAC Address entry -->
-                <div class="setting-item" id="wol-mac-container" style="display: ${(storage.getItem('pref:enableWolOnStartup') === 'true' || storage.getItem('pref:enableWolOnTimeout') === 'true' || storage.getItem('pref:enableWolOnServerScan') === 'true' || storage.getItem('pref:enableWolExtendedWait') === 'true') ? '' : 'none'}">
+                <div class="setting-item" id="wol-mac-container" style="display: ${storage.getItem('pref:enableWolOnStartup') === 'true' || storage.getItem('pref:enableWolOnTimeout') === 'true' || storage.getItem('pref:enableWolOnServerScan') === 'true' || storage.getItem('pref:enableWolExtendedWait') === 'true' ? '' : 'none'}">
                     <div class="setting-label">
                         <span class="setting-name" data-i18n="WolMacAddress">${i18n.t('WolMacAddress')}</span>
                         <span class="setting-description" data-i18n="WolMacAddressDescription">${i18n.t('WolMacAddressDescription')}</span>
@@ -1779,13 +1785,13 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-            'login-page-layout-select',
-            [
-                { value: 'classic', label: i18n.t('LayoutClassic') || 'Classic' },
-                { value: 'modern', label: i18n.t('LayoutModernLoginPage') || 'Modern layout' }
-            ],
-            layoutManager.getLoginPageLayout() || 'classic'
-        )}
+                            'login-page-layout-select',
+                            [
+                                { value: 'classic', label: i18n.t('LayoutClassic') || 'Classic' },
+                                { value: 'modern', label: i18n.t('LayoutModernLoginPage') || 'Modern layout' }
+                            ],
+                            layoutManager.getLoginPageLayout() || 'classic'
+                        )}
                     </div>
                 </div>
 
@@ -1796,14 +1802,17 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-            'osd-layout-select',
-            [
-                { value: 'left', label: i18n.t('OsdLayoutLeft') || 'Left Aligned (Default)' },
-                { value: 'centered', label: i18n.t('OsdLayoutCentered') || 'Centered' },
-                { value: 'hidden', label: i18n.t('OsdLayoutHidden') || 'Stealth / Anti-Spoiler (Hold Down to Reveal)' }
-            ],
-            PlayerSettings.get('osdLayout') || 'left'
-        )}
+                            'osd-layout-select',
+                            [
+                                { value: 'left', label: i18n.t('OsdLayoutLeft') || 'Left Aligned (Default)' },
+                                { value: 'centered', label: i18n.t('OsdLayoutCentered') || 'Centered' },
+                                {
+                                    value: 'hidden',
+                                    label: i18n.t('OsdLayoutHidden') || 'Stealth / Anti-Spoiler (Hold Down to Reveal)'
+                                }
+                            ],
+                            PlayerSettings.get('osdLayout') || 'left'
+                        )}
                     </div>
                 </div>
 
@@ -1815,16 +1824,16 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-            'media-rows-layout-select',
-            [
-                { value: 'classic', label: i18n.t('LayoutClassic') || 'Classic' },
-                { value: 'modern', label: i18n.t('LayoutModern') || 'Modern' },
-                { value: 'expanded', label: i18n.t('LayoutExpandedPosters') || 'Modern Cards' },
-                { value: 'modern-posters', label: i18n.t('LayoutModernPosters') || 'Modern Posters' },
-                { value: 'expanding', label: i18n.t('LayoutExpandingPosters') || 'Expanding Posters' }
-            ],
-            layoutManager.getMediaRowsLayout() || 'classic'
-        )}
+                            'media-rows-layout-select',
+                            [
+                                { value: 'classic', label: i18n.t('LayoutClassic') || 'Classic' },
+                                { value: 'modern', label: i18n.t('LayoutModern') || 'Modern' },
+                                { value: 'expanded', label: i18n.t('LayoutExpandedPosters') || 'Modern Cards' },
+                                { value: 'modern-posters', label: i18n.t('LayoutModernPosters') || 'Modern Posters' },
+                                { value: 'expanding', label: i18n.t('LayoutExpandingPosters') || 'Expanding Posters' }
+                            ],
+                            layoutManager.getMediaRowsLayout() || 'classic'
+                        )}
                     </div>
                 </div>
 
@@ -1864,29 +1873,29 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-            'details-layout-select',
-            [
-                {
-                    value: 'posterLeft',
-                    label: i18n.t('OptionDetailsLayoutPosterLeft') || 'Poster Left Aligned (Default)'
-                },
-                {
-                    value: 'posterRight',
-                    label: i18n.t('OptionDetailsLayoutPosterRight') || 'Poster Right Aligned'
-                },
-                {
-                    value: 'backdropMinimal',
-                    label:
-                        i18n.t('OptionDetailsLayoutBackdropMinimal') || 'Cinematic Backdrop (Centered)'
-                },
-                {
-                    value: 'backdropLeft',
-                    label:
-                        i18n.t('OptionDetailsLayoutBackdropLeft') || 'Cinematic Backdrop (Left Aligned)'
-                }
-            ],
-            storage.getItem('pref:detailsLayout') || 'posterLeft'
-        )}
+                            'details-layout-select',
+                            [
+                                {
+                                    value: 'posterLeft',
+                                    label: i18n.t('OptionDetailsLayoutPosterLeft') || 'Poster Left Aligned (Default)'
+                                },
+                                {
+                                    value: 'posterRight',
+                                    label: i18n.t('OptionDetailsLayoutPosterRight') || 'Poster Right Aligned'
+                                },
+                                {
+                                    value: 'backdropMinimal',
+                                    label:
+                                        i18n.t('OptionDetailsLayoutBackdropMinimal') || 'Cinematic Backdrop (Centered)'
+                                },
+                                {
+                                    value: 'backdropLeft',
+                                    label:
+                                        i18n.t('OptionDetailsLayoutBackdropLeft') || 'Cinematic Backdrop (Left Aligned)'
+                                }
+                            ],
+                            storage.getItem('pref:detailsLayout') || 'posterLeft'
+                        )}
                     </div>
                 </div>
 
@@ -1898,29 +1907,31 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-            'season-episode-details-layout-select',
-            [
-                {
-                    value: 'posterLeft',
-                    label: i18n.t('OptionDetailsLayoutPosterLeft') || 'Poster Left Aligned (Default)'
-                },
-                {
-                    value: 'posterRight',
-                    label: i18n.t('OptionDetailsLayoutPosterRight') || 'Poster Right Aligned'
-                },
-                {
-                    value: 'backdropMinimal',
-                    label:
-                        i18n.t('OptionDetailsLayoutBackdropMinimal') || 'Cinematic Backdrop (Centered)'
-                },
-                {
-                    value: 'backdropLeft',
-                    label:
-                        i18n.t('OptionDetailsLayoutBackdropLeft') || 'Cinematic Backdrop (Left Aligned)'
-                }
-            ],
-            storage.getItem('pref:seasonEpisodeDetailsLayout') || storage.getItem('pref:detailsLayout') || 'posterLeft'
-        )}
+                            'season-episode-details-layout-select',
+                            [
+                                {
+                                    value: 'posterLeft',
+                                    label: i18n.t('OptionDetailsLayoutPosterLeft') || 'Poster Left Aligned (Default)'
+                                },
+                                {
+                                    value: 'posterRight',
+                                    label: i18n.t('OptionDetailsLayoutPosterRight') || 'Poster Right Aligned'
+                                },
+                                {
+                                    value: 'backdropMinimal',
+                                    label:
+                                        i18n.t('OptionDetailsLayoutBackdropMinimal') || 'Cinematic Backdrop (Centered)'
+                                },
+                                {
+                                    value: 'backdropLeft',
+                                    label:
+                                        i18n.t('OptionDetailsLayoutBackdropLeft') || 'Cinematic Backdrop (Left Aligned)'
+                                }
+                            ],
+                            storage.getItem('pref:seasonEpisodeDetailsLayout') ||
+                                storage.getItem('pref:detailsLayout') ||
+                                'posterLeft'
+                        )}
                     </div>
                 </div>
 
@@ -1938,16 +1949,16 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-            'default-library-view-mode-select',
-            [
-                { value: 'poster', label: i18n.t('ViewModePoster') || 'Poster' },
-                { value: 'small-poster', label: i18n.t('ViewModeSmallPoster') || 'Small' },
-                { value: 'thumb', label: i18n.t('ViewModeThumb') || 'Thumbs' },
-                { value: 'banner', label: i18n.t('ViewModeBanner') || 'Banner' },
-                { value: 'list', label: i18n.t('ViewModeList') || 'List' }
-            ],
-            layoutManager.getDefaultLibraryViewMode() || 'poster'
-        )}
+                            'default-library-view-mode-select',
+                            [
+                                { value: 'poster', label: i18n.t('ViewModePoster') || 'Poster' },
+                                { value: 'small-poster', label: i18n.t('ViewModeSmallPoster') || 'Small' },
+                                { value: 'thumb', label: i18n.t('ViewModeThumb') || 'Thumbs' },
+                                { value: 'banner', label: i18n.t('ViewModeBanner') || 'Banner' },
+                                { value: 'list', label: i18n.t('ViewModeList') || 'List' }
+                            ],
+                            layoutManager.getDefaultLibraryViewMode() || 'poster'
+                        )}
                     </div>
                 </div>
 
@@ -1978,13 +1989,13 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-            'alpha-picker-position-select',
-            [
-                { value: 'top', label: i18n.t('OptionAlphaPickerTop') || 'Top (Horizontal)' },
-                { value: 'right', label: i18n.t('OptionAlphaPickerRight') || 'Right Side (Vertical)' }
-            ],
-            layoutManager.getAlphaPickerPosition() || 'top'
-        )}
+                            'alpha-picker-position-select',
+                            [
+                                { value: 'top', label: i18n.t('OptionAlphaPickerTop') || 'Top (Horizontal)' },
+                                { value: 'right', label: i18n.t('OptionAlphaPickerRight') || 'Right Side (Vertical)' }
+                            ],
+                            layoutManager.getAlphaPickerPosition() || 'top'
+                        )}
                     </div>
                 </div>
              
@@ -1999,13 +2010,13 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-            'osd-buttons-location-select',
-            [
-                { value: 'above', label: i18n.t('OsdButtonsAbove') || 'Above Seek Bar' },
-                { value: 'below', label: i18n.t('OsdButtonsBelow') || 'Below Seek Bar' }
-            ],
-            PlayerSettings.get('osdButtonsLocation') || 'above'
-        )}
+                            'osd-buttons-location-select',
+                            [
+                                { value: 'above', label: i18n.t('OsdButtonsAbove') || 'Above Seek Bar' },
+                                { value: 'below', label: i18n.t('OsdButtonsBelow') || 'Below Seek Bar' }
+                            ],
+                            PlayerSettings.get('osdButtonsLocation') || 'above'
+                        )}
                     </div>
                 </div>
 
@@ -2016,12 +2027,12 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control slider-control">
                         ${this._renderSlider(
-            'osd-gradient-opacity',
-            PlayerSettings.get('osdGradientOpacity') ?? 75,
-            0,
-            100,
-            5
-        )}
+                            'osd-gradient-opacity',
+                            PlayerSettings.get('osdGradientOpacity') ?? 75,
+                            0,
+                            100,
+                            5
+                        )}
                     </div>
                 </div>
 
@@ -2087,104 +2098,104 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${(() => {
-                const mediaRowsLayout = layoutManager.getMediaRowsLayout();
-                const isExpanded = mediaRowsLayout === 'expanded';
-                const isModernPosters = mediaRowsLayout === 'modern-posters';
-                const isModern = mediaRowsLayout === 'modern';
-                const isExpanding = mediaRowsLayout === 'expanding';
+                            const mediaRowsLayout = layoutManager.getMediaRowsLayout();
+                            const isExpanded = mediaRowsLayout === 'expanded';
+                            const isModernPosters = mediaRowsLayout === 'modern-posters';
+                            const isModern = mediaRowsLayout === 'modern';
+                            const isExpanding = mediaRowsLayout === 'expanding';
 
-                let cardSizeOptions;
-                let defaultValue;
-                let storageKey;
+                            let cardSizeOptions;
+                            let defaultValue;
+                            let storageKey;
 
-                if (isExpanded) {
-                    cardSizeOptions = [
-                        { value: '1', label: '100%' },
-                        { value: '1.05', label: '105%' },
-                        { value: '1.1', label: '110%' },
-                        { value: '1.15', label: '115%' },
-                        { value: '1.2', label: '120% (Default)' },
-                        { value: '1.25', label: '125%' },
-                        { value: '1.3', label: '130%' },
-                        { value: '1.35', label: '135%' },
-                        { value: '1.4', label: '140%' },
-                        { value: '1.45', label: '145%' },
-                        { value: '1.5', label: '150%' }
-                    ];
-                    defaultValue = '1.2';
-                    storageKey = 'pref:expandedCardSizeScale';
-                } else if (isModernPosters) {
-                    cardSizeOptions = [
-                        { value: '1', label: '100%' },
-                        { value: '1.05', label: '105%' },
-                        { value: '1.1', label: '110%' },
-                        { value: '1.15', label: '115%' },
-                        { value: '1.2', label: '120% (Default)' },
-                        { value: '1.25', label: '125%' },
-                        { value: '1.3', label: '130%' },
-                        { value: '1.35', label: '135%' },
-                        { value: '1.4', label: '140%' },
-                        { value: '1.45', label: '145%' },
-                        { value: '1.5', label: '150%' }
-                    ];
-                    defaultValue = '1.2';
-                    storageKey = 'pref:modernPostersCardSizeScale';
-                } else if (isModern) {
-                    cardSizeOptions = [
-                        { value: '1', label: '100%' },
-                        { value: '1.05', label: '105%' },
-                        { value: '1.1', label: '110%' },
-                        { value: '1.15', label: '115%' },
-                        { value: '1.2', label: '120% (Default)' },
-                        { value: '1.25', label: '125%' },
-                        { value: '1.3', label: '130%' },
-                        { value: '1.35', label: '135%' },
-                        { value: '1.4', label: '140%' },
-                        { value: '1.45', label: '145%' },
-                        { value: '1.5', label: '150%' }
-                    ];
-                    defaultValue = '1.2';
-                    storageKey = 'pref:modernCardSizeScale';
-                } else if (isExpanding) {
-                    cardSizeOptions = [
-                        { value: '1', label: '100% (Default)' },
-                        { value: '1.05', label: '105%' },
-                        { value: '1.1', label: '110%' },
-                        { value: '1.15', label: '115%' },
-                        { value: '1.2', label: '120%' },
-                        { value: '1.25', label: '125%' },
-                        { value: '1.3', label: '130%' },
-                        { value: '1.35', label: '135%' },
-                        { value: '1.4', label: '140%' },
-                        { value: '1.45', label: '145%' },
-                        { value: '1.5', label: '150%' }
-                    ];
-                    defaultValue = '1';
-                    storageKey = 'pref:expandingCardSizeScale';
-                } else {
-                    cardSizeOptions = [
-                        { value: '1', label: '100% (Small / Default)' },
-                        { value: '1.05', label: '105%' },
-                        { value: '1.1', label: '110%' },
-                        { value: '1.15', label: '115%' },
-                        { value: '1.2', label: '120%' },
-                        { value: '1.25', label: '125%' },
-                        { value: '1.3', label: '130%' },
-                        { value: '1.35', label: '135%' },
-                        { value: '1.4', label: '140%' },
-                        { value: '1.45', label: '145%' },
-                        { value: '1.5', label: '150%' }
-                    ];
-                    defaultValue = '1';
-                    storageKey = 'pref:classicCardSizeScale';
-                }
+                            if (isExpanded) {
+                                cardSizeOptions = [
+                                    { value: '1', label: '100%' },
+                                    { value: '1.05', label: '105%' },
+                                    { value: '1.1', label: '110%' },
+                                    { value: '1.15', label: '115%' },
+                                    { value: '1.2', label: '120% (Default)' },
+                                    { value: '1.25', label: '125%' },
+                                    { value: '1.3', label: '130%' },
+                                    { value: '1.35', label: '135%' },
+                                    { value: '1.4', label: '140%' },
+                                    { value: '1.45', label: '145%' },
+                                    { value: '1.5', label: '150%' }
+                                ];
+                                defaultValue = '1.2';
+                                storageKey = 'pref:expandedCardSizeScale';
+                            } else if (isModernPosters) {
+                                cardSizeOptions = [
+                                    { value: '1', label: '100%' },
+                                    { value: '1.05', label: '105%' },
+                                    { value: '1.1', label: '110%' },
+                                    { value: '1.15', label: '115%' },
+                                    { value: '1.2', label: '120% (Default)' },
+                                    { value: '1.25', label: '125%' },
+                                    { value: '1.3', label: '130%' },
+                                    { value: '1.35', label: '135%' },
+                                    { value: '1.4', label: '140%' },
+                                    { value: '1.45', label: '145%' },
+                                    { value: '1.5', label: '150%' }
+                                ];
+                                defaultValue = '1.2';
+                                storageKey = 'pref:modernPostersCardSizeScale';
+                            } else if (isModern) {
+                                cardSizeOptions = [
+                                    { value: '1', label: '100%' },
+                                    { value: '1.05', label: '105%' },
+                                    { value: '1.1', label: '110%' },
+                                    { value: '1.15', label: '115%' },
+                                    { value: '1.2', label: '120% (Default)' },
+                                    { value: '1.25', label: '125%' },
+                                    { value: '1.3', label: '130%' },
+                                    { value: '1.35', label: '135%' },
+                                    { value: '1.4', label: '140%' },
+                                    { value: '1.45', label: '145%' },
+                                    { value: '1.5', label: '150%' }
+                                ];
+                                defaultValue = '1.2';
+                                storageKey = 'pref:modernCardSizeScale';
+                            } else if (isExpanding) {
+                                cardSizeOptions = [
+                                    { value: '1', label: '100% (Default)' },
+                                    { value: '1.05', label: '105%' },
+                                    { value: '1.1', label: '110%' },
+                                    { value: '1.15', label: '115%' },
+                                    { value: '1.2', label: '120%' },
+                                    { value: '1.25', label: '125%' },
+                                    { value: '1.3', label: '130%' },
+                                    { value: '1.35', label: '135%' },
+                                    { value: '1.4', label: '140%' },
+                                    { value: '1.45', label: '145%' },
+                                    { value: '1.5', label: '150%' }
+                                ];
+                                defaultValue = '1';
+                                storageKey = 'pref:expandingCardSizeScale';
+                            } else {
+                                cardSizeOptions = [
+                                    { value: '1', label: '100% (Small / Default)' },
+                                    { value: '1.05', label: '105%' },
+                                    { value: '1.1', label: '110%' },
+                                    { value: '1.15', label: '115%' },
+                                    { value: '1.2', label: '120%' },
+                                    { value: '1.25', label: '125%' },
+                                    { value: '1.3', label: '130%' },
+                                    { value: '1.35', label: '135%' },
+                                    { value: '1.4', label: '140%' },
+                                    { value: '1.45', label: '145%' },
+                                    { value: '1.5', label: '150%' }
+                                ];
+                                defaultValue = '1';
+                                storageKey = 'pref:classicCardSizeScale';
+                            }
 
-                return this._renderDropdown(
-                    'classic-card-size-scale-select',
-                    cardSizeOptions,
-                    storage.getItem(storageKey) || defaultValue
-                );
-            })()}
+                            return this._renderDropdown(
+                                'classic-card-size-scale-select',
+                                cardSizeOptions,
+                                storage.getItem(storageKey) || defaultValue
+                            );
+                        })()}
                     </div>
                 </div>
 
@@ -2195,26 +2206,26 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-                'card-label-scale-select',
-                [
-                    { value: '0.8', label: '80%' },
-                    { value: '0.85', label: '85%' },
-                    { value: '0.9', label: '90%' },
-                    { value: '0.95', label: '95%' },
-                    { value: '1', label: 'Normal (100%)' },
-                    { value: '1.05', label: '105%' },
-                    { value: '1.1', label: '110%' },
-                    { value: '1.15', label: '115%' },
-                    { value: '1.2', label: '120%' },
-                    { value: '1.25', label: '125%' },
-                    { value: '1.3', label: '130%' },
-                    { value: '1.35', label: '135%' },
-                    { value: '1.4', label: '140%' },
-                    { value: '1.45', label: '145%' },
-                    { value: '1.5', label: '150%' }
-                ],
-                (layoutManager.getCardLabelScale() || 1.0).toString()
-            )}
+                            'card-label-scale-select',
+                            [
+                                { value: '0.8', label: '80%' },
+                                { value: '0.85', label: '85%' },
+                                { value: '0.9', label: '90%' },
+                                { value: '0.95', label: '95%' },
+                                { value: '1', label: 'Normal (100%)' },
+                                { value: '1.05', label: '105%' },
+                                { value: '1.1', label: '110%' },
+                                { value: '1.15', label: '115%' },
+                                { value: '1.2', label: '120%' },
+                                { value: '1.25', label: '125%' },
+                                { value: '1.3', label: '130%' },
+                                { value: '1.35', label: '135%' },
+                                { value: '1.4', label: '140%' },
+                                { value: '1.45', label: '145%' },
+                                { value: '1.5', label: '150%' }
+                            ],
+                            (layoutManager.getCardLabelScale() || 1.0).toString()
+                        )}
                     </div>
                 </div>
 
@@ -2240,21 +2251,21 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-                'card-label-style-select',
-                [
-                    {
-                        value: 'default',
-                        label: i18n.t('CardLabelStyleDefault') || 'Show Title and Subtitle'
-                    },
-                    { value: 'titleOnly', label: i18n.t('CardLabelStyleTitleOnly') || 'Show Title Only' },
-                    {
-                        value: 'titleOnly2Lines',
-                        label: i18n.t('CardLabelStyleTitleOnly2Lines') || 'Show Title Only (2 Lines)'
-                    },
-                    { value: 'hidden', label: i18n.t('CardLabelStyleHidden') || 'Hidden' }
-                ],
-                storage.getItem('pref:cardLabelStyle') || 'default'
-            )}
+                            'card-label-style-select',
+                            [
+                                {
+                                    value: 'default',
+                                    label: i18n.t('CardLabelStyleDefault') || 'Show Title and Subtitle'
+                                },
+                                { value: 'titleOnly', label: i18n.t('CardLabelStyleTitleOnly') || 'Show Title Only' },
+                                {
+                                    value: 'titleOnly2Lines',
+                                    label: i18n.t('CardLabelStyleTitleOnly2Lines') || 'Show Title Only (2 Lines)'
+                                },
+                                { value: 'hidden', label: i18n.t('CardLabelStyleHidden') || 'Hidden' }
+                            ],
+                            storage.getItem('pref:cardLabelStyle') || 'default'
+                        )}
                     </div>
                 </div>
 
@@ -2265,15 +2276,15 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-                'card-label-align-select',
-                [
-                    { value: 'center', label: i18n.t('CardLabelAlignDefault') || 'Center' },
-                    { value: 'start', label: i18n.t('CardLabelAlignStart') || 'Align to Start' },
-                    { value: 'end', label: i18n.t('CardLabelAlignEnd') || 'Align to End' }
-                ],
-                // Defaults to 'start' now for clean typography alignment
-                storage.getItem('pref:cardLabelAlign') || 'start'
-            )}
+                            'card-label-align-select',
+                            [
+                                { value: 'center', label: i18n.t('CardLabelAlignDefault') || 'Center' },
+                                { value: 'start', label: i18n.t('CardLabelAlignStart') || 'Align to Start' },
+                                { value: 'end', label: i18n.t('CardLabelAlignEnd') || 'Align to End' }
+                            ],
+                            // Defaults to 'start' now for clean typography alignment
+                            storage.getItem('pref:cardLabelAlign') || 'start'
+                        )}
                     </div>
                 </div>
 
@@ -2297,14 +2308,14 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-                'badge-style-select',
-                [
-                    { value: 'auto', label: i18n.t('BadgeStyleAuto') || 'Auto (Follow Layout)' },
-                    { value: 'tinted', label: i18n.t('BadgeStyleTinted') || 'Accent Tinted' },
-                    { value: 'dark', label: i18n.t('BadgeStyleDark') || 'Translucent Dark' }
-                ],
-                layoutManager.getBadgeStyle() || 'auto'
-            )}
+                            'badge-style-select',
+                            [
+                                { value: 'auto', label: i18n.t('BadgeStyleAuto') || 'Auto (Follow Layout)' },
+                                { value: 'tinted', label: i18n.t('BadgeStyleTinted') || 'Accent Tinted' },
+                                { value: 'dark', label: i18n.t('BadgeStyleDark') || 'Translucent Dark' }
+                            ],
+                            layoutManager.getBadgeStyle() || 'auto'
+                        )}
                     </div>
                 </div>
 
@@ -2413,13 +2424,13 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-                'episode-layout-select',
-                [
-                    { value: 'grid', label: i18n.t('EpisodeLayoutGrid') || 'Grid' },
-                    { value: 'list', label: i18n.t('EpisodeLayoutList') || 'List with Details' }
-                ],
-                storage.getItem('pref:episodeLayout') || 'list'
-            )}
+                            'episode-layout-select',
+                            [
+                                { value: 'grid', label: i18n.t('EpisodeLayoutGrid') || 'Grid' },
+                                { value: 'list', label: i18n.t('EpisodeLayoutList') || 'List with Details' }
+                            ],
+                            storage.getItem('pref:episodeLayout') || 'list'
+                        )}
                     </div>
                 </div>
 
@@ -2430,25 +2441,25 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-                'score-visibility-select',
-                [
-                    { value: 'all', label: i18n.t('OptionScoreAll') || 'Show All' },
-                    { value: 'mystery', label: i18n.t('OptionScoreMystery') || 'Mystery Mode (Hide All)' },
-                    { value: 'watched', label: i18n.t('OptionScoreWatched') || 'Watched Items Only' }
-                ],
-                storage.getItem('pref:scoreVisibility') || 'all'
-            )}
+                            'score-visibility-select',
+                            [
+                                { value: 'all', label: i18n.t('OptionScoreAll') || 'Show All' },
+                                { value: 'mystery', label: i18n.t('OptionScoreMystery') || 'Mystery Mode (Hide All)' },
+                                { value: 'watched', label: i18n.t('OptionScoreWatched') || 'Watched Items Only' }
+                            ],
+                            storage.getItem('pref:scoreVisibility') || 'all'
+                        )}
                     </div>
                 </div>
 
                 ${(() => {
-                // Check if both media types are using cinematic backdrops; hide title style dropdown only if both are
-                const movieLayout = storage.getItem('pref:detailsLayout') || 'posterLeft';
-                const seasonLayout = storage.getItem('pref:seasonEpisodeDetailsLayout') || movieLayout;
-                const isMovieBackdrop = movieLayout === 'backdropMinimal' || movieLayout === 'backdropLeft';
-                const isSeasonBackdrop = seasonLayout === 'backdropMinimal' || seasonLayout === 'backdropLeft';
-                const hideTitleStyle = isMovieBackdrop && isSeasonBackdrop;
-                return `
+                    // Check if both media types are using cinematic backdrops; hide title style dropdown only if both are
+                    const movieLayout = storage.getItem('pref:detailsLayout') || 'posterLeft';
+                    const seasonLayout = storage.getItem('pref:seasonEpisodeDetailsLayout') || movieLayout;
+                    const isMovieBackdrop = movieLayout === 'backdropMinimal' || movieLayout === 'backdropLeft';
+                    const isSeasonBackdrop = seasonLayout === 'backdropMinimal' || seasonLayout === 'backdropLeft';
+                    const hideTitleStyle = isMovieBackdrop && isSeasonBackdrop;
+                    return `
                 <div class="setting-item ${hideTitleStyle ? 'hidden' : ''}" id="details-title-style-container">
                     <div class="setting-label">
                         <span class="setting-name" data-i18n="LabelDetailsTitleStyle">${i18n.t('LabelDetailsTitleStyle') || 'Title and Icon Style'}</span>
@@ -2456,26 +2467,26 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-                    'details-title-style-select',
-                    [
-                        {
-                            value: 'both',
-                            label: i18n.t('OptionDetailsTitleStyleBoth') || 'Text Title and Icon'
-                        },
-                        {
-                            value: 'logo-only',
-                            label: i18n.t('OptionDetailsTitleStyleLogoOnly') || 'Only Icon as Title (Large)'
-                        },
-                        {
-                            value: 'text-only',
-                            label: i18n.t('OptionDetailsTitleStyleTextOnly') || 'Only Text Title'
-                        }
-                    ],
-                    storage.getItem('pref:detailsTitleStyle') || 'both'
-                )}
+                            'details-title-style-select',
+                            [
+                                {
+                                    value: 'both',
+                                    label: i18n.t('OptionDetailsTitleStyleBoth') || 'Text Title and Icon'
+                                },
+                                {
+                                    value: 'logo-only',
+                                    label: i18n.t('OptionDetailsTitleStyleLogoOnly') || 'Only Icon as Title (Large)'
+                                },
+                                {
+                                    value: 'text-only',
+                                    label: i18n.t('OptionDetailsTitleStyleTextOnly') || 'Only Text Title'
+                                }
+                            ],
+                            storage.getItem('pref:detailsTitleStyle') || 'both'
+                        )}
                     </div>
                 </div>`;
-            })()}
+                })()}
 
                 <div class="setting-item">
                     <div class="setting-label">
@@ -2484,24 +2495,30 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-                'details-overview-max-lines-select',
-                [
-                    { value: '2', label: i18n.t('ValueLines', [2]) || '2 lines' },
-                    { value: '3', label: i18n.t('ValueLines', [3]) || '3 lines' },
-                    { value: '4', label: i18n.t('ValueLines', [4]) || '4 lines' },
-                    { value: '5', label: i18n.t('ValueLines', [5]) || '5 lines' },
-                    {
-                        value: '6',
-                        label: `${i18n.t('ValueLines', [6]) || '6 lines'} (${i18n.t('Default') || 'Default'})`
-                    },
-                    { value: '7', label: i18n.t('ValueLines', [7]) || '7 lines' },
-                    { value: '8', label: i18n.t('ValueLines', [8]) || '8 lines' },
-                    { value: '10', label: i18n.t('ValueLines', [10]) || '10 lines' },
-                    { value: '12', label: i18n.t('ValueLines', [12]) || '12 lines' },
-                    { value: 'none', label: i18n.t('OptionDetailsOverviewLinesNone') || i18n.t('Unlimited') || 'Unlimited (Full Overview)' }
-                ],
-                storage.getItem('pref:detailsOverviewMaxLines') || '6'
-            )}
+                            'details-overview-max-lines-select',
+                            [
+                                { value: '2', label: i18n.t('ValueLines', [2]) || '2 lines' },
+                                { value: '3', label: i18n.t('ValueLines', [3]) || '3 lines' },
+                                { value: '4', label: i18n.t('ValueLines', [4]) || '4 lines' },
+                                { value: '5', label: i18n.t('ValueLines', [5]) || '5 lines' },
+                                {
+                                    value: '6',
+                                    label: `${i18n.t('ValueLines', [6]) || '6 lines'} (${i18n.t('Default') || 'Default'})`
+                                },
+                                { value: '7', label: i18n.t('ValueLines', [7]) || '7 lines' },
+                                { value: '8', label: i18n.t('ValueLines', [8]) || '8 lines' },
+                                { value: '10', label: i18n.t('ValueLines', [10]) || '10 lines' },
+                                { value: '12', label: i18n.t('ValueLines', [12]) || '12 lines' },
+                                {
+                                    value: 'none',
+                                    label:
+                                        i18n.t('OptionDetailsOverviewLinesNone') ||
+                                        i18n.t('Unlimited') ||
+                                        'Unlimited (Full Overview)'
+                                }
+                            ],
+                            storage.getItem('pref:detailsOverviewMaxLines') || '6'
+                        )}
                     </div>
                 </div>
 
@@ -2606,22 +2623,23 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-                'show-dates-select',
-                [
-                    { value: 'none', label: i18n.t('OptionDatesNone') || 'Hide All' },
-                    { value: 'both', label: i18n.t('OptionDatesBoth') || 'Show Both (Added & Aired)' },
-                    { value: 'added', label: i18n.t('OptionDatesAddedOnly') || 'Show Added Date Only' },
-                    { value: 'aired', label: i18n.t('OptionDatesAiredOnly') || 'Show Aired Date Only' }
-                ],
-                storage.getItem('pref:showDates') ||
-                (storage.getItem('pref:showAddedDate') === 'true' && storage.getItem('pref:showDateAired') === 'true'
-                    ? 'both'
-                    : storage.getItem('pref:showAddedDate') === 'true'
-                        ? 'added'
-                        : storage.getItem('pref:showDateAired') === 'true'
-                            ? 'aired'
-                            : 'none')
-            )}
+                            'show-dates-select',
+                            [
+                                { value: 'none', label: i18n.t('OptionDatesNone') || 'Hide All' },
+                                { value: 'both', label: i18n.t('OptionDatesBoth') || 'Show Both (Added & Aired)' },
+                                { value: 'added', label: i18n.t('OptionDatesAddedOnly') || 'Show Added Date Only' },
+                                { value: 'aired', label: i18n.t('OptionDatesAiredOnly') || 'Show Aired Date Only' }
+                            ],
+                            storage.getItem('pref:showDates') ||
+                                (storage.getItem('pref:showAddedDate') === 'true' &&
+                                storage.getItem('pref:showDateAired') === 'true'
+                                    ? 'both'
+                                    : storage.getItem('pref:showAddedDate') === 'true'
+                                      ? 'added'
+                                      : storage.getItem('pref:showDateAired') === 'true'
+                                        ? 'aired'
+                                        : 'none')
+                        )}
                     </div>
                 </div>
 
@@ -2658,32 +2676,32 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-                'rich-metadata-select',
-                [
-                    { value: 'all', label: i18n.t('OptionRichMetadataAll') || 'Show Full Rich Metadata' },
-                    // Option to hide tags and directors while showing genres, studios, and writers
-                    {
-                        value: 'genres-studios-writers',
-                        label:
-                            i18n.t('OptionRichMetadataHideTagsOnly') ||
-                            'Hide Tags Only'
-                    },
-                    // Option to hide tags and studios while showing genres and writers
-                    {
-                        value: 'genres-writers',
-                        label: i18n.t('OptionRichMetadataHideTagsAndStudios') || 'Hide Tags and Studios'
-                    },
-                    // Option to display genres alone and suppress other metadata sections
-                    {
-                        value: 'genres-only',
-                        label: i18n.t('OptionRichMetadataShowGenresOnly') || 'Show Genres Only'
-                    },
-                    // Option to hide all rich metadata completely
-                    { value: 'none', label: i18n.t('OptionRichMetadataNone') || 'Hide All' }
-                ],
-                storage.getItem('pref:richMetadataStyle') ||
-                (storage.getItem('pref:hideRichMetadata') === 'true' ? 'none' : 'genres-studios-writers')
-            )}
+                            'rich-metadata-select',
+                            [
+                                { value: 'all', label: i18n.t('OptionRichMetadataAll') || 'Show Full Rich Metadata' },
+                                // Option to hide tags and directors while showing genres, studios, and writers
+                                {
+                                    value: 'genres-studios-writers',
+                                    label: i18n.t('OptionRichMetadataHideTagsOnly') || 'Hide Tags Only'
+                                },
+                                // Option to hide tags and studios while showing genres and writers
+                                {
+                                    value: 'genres-writers',
+                                    label: i18n.t('OptionRichMetadataHideTagsAndStudios') || 'Hide Tags and Studios'
+                                },
+                                // Option to display genres alone and suppress other metadata sections
+                                {
+                                    value: 'genres-only',
+                                    label: i18n.t('OptionRichMetadataShowGenresOnly') || 'Show Genres Only'
+                                },
+                                // Option to hide all rich metadata completely
+                                { value: 'none', label: i18n.t('OptionRichMetadataNone') || 'Hide All' }
+                            ],
+                            storage.getItem('pref:richMetadataStyle') ||
+                                (storage.getItem('pref:hideRichMetadata') === 'true'
+                                    ? 'none'
+                                    : 'genres-studios-writers')
+                        )}
                     </div>
                 </div>
 
@@ -2775,13 +2793,13 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-                'watch-provider-region-select',
-                [watchProviderRegion(storage.getItem('pref:watchProviderRegion'))].map((value) => ({
-                    value,
-                    label: watchProviderRegionName(value, i18n.currentLang)
-                })),
-                watchProviderRegion(storage.getItem('pref:watchProviderRegion'))
-            )}
+                            'watch-provider-region-select',
+                            [watchProviderRegion(storage.getItem('pref:watchProviderRegion'))].map((value) => ({
+                                value,
+                                label: watchProviderRegionName(value, i18n.currentLang)
+                            })),
+                            watchProviderRegion(storage.getItem('pref:watchProviderRegion'))
+                        )}
                     </div>
                 </div>
             </div>
@@ -2814,26 +2832,26 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-            'home-rows-limit-select',
-            [
-                { value: 8, label: i18n.t('ItemCountValue', [8]) || '8 items' },
-                { value: 10, label: i18n.t('ItemCountValue', [10]) || '10 items' },
-                {
-                    value: 12,
-                    label:
-                        (i18n.t('ItemCountValue', [12]) || '12 items') +
-                        ` (${i18n.t('Default') || 'Default'})`
-                },
-                { value: 15, label: i18n.t('ItemCountValue', [15]) || '15 items' },
-                { value: 20, label: i18n.t('ItemCountValue', [20]) || '20 items' },
-                { value: 25, label: i18n.t('ItemCountValue', [25]) || '25 items' },
-                { value: 30, label: i18n.t('ItemCountValue', [30]) || '30 items' },
-                { value: 50, label: i18n.t('ItemCountValue', [50]) || '50 items' },
-                { value: 100, label: i18n.t('ItemCountValue', [100]) || '100 items' },
-                { value: 200, label: i18n.t('ItemCountValue', [200]) || '200 items' }
-            ],
-            parseInt(storage.getItem('pref:homeRowsLimit') || 12, 10)
-        )}
+                            'home-rows-limit-select',
+                            [
+                                { value: 8, label: i18n.t('ItemCountValue', [8]) || '8 items' },
+                                { value: 10, label: i18n.t('ItemCountValue', [10]) || '10 items' },
+                                {
+                                    value: 12,
+                                    label:
+                                        (i18n.t('ItemCountValue', [12]) || '12 items') +
+                                        ` (${i18n.t('Default') || 'Default'})`
+                                },
+                                { value: 15, label: i18n.t('ItemCountValue', [15]) || '15 items' },
+                                { value: 20, label: i18n.t('ItemCountValue', [20]) || '20 items' },
+                                { value: 25, label: i18n.t('ItemCountValue', [25]) || '25 items' },
+                                { value: 30, label: i18n.t('ItemCountValue', [30]) || '30 items' },
+                                { value: 50, label: i18n.t('ItemCountValue', [50]) || '50 items' },
+                                { value: 100, label: i18n.t('ItemCountValue', [100]) || '100 items' },
+                                { value: 200, label: i18n.t('ItemCountValue', [200]) || '200 items' }
+                            ],
+                            parseInt(storage.getItem('pref:homeRowsLimit') || 12, 10)
+                        )}
                     </div>
                 </div>
 
@@ -2871,18 +2889,18 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${(() => {
-                const val = storage.getItem('pref:trendingMoviesCollection') || 'none';
-                const name = storage.getItem('pref:trendingMoviesCollectionName');
-                const opts = [
-                    { value: 'none', label: i18n.t('Disabled') },
-                    { value: 'auto', label: i18n.t('Auto') },
-                    { value: 'top-rated', label: i18n.t('CommunityRating') }
-                ];
-                if (val && val !== 'none' && val !== 'auto' && val !== 'top-rated') {
-                    opts.push({ value: val, label: name || val });
-                }
-                return this._renderDropdown('trending-movies-collection-select', opts, val);
-            })()}
+                            const val = storage.getItem('pref:trendingMoviesCollection') || 'none';
+                            const name = storage.getItem('pref:trendingMoviesCollectionName');
+                            const opts = [
+                                { value: 'none', label: i18n.t('Disabled') },
+                                { value: 'auto', label: i18n.t('Auto') },
+                                { value: 'top-rated', label: i18n.t('CommunityRating') }
+                            ];
+                            if (val && val !== 'none' && val !== 'auto' && val !== 'top-rated') {
+                                opts.push({ value: val, label: name || val });
+                            }
+                            return this._renderDropdown('trending-movies-collection-select', opts, val);
+                        })()}
                     </div>
                 </div>
 
@@ -2893,18 +2911,18 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${(() => {
-                const val = storage.getItem('pref:trendingSeriesCollection') || 'none';
-                const name = storage.getItem('pref:trendingSeriesCollectionName');
-                const opts = [
-                    { value: 'none', label: i18n.t('Disabled') },
-                    { value: 'auto', label: i18n.t('Auto') },
-                    { value: 'top-rated', label: i18n.t('CommunityRating') }
-                ];
-                if (val && val !== 'none' && val !== 'auto' && val !== 'top-rated') {
-                    opts.push({ value: val, label: name || val });
-                }
-                return this._renderDropdown('trending-series-collection-select', opts, val);
-            })()}
+                            const val = storage.getItem('pref:trendingSeriesCollection') || 'none';
+                            const name = storage.getItem('pref:trendingSeriesCollectionName');
+                            const opts = [
+                                { value: 'none', label: i18n.t('Disabled') },
+                                { value: 'auto', label: i18n.t('Auto') },
+                                { value: 'top-rated', label: i18n.t('CommunityRating') }
+                            ];
+                            if (val && val !== 'none' && val !== 'auto' && val !== 'top-rated') {
+                                opts.push({ value: val, label: name || val });
+                            }
+                            return this._renderDropdown('trending-series-collection-select', opts, val);
+                        })()}
                     </div>
                 </div>
 
@@ -2955,27 +2973,27 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-                'next-up-max-days-select',
-                [
-                    { value: 0, label: i18n.t('Unlimited') },
-                    { value: 1, label: i18n.t('DaysValue', [1]) },
-                    { value: 2, label: i18n.t('DaysValue', [2]) },
-                    { value: 3, label: i18n.t('DaysValue', [3]) },
-                    { value: 4, label: i18n.t('DaysValue', [4]) },
-                    { value: 5, label: i18n.t('DaysValue', [5]) },
-                    { value: 6, label: i18n.t('DaysValue', [6]) },
-                    { value: 7, label: i18n.t('DaysValue', [7]) },
-                    { value: 14, label: i18n.t('DaysValue', [14]) },
-                    { value: 21, label: i18n.t('DaysValue', [21]) },
-                    { value: 28, label: i18n.t('DaysValue', [28]) },
-                    { value: 30, label: i18n.t('DaysValue', [30]) },
-                    { value: 60, label: i18n.t('MonthsValue', [2]) },
-                    { value: 90, label: i18n.t('MonthsValue', [3]) },
-                    { value: 180, label: i18n.t('MonthsValue', [6]) },
-                    { value: 365, label: i18n.t('YearValue', [1]) }
-                ],
-                storage.getItem('pref:nextUpMaxDays') || 365
-            )}
+                            'next-up-max-days-select',
+                            [
+                                { value: 0, label: i18n.t('Unlimited') },
+                                { value: 1, label: i18n.t('DaysValue', [1]) },
+                                { value: 2, label: i18n.t('DaysValue', [2]) },
+                                { value: 3, label: i18n.t('DaysValue', [3]) },
+                                { value: 4, label: i18n.t('DaysValue', [4]) },
+                                { value: 5, label: i18n.t('DaysValue', [5]) },
+                                { value: 6, label: i18n.t('DaysValue', [6]) },
+                                { value: 7, label: i18n.t('DaysValue', [7]) },
+                                { value: 14, label: i18n.t('DaysValue', [14]) },
+                                { value: 21, label: i18n.t('DaysValue', [21]) },
+                                { value: 28, label: i18n.t('DaysValue', [28]) },
+                                { value: 30, label: i18n.t('DaysValue', [30]) },
+                                { value: 60, label: i18n.t('MonthsValue', [2]) },
+                                { value: 90, label: i18n.t('MonthsValue', [3]) },
+                                { value: 180, label: i18n.t('MonthsValue', [6]) },
+                                { value: 365, label: i18n.t('YearValue', [1]) }
+                            ],
+                            storage.getItem('pref:nextUpMaxDays') || 365
+                        )}
                     </div>
                 </div>
 
@@ -2999,14 +3017,14 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-                'library-thumb-mode-select',
-                [
-                    { value: 'off', label: i18n.t('fromJellyfin') || 'From Jellyfin' },
-                    { value: 'static', label: i18n.t('RandomStatic') || 'Random Backdrop (Static)' },
-                    { value: 'dynamic', label: i18n.t('RandomDynamic') || 'Random Backdrop (Dynamic)' }
-                ],
-                storage.getItem('pref:libraryThumbMode') || 'off'
-            )}
+                            'library-thumb-mode-select',
+                            [
+                                { value: 'off', label: i18n.t('fromJellyfin') || 'From Jellyfin' },
+                                { value: 'static', label: i18n.t('RandomStatic') || 'Random Backdrop (Static)' },
+                                { value: 'dynamic', label: i18n.t('RandomDynamic') || 'Random Backdrop (Dynamic)' }
+                            ],
+                            storage.getItem('pref:libraryThumbMode') || 'off'
+                        )}
                     </div>
                 </div>
 
@@ -3056,18 +3074,20 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-                'default-livetv-tab-select',
-                [
-                    {
-                        value: 'suggestions',
-                        label: (i18n.t('Suggestions') || 'Suggestions') + ` (${i18n.t('Default') || 'Default'})`
-                    },
-                    { value: 'guide', label: i18n.t('Guide') || 'Guide' },
-                    { value: 'channels', label: i18n.t('Channels') || 'Channels' },
-                    { value: 'recordings', label: i18n.t('Recordings') || 'Recordings' }
-                ],
-                storage.getItem('pref:defaultLiveTvTab') || 'suggestions'
-            )}
+                            'default-livetv-tab-select',
+                            [
+                                {
+                                    value: 'suggestions',
+                                    label:
+                                        (i18n.t('Suggestions') || 'Suggestions') +
+                                        ` (${i18n.t('Default') || 'Default'})`
+                                },
+                                { value: 'guide', label: i18n.t('Guide') || 'Guide' },
+                                { value: 'channels', label: i18n.t('Channels') || 'Channels' },
+                                { value: 'recordings', label: i18n.t('Recordings') || 'Recordings' }
+                            ],
+                            storage.getItem('pref:defaultLiveTvTab') || 'suggestions'
+                        )}
                     </div>
                 </div>
 
@@ -3095,48 +3115,51 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-                'hero-carousel-style-select',
-                [
-                    /*
-                     * ==========================================================
-                     * Choice 1: Banner Mode
-                     * ==========================================================
-                     * Sits at the top of the home screen with beautiful outer
-                     * margins, fully rounded corners, and a sharp focus ring.
-                     */
-                    { value: 'banner', label: i18n.t('StyleBanner') || 'Banner' },
+                            'hero-carousel-style-select',
+                            [
+                                /*
+                                 * ==========================================================
+                                 * Choice 1: Banner Mode
+                                 * ==========================================================
+                                 * Sits at the top of the home screen with beautiful outer
+                                 * margins, fully rounded corners, and a sharp focus ring.
+                                 */
+                                { value: 'banner', label: i18n.t('StyleBanner') || 'Banner' },
 
-                    /*
-                     * ==========================================================
-                     * Choice 2: Semi-Immersive Mode (Previously Immersive)
-                     * ==========================================================
-                     * Spans the full width of the screen at the top, without
-                     * any margins, acting as a clean full-viewport header.
-                     */
-                    { value: 'semi-immersive', label: i18n.t('StyleSemiImmersive') || 'Semi-Immersive' },
+                                /*
+                                 * ==========================================================
+                                 * Choice 2: Semi-Immersive Mode (Previously Immersive)
+                                 * ==========================================================
+                                 * Spans the full width of the screen at the top, without
+                                 * any margins, acting as a clean full-viewport header.
+                                 */
+                                { value: 'semi-immersive', label: i18n.t('StyleSemiImmersive') || 'Semi-Immersive' },
 
-                    /*
-                     * ==========================================================
-                     * Choice 3: Immersive Mode (Deep Overlap Design)
-                     * ==========================================================
-                     * A highly premium, deep full-screen background backdrop
-                     * that extends visually beneath the first horizontal row.
-                     */
-                    { value: 'immersive', label: i18n.t('StyleImmersive') || 'Immersive' },
+                                /*
+                                 * ==========================================================
+                                 * Choice 3: Immersive Mode (Deep Overlap Design)
+                                 * ==========================================================
+                                 * A highly premium, deep full-screen background backdrop
+                                 * that extends visually beneath the first horizontal row.
+                                 */
+                                { value: 'immersive', label: i18n.t('StyleImmersive') || 'Immersive' },
 
-                    /*
-                     * ==========================================================
-                     * Choice 4: Immersive (Performance) Mode
-                     * ==========================================================
-                     * High-performance immersive variant rendering compact
-                     * right-aligned artwork with circular gradient feathering
-                     * for silky smooth scrolling on smart TV hardware.
-                     */
-                    { value: 'immersive-performance', label: i18n.t('StyleImmersivePerformance') || 'Immersive (Performance)' }
-                ],
-                // Default to 'immersive-performance' style for the hero carousel selector
-                storage.getItem('pref:heroCarouselStyle') || 'immersive-performance'
-            )}
+                                /*
+                                 * ==========================================================
+                                 * Choice 4: Immersive (Performance) Mode
+                                 * ==========================================================
+                                 * High-performance immersive variant rendering compact
+                                 * right-aligned artwork with circular gradient feathering
+                                 * for silky smooth scrolling on smart TV hardware.
+                                 */
+                                {
+                                    value: 'immersive-performance',
+                                    label: i18n.t('StyleImmersivePerformance') || 'Immersive (Performance)'
+                                }
+                            ],
+                            // Default to 'immersive-performance' style for the hero carousel selector
+                            storage.getItem('pref:heroCarouselStyle') || 'immersive-performance'
+                        )}
                     </div>
                 </div>
                 
@@ -3160,20 +3183,20 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-                'hero-image-quality-select',
-                [
-                    { value: 'default', label: i18n.t('Default') || 'Default' },
-                    { value: 'low', label: i18n.t('Low') || 'Low' },
-                    { value: 'medium-low', label: i18n.t('MediumLow') || 'Medium Low' },
-                    { value: 'medium', label: i18n.t('Medium') || 'Medium' },
-                    { value: 'medium-high', label: i18n.t('MediumHigh') || 'Medium High' },
-                    { value: 'high', label: i18n.t('High') || 'High' },
-                    { value: 'very-high', label: i18n.t('VeryHigh') || 'Very High' },
-                    { value: 'ultra', label: i18n.t('Ultra') },
-                    { value: 'original', label: i18n.t('Original') }
-                ],
-                storage.getItem('pref:heroImageQuality') || 'default'
-            )}
+                            'hero-image-quality-select',
+                            [
+                                { value: 'default', label: i18n.t('Default') || 'Default' },
+                                { value: 'low', label: i18n.t('Low') || 'Low' },
+                                { value: 'medium-low', label: i18n.t('MediumLow') || 'Medium Low' },
+                                { value: 'medium', label: i18n.t('Medium') || 'Medium' },
+                                { value: 'medium-high', label: i18n.t('MediumHigh') || 'Medium High' },
+                                { value: 'high', label: i18n.t('High') || 'High' },
+                                { value: 'very-high', label: i18n.t('VeryHigh') || 'Very High' },
+                                { value: 'ultra', label: i18n.t('Ultra') },
+                                { value: 'original', label: i18n.t('Original') }
+                            ],
+                            storage.getItem('pref:heroImageQuality') || 'default'
+                        )}
                     </div>
                 </div>
                 
@@ -3184,22 +3207,22 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-                'hero-carousel-interval-select',
-                [
-                    { value: '2000', label: i18n.t('Seconds', [2]) || '2 seconds' },
-                    { value: '4000', label: i18n.t('Seconds', [4]) || '4 seconds' },
-                    { value: '5000', label: i18n.t('Seconds', [5]) || '5 seconds' },
-                    { value: '8000', label: i18n.t('Seconds', [8]) || '8 seconds' },
-                    { value: '10000', label: i18n.t('Seconds', [10]) || '10 seconds' },
-                    { value: '15000', label: i18n.t('Seconds', [15]) || '15 seconds' },
-                    { value: '20000', label: i18n.t('Seconds', [20]) || '20 seconds' },
-                    { value: '25000', label: i18n.t('Seconds', [25]) || '25 seconds' },
-                    { value: '30000', label: i18n.t('Seconds', [30]) || '30 seconds' },
-                    { value: '40000', label: i18n.t('Seconds', [40]) || '40 seconds' },
-                    { value: '60000', label: i18n.t('Seconds', [60]) || '60 seconds' }
-                ],
-                storage.getItem('pref:heroCarouselInterval') || '8000'
-            )}
+                            'hero-carousel-interval-select',
+                            [
+                                { value: '2000', label: i18n.t('Seconds', [2]) || '2 seconds' },
+                                { value: '4000', label: i18n.t('Seconds', [4]) || '4 seconds' },
+                                { value: '5000', label: i18n.t('Seconds', [5]) || '5 seconds' },
+                                { value: '8000', label: i18n.t('Seconds', [8]) || '8 seconds' },
+                                { value: '10000', label: i18n.t('Seconds', [10]) || '10 seconds' },
+                                { value: '15000', label: i18n.t('Seconds', [15]) || '15 seconds' },
+                                { value: '20000', label: i18n.t('Seconds', [20]) || '20 seconds' },
+                                { value: '25000', label: i18n.t('Seconds', [25]) || '25 seconds' },
+                                { value: '30000', label: i18n.t('Seconds', [30]) || '30 seconds' },
+                                { value: '40000', label: i18n.t('Seconds', [40]) || '40 seconds' },
+                                { value: '60000', label: i18n.t('Seconds', [60]) || '60 seconds' }
+                            ],
+                            storage.getItem('pref:heroCarouselInterval') || '8000'
+                        )}
                     </div>
                 </div>
 
@@ -3210,13 +3233,13 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-                'hero-carousel-count-select',
-                [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 15, 20, 25, 30].map((v) => ({
-                    value: v.toString(),
-                    label: v.toString()
-                })),
-                storage.getItem('pref:heroCarouselCount') || '5'
-            )}
+                            'hero-carousel-count-select',
+                            [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 15, 20, 25, 30].map((v) => ({
+                                value: v.toString(),
+                                label: v.toString()
+                            })),
+                            storage.getItem('pref:heroCarouselCount') || '5'
+                        )}
                     </div>
                 </div>
 
@@ -3266,21 +3289,21 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-                'hero-carousel-vignette-select',
-                [
-                    { value: 'transparent', label: i18n.t('Transparent') || 'Transparent (0%)' },
-                    { value: '10', label: '10%' },
-                    { value: '20', label: '20%' },
-                    { value: '30', label: '30%' },
-                    { value: '40', label: '40%' },
-                    { value: '50', label: '50%' },
-                    { value: '60', label: '60%' },
-                    { value: '70', label: `70% (${i18n.t('Default') || 'Default'})` },
-                    { value: '80', label: '80%' },
-                    { value: '90', label: '90%' }
-                ],
-                layoutManager.getHeroVignette()
-            )}
+                            'hero-carousel-vignette-select',
+                            [
+                                { value: 'transparent', label: i18n.t('Transparent') || 'Transparent (0%)' },
+                                { value: '10', label: '10%' },
+                                { value: '20', label: '20%' },
+                                { value: '30', label: '30%' },
+                                { value: '40', label: '40%' },
+                                { value: '50', label: '50%' },
+                                { value: '60', label: '60%' },
+                                { value: '70', label: `70% (${i18n.t('Default') || 'Default'})` },
+                                { value: '80', label: '80%' },
+                                { value: '90', label: '90%' }
+                            ],
+                            layoutManager.getHeroVignette()
+                        )}
                     </div>
                 </div>
 
@@ -3317,14 +3340,14 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-                'hero-carousel-indicator-style-select',
-                [
-                    { value: 'dots', label: i18n.t('IndicatorStyleDots') || 'Simple Dots' },
-                    { value: 'lines', label: i18n.t('IndicatorStyleLines') || 'Lines' },
-                    { value: 'progress', label: i18n.t('IndicatorStyleProgress') || 'Progress Pill' }
-                ],
-                storage.getItem('pref:heroCarouselIndicatorStyle') || 'dots'
-            )}
+                            'hero-carousel-indicator-style-select',
+                            [
+                                { value: 'dots', label: i18n.t('IndicatorStyleDots') || 'Simple Dots' },
+                                { value: 'lines', label: i18n.t('IndicatorStyleLines') || 'Lines' },
+                                { value: 'progress', label: i18n.t('IndicatorStyleProgress') || 'Progress Pill' }
+                            ],
+                            storage.getItem('pref:heroCarouselIndicatorStyle') || 'dots'
+                        )}
                     </div>
                 </div>
 
@@ -3378,16 +3401,25 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-            'sidebar-layout-select',
-            [
-                { value: 'classic', label: i18n.t('LayoutClassic') || 'Classic' },
-                { value: 'modern', label: i18n.t('LayoutModernSidebar') || 'Modern' },
-                { value: 'modern-collapsed', label: i18n.t('LayoutModernCollapsedSidebar') || 'Modern Collapsed' },
-                { value: 'floating-buttons', label: i18n.t('LayoutFloatingButtonsSidebar') || 'Floating Buttons' },
-                { value: 'floating-island', label: i18n.t('LayoutFloatingIslandSidebar') || 'Floating Island' }
-            ],
-            layoutManager.getSidebarLayout() || 'modern-collapsed'
-        )}
+                            'sidebar-layout-select',
+                            [
+                                { value: 'classic', label: i18n.t('LayoutClassic') || 'Classic' },
+                                { value: 'modern', label: i18n.t('LayoutModernSidebar') || 'Modern' },
+                                {
+                                    value: 'modern-collapsed',
+                                    label: i18n.t('LayoutModernCollapsedSidebar') || 'Modern Collapsed'
+                                },
+                                {
+                                    value: 'floating-buttons',
+                                    label: i18n.t('LayoutFloatingButtonsSidebar') || 'Floating Buttons'
+                                },
+                                {
+                                    value: 'floating-island',
+                                    label: i18n.t('LayoutFloatingIslandSidebar') || 'Floating Island'
+                                }
+                            ],
+                            layoutManager.getSidebarLayout() || 'modern-collapsed'
+                        )}
                     </div>
                 </div>
 
@@ -3399,15 +3431,15 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-            'sidebar-mode-select',
-            [
-                { value: 'shown', label: i18n.t('AlwaysShown') || 'Always Shown' },
-                { value: 'collapsed', label: i18n.t('AlwaysCollapsed') || 'Always Collapsed' },
-                { value: 'hidden', label: i18n.t('AlwaysHidden') || 'Always Hidden' },
-                { value: 'mixed', label: i18n.t('MixedMode') || 'Hidden in Details' }
-            ],
-            storage.getItem('pref:sidebarMode') || 'shown'
-        )}
+                            'sidebar-mode-select',
+                            [
+                                { value: 'shown', label: i18n.t('AlwaysShown') || 'Always Shown' },
+                                { value: 'collapsed', label: i18n.t('AlwaysCollapsed') || 'Always Collapsed' },
+                                { value: 'hidden', label: i18n.t('AlwaysHidden') || 'Always Hidden' },
+                                { value: 'mixed', label: i18n.t('MixedMode') || 'Hidden in Details' }
+                            ],
+                            storage.getItem('pref:sidebarMode') || 'shown'
+                        )}
                     </div>
                 </div>
 
@@ -3419,14 +3451,14 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-            'sidebar-items-align-select',
-            [
-                { value: 'top', label: i18n.t('OptionSidebarItemsAlignTop') || 'Top' },
-                { value: 'center', label: i18n.t('OptionSidebarItemsAlignCenter') || 'Center' },
-                { value: 'bottom', label: i18n.t('OptionSidebarItemsAlignBottom') || 'Bottom' }
-            ],
-            storage.getItem('pref:sidebarItemsAlign') || 'center'
-        )}
+                            'sidebar-items-align-select',
+                            [
+                                { value: 'top', label: i18n.t('OptionSidebarItemsAlignTop') || 'Top' },
+                                { value: 'center', label: i18n.t('OptionSidebarItemsAlignCenter') || 'Center' },
+                                { value: 'bottom', label: i18n.t('OptionSidebarItemsAlignBottom') || 'Bottom' }
+                            ],
+                            storage.getItem('pref:sidebarItemsAlign') || 'center'
+                        )}
                     </div>
                 </div>
 
@@ -3449,15 +3481,15 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-            'sidebar-selected-color-select',
-            [
-                { value: 'white', label: i18n.t('SidebarColorWhite') || 'White' },
-                { value: 'accent', label: i18n.t('SidebarColorAccent') || 'Accent' },
-                { value: 'grey', label: i18n.t('SidebarColorGrey') || 'Grey' },
-                { value: 'black', label: i18n.t('SidebarColorBlack') || 'Black' }
-            ],
-            layoutManager.getSidebarSelectedColor()
-        )}
+                            'sidebar-selected-color-select',
+                            [
+                                { value: 'white', label: i18n.t('SidebarColorWhite') || 'White' },
+                                { value: 'accent', label: i18n.t('SidebarColorAccent') || 'Accent' },
+                                { value: 'grey', label: i18n.t('SidebarColorGrey') || 'Grey' },
+                                { value: 'black', label: i18n.t('SidebarColorBlack') || 'Black' }
+                            ],
+                            layoutManager.getSidebarSelectedColor()
+                        )}
                     </div>
                 </div>
 
@@ -3468,15 +3500,15 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-            'sidebar-unselected-color-select',
-            [
-                { value: 'grey', label: i18n.t('SidebarColorGrey') || 'Grey' },
-                { value: 'white', label: i18n.t('SidebarColorWhite') || 'White' },
-                { value: 'black', label: i18n.t('SidebarColorBlack') || 'Black' },
-                { value: 'accent', label: i18n.t('SidebarColorAccent') || 'Accent' }
-            ],
-            layoutManager.getSidebarUnselectedColor()
-        )}
+                            'sidebar-unselected-color-select',
+                            [
+                                { value: 'grey', label: i18n.t('SidebarColorGrey') || 'Grey' },
+                                { value: 'white', label: i18n.t('SidebarColorWhite') || 'White' },
+                                { value: 'black', label: i18n.t('SidebarColorBlack') || 'Black' },
+                                { value: 'accent', label: i18n.t('SidebarColorAccent') || 'Accent' }
+                            ],
+                            layoutManager.getSidebarUnselectedColor()
+                        )}
                     </div>
                 </div>
 
@@ -3488,25 +3520,25 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-            'collapsed-sidebar-color-select',
-            [
-                { value: 'theme', label: i18n.t('OptionCollapsedSidebarColorTheme') || 'Follow Theme' },
-                { value: 'black', label: i18n.t('OptionCollapsedSidebarColorBlack') || 'Black' },
-                {
-                    value: 'semi',
-                    label: i18n.t('OptionCollapsedSidebarColorSemi') || 'Semi-transparent'
-                },
-                {
-                    value: 'tinted-semi',
-                    label: i18n.t('OptionCollapsedSidebarColorTintedSemi') || 'Tinted Semi-transparent'
-                },
-                {
-                    value: 'transparent',
-                    label: i18n.t('OptionCollapsedSidebarColorTransparent') || 'Transparent'
-                }
-            ],
-            storage.getItem('pref:collapsedSidebarColor') || 'transparent'
-        )}
+                            'collapsed-sidebar-color-select',
+                            [
+                                { value: 'theme', label: i18n.t('OptionCollapsedSidebarColorTheme') || 'Follow Theme' },
+                                { value: 'black', label: i18n.t('OptionCollapsedSidebarColorBlack') || 'Black' },
+                                {
+                                    value: 'semi',
+                                    label: i18n.t('OptionCollapsedSidebarColorSemi') || 'Semi-transparent'
+                                },
+                                {
+                                    value: 'tinted-semi',
+                                    label: i18n.t('OptionCollapsedSidebarColorTintedSemi') || 'Tinted Semi-transparent'
+                                },
+                                {
+                                    value: 'transparent',
+                                    label: i18n.t('OptionCollapsedSidebarColorTransparent') || 'Transparent'
+                                }
+                            ],
+                            storage.getItem('pref:collapsedSidebarColor') || 'transparent'
+                        )}
                     </div>
                 </div>
 
@@ -3518,25 +3550,25 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-            'expanded-sidebar-color-select',
-            [
-                { value: 'theme', label: i18n.t('OptionCollapsedSidebarColorTheme') || 'Follow Theme' },
-                { value: 'black', label: i18n.t('OptionCollapsedSidebarColorBlack') || 'Black' },
-                {
-                    value: 'semi',
-                    label: i18n.t('OptionCollapsedSidebarColorSemi') || 'Semi-transparent'
-                },
-                {
-                    value: 'tinted-semi',
-                    label: i18n.t('OptionCollapsedSidebarColorTintedSemi') || 'Tinted Semi-transparent'
-                },
-                {
-                    value: 'transparent',
-                    label: i18n.t('OptionCollapsedSidebarColorTransparent') || 'Transparent'
-                }
-            ],
-            storage.getItem('pref:expandedSidebarColor') || 'theme'
-        )}
+                            'expanded-sidebar-color-select',
+                            [
+                                { value: 'theme', label: i18n.t('OptionCollapsedSidebarColorTheme') || 'Follow Theme' },
+                                { value: 'black', label: i18n.t('OptionCollapsedSidebarColorBlack') || 'Black' },
+                                {
+                                    value: 'semi',
+                                    label: i18n.t('OptionCollapsedSidebarColorSemi') || 'Semi-transparent'
+                                },
+                                {
+                                    value: 'tinted-semi',
+                                    label: i18n.t('OptionCollapsedSidebarColorTintedSemi') || 'Tinted Semi-transparent'
+                                },
+                                {
+                                    value: 'transparent',
+                                    label: i18n.t('OptionCollapsedSidebarColorTransparent') || 'Transparent'
+                                }
+                            ],
+                            storage.getItem('pref:expandedSidebarColor') || 'theme'
+                        )}
                     </div>
                 </div>
 
@@ -3548,25 +3580,27 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-            'bottom-nav-bar-color-select',
-            [
-                { value: 'theme', label: i18n.t('OptionCollapsedSidebarColorTheme') || 'Follow Theme' },
-                { value: 'black', label: i18n.t('OptionCollapsedSidebarColorBlack') || 'Black' },
-                {
-                    value: 'semi',
-                    label: i18n.t('OptionCollapsedSidebarColorSemi') || 'Semi-transparent'
-                },
-                {
-                    value: 'tinted-semi',
-                    label: i18n.t('OptionCollapsedSidebarColorTintedSemi') || 'Tinted Semi-transparent'
-                },
-                {
-                    value: 'transparent',
-                    label: i18n.t('OptionCollapsedSidebarColorTransparent') || 'Transparent'
-                }
-            ],
-            storage.getItem('pref:bottomNavBarColor') || storage.getItem('pref:collapsedSidebarColor') || 'theme'
-        )}
+                            'bottom-nav-bar-color-select',
+                            [
+                                { value: 'theme', label: i18n.t('OptionCollapsedSidebarColorTheme') || 'Follow Theme' },
+                                { value: 'black', label: i18n.t('OptionCollapsedSidebarColorBlack') || 'Black' },
+                                {
+                                    value: 'semi',
+                                    label: i18n.t('OptionCollapsedSidebarColorSemi') || 'Semi-transparent'
+                                },
+                                {
+                                    value: 'tinted-semi',
+                                    label: i18n.t('OptionCollapsedSidebarColorTintedSemi') || 'Tinted Semi-transparent'
+                                },
+                                {
+                                    value: 'transparent',
+                                    label: i18n.t('OptionCollapsedSidebarColorTransparent') || 'Transparent'
+                                }
+                            ],
+                            storage.getItem('pref:bottomNavBarColor') ||
+                                storage.getItem('pref:collapsedSidebarColor') ||
+                                'theme'
+                        )}
                     </div>
                 </div>
 
@@ -3578,23 +3612,23 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-            'sidebar-logo-settings-select',
-            [
-                { value: 'visible', label: i18n.t('OptionLogoSettingsVisible') || 'Visible' },
-                {
-                    value: 'settings',
-                    label: i18n.t('OptionLogoSettingsSettings') || 'Visible as Settings'
-                },
-                { value: 'home', label: i18n.t('OptionLogoSettingsHome') || 'Visible as Home' },
-                { value: 'hidden', label: i18n.t('OptionLogoSettingsHidden') || 'Hidden' }
-            ],
-            (() => {
-                const val = storage.getItem('pref:logoSettings') || 'visible';
-                if (val === 'true') return 'settings';
-                if (val === 'false') return 'visible';
-                return val;
-            })()
-        )}
+                            'sidebar-logo-settings-select',
+                            [
+                                { value: 'visible', label: i18n.t('OptionLogoSettingsVisible') || 'Visible' },
+                                {
+                                    value: 'settings',
+                                    label: i18n.t('OptionLogoSettingsSettings') || 'Visible as Settings'
+                                },
+                                { value: 'home', label: i18n.t('OptionLogoSettingsHome') || 'Visible as Home' },
+                                { value: 'hidden', label: i18n.t('OptionLogoSettingsHidden') || 'Hidden' }
+                            ],
+                            (() => {
+                                const val = storage.getItem('pref:logoSettings') || 'visible';
+                                if (val === 'true') return 'settings';
+                                if (val === 'false') return 'visible';
+                                return val;
+                            })()
+                        )}
                     </div>
                 </div>
 
@@ -3626,14 +3660,14 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-            'sidebar-back-button-select',
-            [
-                { value: 'auto', label: i18n.t('OptionSidebarBackButtonAuto') || 'Desktop & Web Only' },
-                { value: 'all', label: i18n.t('OptionSidebarBackButtonAll') || 'All Platforms' },
-                { value: 'disabled', label: i18n.t('OptionSidebarBackButtonDisabled') || 'Disabled' }
-            ],
-            storage.getItem('pref:sidebarBackButton') || 'auto'
-        )}
+                            'sidebar-back-button-select',
+                            [
+                                { value: 'auto', label: i18n.t('OptionSidebarBackButtonAuto') || 'Desktop & Web Only' },
+                                { value: 'all', label: i18n.t('OptionSidebarBackButtonAll') || 'All Platforms' },
+                                { value: 'disabled', label: i18n.t('OptionSidebarBackButtonDisabled') || 'Disabled' }
+                            ],
+                            storage.getItem('pref:sidebarBackButton') || 'auto'
+                        )}
                     </div>
                 </div>
 
@@ -3651,13 +3685,13 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-            'sidebar-icon-shadows-select',
-            [
-                { value: 'none', label: i18n.t('OptionSidebarIconShadowsNone') || 'None' },
-                { value: 'shadow', label: i18n.t('OptionSidebarIconShadowsShadow') || 'Shadow' }
-            ],
-            layoutManager.getSidebarIconShadows() ? 'shadow' : 'none'
-        )}
+                            'sidebar-icon-shadows-select',
+                            [
+                                { value: 'none', label: i18n.t('OptionSidebarIconShadowsNone') || 'None' },
+                                { value: 'shadow', label: i18n.t('OptionSidebarIconShadowsShadow') || 'Shadow' }
+                            ],
+                            layoutManager.getSidebarIconShadows() ? 'shadow' : 'none'
+                        )}
                     </div>
                 </div>
                 
@@ -3668,15 +3702,15 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-            'sidebar-logo-color-select',
-            [
-                { value: 'icon-colors', label: i18n.t('SidebarColorIconColors') || 'Icon Colors' },
-                { value: 'follow-theme', label: i18n.t('SidebarColorFollowTheme') || 'Follow Theme' },
-                { value: 'white', label: i18n.t('SidebarColorWhite') || 'White' },
-                { value: 'black', label: i18n.t('SidebarColorBlack') || 'Black' }
-            ],
-            layoutManager.getSidebarLogoColor()
-        )}
+                            'sidebar-logo-color-select',
+                            [
+                                { value: 'icon-colors', label: i18n.t('SidebarColorIconColors') || 'Icon Colors' },
+                                { value: 'follow-theme', label: i18n.t('SidebarColorFollowTheme') || 'Follow Theme' },
+                                { value: 'white', label: i18n.t('SidebarColorWhite') || 'White' },
+                                { value: 'black', label: i18n.t('SidebarColorBlack') || 'Black' }
+                            ],
+                            layoutManager.getSidebarLogoColor()
+                        )}
                     </div>
                 </div>
 
@@ -3811,88 +3845,104 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${(() => {
-                // Determine the highest-fidelity, native video backend recommended for the active platform
-                const recommendedBackend = typeof PlayerSettings.getRecommendedBackend === 'function'
-                    ? PlayerSettings.getRecommendedBackend()
-                    : (() => {
-                        if (platformInfo.isAndroid) return 'exoplayer';
-                        if (platformInfo.isTizen) return 'avplay';
-                        if (platformInfo.isWebOS) return 'webos';
-                        if ((platformInfo.isDesktop || platformInfo.isWeb) && platformInfo.hasWebCodecsSupport) return 'movi';
-                        return 'html5';
-                    })();
+                            // Determine the highest-fidelity, native video backend recommended for the active platform
+                            const recommendedBackend =
+                                typeof PlayerSettings.getRecommendedBackend === 'function'
+                                    ? PlayerSettings.getRecommendedBackend()
+                                    : (() => {
+                                          if (platformInfo.isAndroid) return 'exoplayer';
+                                          if (platformInfo.isTizen) return 'avplay';
+                                          if (platformInfo.isWebOS) return 'webos';
+                                          if (
+                                              (platformInfo.isDesktop || platformInfo.isWeb) &&
+                                              platformInfo.hasWebCodecsSupport
+                                          )
+                                              return 'movi';
+                                          return 'html5';
+                                      })();
 
-                // Extract localized '(Recommended)' string from AutoRecommended translation across all 106 languages
-                const autoRec = i18n.t('AutoRecommended') || '';
-                const recMatch = autoRec.match(/\((.+?)\)|（(.+?)）/);
-                const recWord = (recMatch && (recMatch[1] || recMatch[2])) || 'Recommended';
-                const recSuffix = ` (${recWord})`;
+                            // Extract localized '(Recommended)' string from AutoRecommended translation across all 106 languages
+                            const autoRec = i18n.t('AutoRecommended') || '';
+                            const recMatch = autoRec.match(/\((.+?)\)|（(.+?)）/);
+                            const recWord = (recMatch && (recMatch[1] || recMatch[2])) || 'Recommended';
+                            const recSuffix = ` (${recWord})`;
 
-                // Assemble available options without the generic 'auto' option
-                const options = [];
+                            // Assemble available options without the generic 'auto' option
+                            const options = [];
 
-                // Native hardware backends
-                const hasExoBridge = typeof window !== 'undefined' && Boolean(
-                    window.LitefinExoPlayer ||
-                    window.LitefinAndroid ||
-                    window.__TAURI_INTERNALS__?.invoke ||
-                    window.__TAURI__?.core?.invoke
-                );
-                if (platformInfo.isAndroid && (hasExoBridge || platformInfo._platform === 'android')) {
-                    const base = i18n.t('BackendExoPlayer') || 'Media3 ExoPlayer (Android Native)';
-                    options.push({
-                        value: 'exoplayer',
-                        label: recommendedBackend === 'exoplayer' ? `${base}${recSuffix}` : base
-                    });
-                } else if (platformInfo.isTizen) {
-                    const base = i18n.t('BackendTizen') || 'Tizen Native (Avplay)';
-                    options.push({
-                        value: 'avplay',
-                        label: recommendedBackend === 'avplay' ? `${base}${recSuffix}` : base
-                    });
-                } else if (platformInfo.isWebOS) {
-                    const base = i18n.t('BackendWebOS') || 'LG Native (webOS Player)';
-                    options.push({
-                        value: 'webos',
-                        label: recommendedBackend === 'webos' ? `${base}${recSuffix}` : base
-                    });
-                }
+                            // Native hardware backends
+                            const hasExoBridge =
+                                typeof window !== 'undefined' &&
+                                Boolean(
+                                    window.LitefinExoPlayer ||
+                                    window.LitefinAndroid ||
+                                    window.__TAURI_INTERNALS__?.invoke ||
+                                    window.__TAURI__?.core?.invoke
+                                );
+                            if (platformInfo.isAndroid && (hasExoBridge || platformInfo._platform === 'android')) {
+                                const base = i18n.t('BackendExoPlayer') || 'Media3 ExoPlayer (Android Native)';
+                                options.push({
+                                    value: 'exoplayer',
+                                    label: recommendedBackend === 'exoplayer' ? `${base}${recSuffix}` : base
+                                });
+                            } else if (platformInfo.isTizen) {
+                                const base = i18n.t('BackendTizen') || 'Tizen Native (Avplay)';
+                                options.push({
+                                    value: 'avplay',
+                                    label: recommendedBackend === 'avplay' ? `${base}${recSuffix}` : base
+                                });
+                            } else if (platformInfo.isWebOS) {
+                                const base = i18n.t('BackendWebOS') || 'LG Native (webOS Player)';
+                                options.push({
+                                    value: 'webos',
+                                    label: recommendedBackend === 'webos' ? `${base}${recSuffix}` : base
+                                });
+                            }
 
-                // WebCodecs hardware accelerated player (Movi)
-                // Excluded on television builds (Tizen and webOS) where Movi is replaced with a stub
-                if (platformInfo.hasWebCodecsSupport && !platformInfo.isTizen && !platformInfo.isWebOS) {
-                    const base = i18n.t('BackendMovi') || 'Movi Player (MKV/WebCodecs)';
-                    options.push({
-                        value: 'movi',
-                        label: recommendedBackend === 'movi' ? `${base}${recSuffix}` : base
-                    });
-                }
+                            // WebCodecs hardware accelerated player (Movi)
+                            // Excluded on television builds (Tizen and webOS) where Movi is replaced with a stub
+                            if (platformInfo.hasWebCodecsSupport && !platformInfo.isTizen && !platformInfo.isWebOS) {
+                                const base = i18n.t('BackendMovi') || 'Movi Player (MKV/WebCodecs)';
+                                options.push({
+                                    value: 'movi',
+                                    label: recommendedBackend === 'movi' ? `${base}${recSuffix}` : base
+                                });
+                            }
 
-                // Universal browser video backend (HTML5)
-                const html5Base = i18n.t('BackendWeb') || 'Web (HTML5 Player)';
-                options.push({
-                    value: 'html5',
-                    label: recommendedBackend === 'html5' ? `${html5Base}${recSuffix}` : html5Base
-                });
+                            // Universal browser video backend (HTML5)
+                            const html5Base = i18n.t('BackendWeb') || 'Web (HTML5 Player)';
+                            options.push({
+                                value: 'html5',
+                                label: recommendedBackend === 'html5' ? `${html5Base}${recSuffix}` : html5Base
+                            });
 
-                // If currently stored backend setting is 'movi' but WebCodecs is not supported or on TV builds,
-                // or 'exoplayer' without native bridge, fall back to 'html5'. If backend setting was legacy 'auto'
-                // or unconfigured or missing from available build options, re-select and bind directly to recommended.
-                const effectiveBackend = (currentBackend === 'movi' && (!platformInfo.hasWebCodecsSupport || platformInfo.isTizen || platformInfo.isWebOS))
-                    ? 'html5'
-                    : (currentBackend === 'exoplayer' && !hasExoBridge && !platformInfo.isAndroid)
-                        ? 'html5'
-                        : (currentBackend === 'auto' || !currentBackend || !options.some(o => o.value === currentBackend))
-                            ? recommendedBackend
-                            : currentBackend;
+                            // If currently stored backend setting is 'movi' but WebCodecs is not supported or on TV builds,
+                            // or 'exoplayer' without native bridge, fall back to 'html5'. If backend setting was legacy 'auto'
+                            // or unconfigured or missing from available build options, re-select and bind directly to recommended.
+                            const effectiveBackend =
+                                currentBackend === 'movi' &&
+                                (!platformInfo.hasWebCodecsSupport || platformInfo.isTizen || platformInfo.isWebOS)
+                                    ? 'html5'
+                                    : currentBackend === 'exoplayer' && !hasExoBridge && !platformInfo.isAndroid
+                                      ? 'html5'
+                                      : currentBackend === 'auto' ||
+                                          !currentBackend ||
+                                          !options.some((o) => o.value === currentBackend)
+                                        ? recommendedBackend
+                                        : currentBackend;
 
-                // Re-select and persist if user had previously selected or stored 'auto' or an unavailable backend
-                if (currentBackend === 'auto' || (currentBackend && currentBackend !== effectiveBackend && !options.some(o => o.value === currentBackend))) {
-                    PlayerSettings.set('playerBackend', effectiveBackend);
-                }
+                            // Re-select and persist if user had previously selected or stored 'auto' or an unavailable backend
+                            if (
+                                currentBackend === 'auto' ||
+                                (currentBackend &&
+                                    currentBackend !== effectiveBackend &&
+                                    !options.some((o) => o.value === currentBackend))
+                            ) {
+                                PlayerSettings.set('playerBackend', effectiveBackend);
+                            }
 
-                return this._renderDropdown('player-backend-select', options, effectiveBackend);
-            })()}
+                            return this._renderDropdown('player-backend-select', options, effectiveBackend);
+                        })()}
                     </div>
                 </div>
 
@@ -3946,8 +3996,9 @@ class SettingsPage extends Page {
                     </div>
                 </div>
 
-                ${platformInfo.isAndroid
-                ? `
+                ${
+                    platformInfo.isAndroid
+                        ? `
                 <!-- Tunneled Video Playback Toggle (ExoPlayer) -->
                 <div class="setting-item">
                     <div class="setting-label">
@@ -3993,10 +4044,12 @@ class SettingsPage extends Page {
                     </div>
                 </div>
                 `
-                : ''}
+                        : ''
+                }
 
-                ${platformInfo.isTizen
-                ? `
+                ${
+                    platformInfo.isTizen
+                        ? `
                 <!-- Interlaced content backend fallback toggle.
                      Only meaningful on Tizen/AVPlay — when AVPlay encounters interlaced H264
                      inside an HLS stream it crashes. This toggle makes the player automatically
@@ -4016,8 +4069,8 @@ class SettingsPage extends Page {
                     </div>
                 </div>
                 `
-                : ''
-            }
+                        : ''
+                }
 
             <div class="setting-item">
                     <div class="setting-label">
@@ -4093,17 +4146,17 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-                'skip-forward-select',
-                [
-                    { value: 5000, label: i18n.t('Seconds', ['5']) },
-                    { value: 10000, label: i18n.t('Seconds', ['10']) },
-                    { value: 15000, label: i18n.t('Seconds', ['15']) },
-                    { value: 20000, label: i18n.t('Seconds', ['20']) },
-                    { value: 30000, label: i18n.t('Seconds', ['30']) },
-                    { value: 60000, label: i18n.t('Seconds', ['60']) }
-                ],
-                skipForward
-            )}
+                            'skip-forward-select',
+                            [
+                                { value: 5000, label: i18n.t('Seconds', ['5']) },
+                                { value: 10000, label: i18n.t('Seconds', ['10']) },
+                                { value: 15000, label: i18n.t('Seconds', ['15']) },
+                                { value: 20000, label: i18n.t('Seconds', ['20']) },
+                                { value: 30000, label: i18n.t('Seconds', ['30']) },
+                                { value: 60000, label: i18n.t('Seconds', ['60']) }
+                            ],
+                            skipForward
+                        )}
                     </div>
                 </div>
 
@@ -4114,17 +4167,17 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-                'skip-back-select',
-                [
-                    { value: 5000, label: i18n.t('Seconds', ['5']) },
-                    { value: 10000, label: i18n.t('Seconds', ['10']) },
-                    { value: 15000, label: i18n.t('Seconds', ['15']) },
-                    { value: 20000, label: i18n.t('Seconds', ['20']) },
-                    { value: 30000, label: i18n.t('Seconds', ['30']) },
-                    { value: 60000, label: i18n.t('Seconds', ['60']) }
-                ],
-                skipBack
-            )}
+                            'skip-back-select',
+                            [
+                                { value: 5000, label: i18n.t('Seconds', ['5']) },
+                                { value: 10000, label: i18n.t('Seconds', ['10']) },
+                                { value: 15000, label: i18n.t('Seconds', ['15']) },
+                                { value: 20000, label: i18n.t('Seconds', ['20']) },
+                                { value: 30000, label: i18n.t('Seconds', ['30']) },
+                                { value: 60000, label: i18n.t('Seconds', ['60']) }
+                            ],
+                            skipBack
+                        )}
                     </div>
                 </div>
 
@@ -4136,17 +4189,17 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-                'resume-rewind-select',
-                [
-                    { value: 0, label: i18n.t('None') || 'None' },
-                    { value: 5000, label: i18n.t('Seconds', ['5']) },
-                    { value: 10000, label: i18n.t('Seconds', ['10']) },
-                    { value: 15000, label: i18n.t('Seconds', ['15']) },
-                    { value: 20000, label: i18n.t('Seconds', ['20']) },
-                    { value: 30000, label: i18n.t('Seconds', ['30']) }
-                ],
-                resumeRewind
-            )}
+                            'resume-rewind-select',
+                            [
+                                { value: 0, label: i18n.t('None') || 'None' },
+                                { value: 5000, label: i18n.t('Seconds', ['5']) },
+                                { value: 10000, label: i18n.t('Seconds', ['10']) },
+                                { value: 15000, label: i18n.t('Seconds', ['15']) },
+                                { value: 20000, label: i18n.t('Seconds', ['20']) },
+                                { value: 30000, label: i18n.t('Seconds', ['30']) }
+                            ],
+                            resumeRewind
+                        )}
                     </div>
                 </div>
 
@@ -4172,35 +4225,36 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-                'watched-threshold-select',
-                [
-                    {
-                        value: 'server',
-                        label: i18n.t('OptionWatchedThresholdServer') || 'Server Setting (MaxResumePct)'
-                    },
-                    {
-                        value: '80',
-                        label: i18n.t('OptionWatchedThreshold80') || '80% (Litefin Default - Credits friendly)'
-                    },
-                    {
-                        value: '85',
-                        label: i18n.t('OptionWatchedThreshold85') || '85%'
-                    },
-                    {
-                        value: '90',
-                        label: i18n.t('OptionWatchedThreshold90') || '90%'
-                    },
-                    {
-                        value: '95',
-                        label: i18n.t('OptionWatchedThreshold95') || '95%'
-                    },
-                    {
-                        value: '100',
-                        label: i18n.t('OptionWatchedThreshold100') || '100% (Strict Completion)'
-                    }
-                ],
-                PlayerSettings.get('watchedThreshold') || '80'
-            )}
+                            'watched-threshold-select',
+                            [
+                                {
+                                    value: 'server',
+                                    label: i18n.t('OptionWatchedThresholdServer') || 'Server Setting (MaxResumePct)'
+                                },
+                                {
+                                    value: '80',
+                                    label:
+                                        i18n.t('OptionWatchedThreshold80') || '80% (Litefin Default - Credits friendly)'
+                                },
+                                {
+                                    value: '85',
+                                    label: i18n.t('OptionWatchedThreshold85') || '85%'
+                                },
+                                {
+                                    value: '90',
+                                    label: i18n.t('OptionWatchedThreshold90') || '90%'
+                                },
+                                {
+                                    value: '95',
+                                    label: i18n.t('OptionWatchedThreshold95') || '95%'
+                                },
+                                {
+                                    value: '100',
+                                    label: i18n.t('OptionWatchedThreshold100') || '100% (Strict Completion)'
+                                }
+                            ],
+                            PlayerSettings.get('watchedThreshold') || '80'
+                        )}
                     </div>
                 </div>
 
@@ -4228,21 +4282,21 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-                'next-up-dialog-trigger-select',
-                [
-                    {
-                        value: 'default',
-                        label: i18n.t('OptionTriggerDefault') || 'Chapters (if available) / Time-based'
-                    },
-                    {
-                        value: 'time_fallback',
-                        label: i18n.t('OptionTriggerTimeFallback') || 'Time-based only'
-                    },
-                    { value: 'seconds_20', label: i18n.t('OptionTrigger20s') || 'Last 20 seconds' },
-                    { value: 'seconds_30', label: i18n.t('OptionTrigger30s') || 'Last 30 seconds' }
-                ],
-                PlayerSettings.get('nextUpTriggerMode') || 'default'
-            )}
+                            'next-up-dialog-trigger-select',
+                            [
+                                {
+                                    value: 'default',
+                                    label: i18n.t('OptionTriggerDefault') || 'Chapters (if available) / Time-based'
+                                },
+                                {
+                                    value: 'time_fallback',
+                                    label: i18n.t('OptionTriggerTimeFallback') || 'Time-based only'
+                                },
+                                { value: 'seconds_20', label: i18n.t('OptionTrigger20s') || 'Last 20 seconds' },
+                                { value: 'seconds_30', label: i18n.t('OptionTrigger30s') || 'Last 30 seconds' }
+                            ],
+                            PlayerSettings.get('nextUpTriggerMode') || 'default'
+                        )}
                     </div>
                 </div>
 
@@ -4280,22 +4334,22 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-                'osd-focus-mode-select',
-                [
-                    /* Always snap to Play/Pause on every OSD reveal */
-                    { value: 'always', label: i18n.t('OsdFocusAlways') || 'Always return to Play/Pause' },
-                    /* Reset to Play/Pause only if idle for ≥ 10 s */
-                    {
-                        value: 'timeout',
-                        label: i18n.t('OsdFocusTimeout') || 'Return to Play/Pause after 10 s'
-                    },
-                    /* Keep the last button the user navigated to — the legacy behaviour */
-                    { value: 'remember', label: i18n.t('OsdFocusRemember') || 'Remember last position' },
-                    /* Always snap to seekbar on every OSD reveal */
-                    { value: 'seekbar', label: i18n.t('OsdFocusSeekbar') || 'Always return to Seekbar' }
-                ],
-                PlayerSettings.get('osdFocusRestoreMode') || 'always'
-            )}
+                            'osd-focus-mode-select',
+                            [
+                                /* Always snap to Play/Pause on every OSD reveal */
+                                { value: 'always', label: i18n.t('OsdFocusAlways') || 'Always return to Play/Pause' },
+                                /* Reset to Play/Pause only if idle for ≥ 10 s */
+                                {
+                                    value: 'timeout',
+                                    label: i18n.t('OsdFocusTimeout') || 'Return to Play/Pause after 10 s'
+                                },
+                                /* Keep the last button the user navigated to — the legacy behaviour */
+                                { value: 'remember', label: i18n.t('OsdFocusRemember') || 'Remember last position' },
+                                /* Always snap to seekbar on every OSD reveal */
+                                { value: 'seekbar', label: i18n.t('OsdFocusSeekbar') || 'Always return to Seekbar' }
+                            ],
+                            PlayerSettings.get('osdFocusRestoreMode') || 'always'
+                        )}
                     </div>
                 </div>
 
@@ -4344,7 +4398,7 @@ class SettingsPage extends Page {
                 <div class="setting-item">
                     <div class="setting-label">
                         <span class="setting-name" data-i18n="LabelOsdHideUnfocusedProgress">${i18n.t('LabelOsdHideUnfocusedProgress') || 'Hide Progress and Time on Seekbar'}</span>
-                        <span class="setting-description" data-i18n="OsdHideUnfocusedProgressDescription">${i18n.t('OsdHideUnfocusedProgressDescription') || 'Hides the progress bar, times, and ends-at time when the seekbar is not focused. When focused, values are shown normally. Note: If OSD Focus Mode is set to \'Always return to Seekbar\', this setting will not work because the seekbar is always focused.'}</span>
+                        <span class="setting-description" data-i18n="OsdHideUnfocusedProgressDescription">${i18n.t('OsdHideUnfocusedProgressDescription') || "Hides the progress bar, times, and ends-at time when the seekbar is not focused. When focused, values are shown normally. Note: If OSD Focus Mode is set to 'Always return to Seekbar', this setting will not work because the seekbar is always focused."}</span>
                     </div>
                     <div class="setting-control">
                         <button class="toggle-switch ${PlayerSettings.get('osdHideUnfocusedProgress') ? 'active' : ''}" 
@@ -4365,16 +4419,16 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-                'max-resolution-select',
-                [
-                    { value: 'auto', label: i18n.t('AutoRecommended') },
-                    { value: '7680x4320', label: i18n.t('ResolutionValue', ['7680', '4320', '8K']) },
-                    { value: '3840x2160', label: i18n.t('ResolutionValue', ['3840', '2160', '4K']) },
-                    { value: '1920x1080', label: i18n.t('ResolutionValue', ['1920', '1080', 'FHD']) },
-                    { value: '1280x720', label: i18n.t('ResolutionValue', ['1280', '720', 'HD']) }
-                ],
-                currentMaxRes
-            )}
+                            'max-resolution-select',
+                            [
+                                { value: 'auto', label: i18n.t('AutoRecommended') },
+                                { value: '7680x4320', label: i18n.t('ResolutionValue', ['7680', '4320', '8K']) },
+                                { value: '3840x2160', label: i18n.t('ResolutionValue', ['3840', '2160', '4K']) },
+                                { value: '1920x1080', label: i18n.t('ResolutionValue', ['1920', '1080', 'FHD']) },
+                                { value: '1280x720', label: i18n.t('ResolutionValue', ['1280', '720', 'HD']) }
+                            ],
+                            currentMaxRes
+                        )}
                     </div>
                 </div>
 
@@ -4385,29 +4439,29 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-                'max-bitrate-select',
-                [
-                    { value: 0, label: i18n.t('AutoRecommended') },
-                    { value: 120000000, label: i18n.t('BitrateMbps', ['120']) },
-                    { value: 80000000, label: i18n.t('BitrateMbps', ['80']) },
-                    { value: 60000000, label: i18n.t('BitrateMbps', ['60']) },
-                    { value: 40000000, label: i18n.t('BitrateMbps', ['40']) },
-                    { value: 30000000, label: i18n.t('BitrateMbps', ['30']) },
-                    { value: 20000000, label: i18n.t('BitrateMbps', ['20']) },
-                    { value: 15000000, label: i18n.t('BitrateMbps', ['15']) },
-                    { value: 10000000, label: i18n.t('BitrateMbps', ['10']) },
-                    { value: 8000000, label: i18n.t('BitrateMbps', ['8']) },
-                    { value: 6000000, label: i18n.t('BitrateMbps', ['6']) },
-                    { value: 4000000, label: i18n.t('BitrateMbps', ['4']) },
-                    { value: 3000000, label: i18n.t('BitrateMbps', ['3']) },
-                    { value: 2000000, label: i18n.t('BitrateMbps', ['2']) },
-                    { value: 1500000, label: i18n.t('BitrateMbps', ['1.5']) },
-                    { value: 1000000, label: i18n.t('BitrateMbps', ['1']) },
-                    { value: 750000, label: i18n.t('BitrateKbps', ['750']) },
-                    { value: 500000, label: i18n.t('BitrateKbps', ['500']) }
-                ],
-                currentBitrate
-            )}
+                            'max-bitrate-select',
+                            [
+                                { value: 0, label: i18n.t('AutoRecommended') },
+                                { value: 120000000, label: i18n.t('BitrateMbps', ['120']) },
+                                { value: 80000000, label: i18n.t('BitrateMbps', ['80']) },
+                                { value: 60000000, label: i18n.t('BitrateMbps', ['60']) },
+                                { value: 40000000, label: i18n.t('BitrateMbps', ['40']) },
+                                { value: 30000000, label: i18n.t('BitrateMbps', ['30']) },
+                                { value: 20000000, label: i18n.t('BitrateMbps', ['20']) },
+                                { value: 15000000, label: i18n.t('BitrateMbps', ['15']) },
+                                { value: 10000000, label: i18n.t('BitrateMbps', ['10']) },
+                                { value: 8000000, label: i18n.t('BitrateMbps', ['8']) },
+                                { value: 6000000, label: i18n.t('BitrateMbps', ['6']) },
+                                { value: 4000000, label: i18n.t('BitrateMbps', ['4']) },
+                                { value: 3000000, label: i18n.t('BitrateMbps', ['3']) },
+                                { value: 2000000, label: i18n.t('BitrateMbps', ['2']) },
+                                { value: 1500000, label: i18n.t('BitrateMbps', ['1.5']) },
+                                { value: 1000000, label: i18n.t('BitrateMbps', ['1']) },
+                                { value: 750000, label: i18n.t('BitrateKbps', ['750']) },
+                                { value: 500000, label: i18n.t('BitrateKbps', ['500']) }
+                            ],
+                            currentBitrate
+                        )}
                     </div>
                 </div>
 
@@ -4422,16 +4476,16 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-                'allowed-audio-channels-select',
-                [
-                    { value: -1, label: i18n.t('AudioChannelsAuto') || 'Auto (No Limit)' },
-                    { value: 8, label: i18n.t('AudioChannels71') || '7.1 Channels' },
-                    { value: 6, label: i18n.t('AudioChannels51') || '5.1 Channels' },
-                    { value: 2, label: i18n.t('AudioChannels20') || 'Stereo 2.0' },
-                    { value: 1, label: i18n.t('AudioChannels10') || 'Mono 1.0' }
-                ],
-                PlayerSettings.get('allowedAudioChannels') ?? -1
-            )}
+                            'allowed-audio-channels-select',
+                            [
+                                { value: -1, label: i18n.t('AudioChannelsAuto') || 'Auto (No Limit)' },
+                                { value: 8, label: i18n.t('AudioChannels71') || '7.1 Channels' },
+                                { value: 6, label: i18n.t('AudioChannels51') || '5.1 Channels' },
+                                { value: 2, label: i18n.t('AudioChannels20') || 'Stereo 2.0' },
+                                { value: 1, label: i18n.t('AudioChannels10') || 'Mono 1.0' }
+                            ],
+                            PlayerSettings.get('allowedAudioChannels') ?? -1
+                        )}
                     </div>
                 </div>
 
@@ -4444,16 +4498,19 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-                'transcode-max-audio-channels-select',
-                [
-                    { value: -1, label: i18n.t('AudioChannelsAutoTranscode') || 'Auto (Match Max Channels)' },
-                    { value: 8, label: i18n.t('AudioChannels71') || '7.1 Channels' },
-                    { value: 6, label: i18n.t('AudioChannels51') || '5.1 Channels' },
-                    { value: 2, label: i18n.t('AudioChannels20') || 'Stereo 2.0' },
-                    { value: 1, label: i18n.t('AudioChannels10') || 'Mono 1.0' }
-                ],
-                PlayerSettings.get('transcodeMaxAudioChannels') ?? -1
-            )}
+                            'transcode-max-audio-channels-select',
+                            [
+                                {
+                                    value: -1,
+                                    label: i18n.t('AudioChannelsAutoTranscode') || 'Auto (Match Max Channels)'
+                                },
+                                { value: 8, label: i18n.t('AudioChannels71') || '7.1 Channels' },
+                                { value: 6, label: i18n.t('AudioChannels51') || '5.1 Channels' },
+                                { value: 2, label: i18n.t('AudioChannels20') || 'Stereo 2.0' },
+                                { value: 1, label: i18n.t('AudioChannels10') || 'Mono 1.0' }
+                            ],
+                            PlayerSettings.get('transcodeMaxAudioChannels') ?? -1
+                        )}
                     </div>
                 </div>
 
@@ -4471,23 +4528,23 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-                'segment-source-select',
-                [
-                    {
-                        value: 'both',
-                        label: i18n.t('SegmentSourceBoth') || 'Server Plugin & Chapters (Merged)'
-                    },
-                    {
-                        value: 'server',
-                        label: i18n.t('SegmentSourceServer') || 'Server Plugin Only (intro-skipper)'
-                    },
-                    {
-                        value: 'chapters',
-                        label: i18n.t('SegmentSourceChapters') || 'Chapters Only (Disable Server Plugin)'
-                    }
-                ],
-                PlayerSettings.get('skipSegmentSource') || 'both'
-            )}
+                            'segment-source-select',
+                            [
+                                {
+                                    value: 'both',
+                                    label: i18n.t('SegmentSourceBoth') || 'Server Plugin & Chapters (Merged)'
+                                },
+                                {
+                                    value: 'server',
+                                    label: i18n.t('SegmentSourceServer') || 'Server Plugin Only (intro-skipper)'
+                                },
+                                {
+                                    value: 'chapters',
+                                    label: i18n.t('SegmentSourceChapters') || 'Chapters Only (Disable Server Plugin)'
+                                }
+                            ],
+                            PlayerSettings.get('skipSegmentSource') || 'both'
+                        )}
                     </div>
                 </div>
 
@@ -4498,14 +4555,14 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-                'segment-action-intro-select',
-                [
-                    { value: 'None', label: i18n.t('SegmentActionNone') || 'Disabled' },
-                    { value: 'AskToSkip', label: i18n.t('SegmentActionAskToSkip') || 'Show Skip Button' },
-                    { value: 'Skip', label: i18n.t('SegmentActionSkip') || 'Auto-Skip' }
-                ],
-                PlayerSettings.get('skipActionIntro') || 'AskToSkip'
-            )}
+                            'segment-action-intro-select',
+                            [
+                                { value: 'None', label: i18n.t('SegmentActionNone') || 'Disabled' },
+                                { value: 'AskToSkip', label: i18n.t('SegmentActionAskToSkip') || 'Show Skip Button' },
+                                { value: 'Skip', label: i18n.t('SegmentActionSkip') || 'Auto-Skip' }
+                            ],
+                            PlayerSettings.get('skipActionIntro') || 'AskToSkip'
+                        )}
                     </div>
                 </div>
 
@@ -4516,14 +4573,14 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-                'segment-action-outro-select',
-                [
-                    { value: 'None', label: i18n.t('SegmentActionNone') || 'Disabled' },
-                    { value: 'AskToSkip', label: i18n.t('SegmentActionAskToSkip') || 'Show Skip Button' },
-                    { value: 'Skip', label: i18n.t('SegmentActionSkip') || 'Auto-Skip' }
-                ],
-                PlayerSettings.get('skipActionOutro') || 'AskToSkip'
-            )}
+                            'segment-action-outro-select',
+                            [
+                                { value: 'None', label: i18n.t('SegmentActionNone') || 'Disabled' },
+                                { value: 'AskToSkip', label: i18n.t('SegmentActionAskToSkip') || 'Show Skip Button' },
+                                { value: 'Skip', label: i18n.t('SegmentActionSkip') || 'Auto-Skip' }
+                            ],
+                            PlayerSettings.get('skipActionOutro') || 'AskToSkip'
+                        )}
                     </div>
                 </div>
 
@@ -4534,14 +4591,14 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-                'segment-action-recap-select',
-                [
-                    { value: 'None', label: i18n.t('SegmentActionNone') || 'Disabled' },
-                    { value: 'AskToSkip', label: i18n.t('SegmentActionAskToSkip') || 'Show Skip Button' },
-                    { value: 'Skip', label: i18n.t('SegmentActionSkip') || 'Auto-Skip' }
-                ],
-                PlayerSettings.get('skipActionRecap') || 'None'
-            )}
+                            'segment-action-recap-select',
+                            [
+                                { value: 'None', label: i18n.t('SegmentActionNone') || 'Disabled' },
+                                { value: 'AskToSkip', label: i18n.t('SegmentActionAskToSkip') || 'Show Skip Button' },
+                                { value: 'Skip', label: i18n.t('SegmentActionSkip') || 'Auto-Skip' }
+                            ],
+                            PlayerSettings.get('skipActionRecap') || 'None'
+                        )}
                     </div>
                 </div>
 
@@ -4552,14 +4609,14 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-                'segment-action-preview-select',
-                [
-                    { value: 'None', label: i18n.t('SegmentActionNone') || 'Disabled' },
-                    { value: 'AskToSkip', label: i18n.t('SegmentActionAskToSkip') || 'Show Skip Button' },
-                    { value: 'Skip', label: i18n.t('SegmentActionSkip') || 'Auto-Skip' }
-                ],
-                PlayerSettings.get('skipActionPreview') || 'None'
-            )}
+                            'segment-action-preview-select',
+                            [
+                                { value: 'None', label: i18n.t('SegmentActionNone') || 'Disabled' },
+                                { value: 'AskToSkip', label: i18n.t('SegmentActionAskToSkip') || 'Show Skip Button' },
+                                { value: 'Skip', label: i18n.t('SegmentActionSkip') || 'Auto-Skip' }
+                            ],
+                            PlayerSettings.get('skipActionPreview') || 'None'
+                        )}
                     </div>
                 </div>
 
@@ -4572,10 +4629,10 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-                'hevc-force-select',
-                forceStateOptions,
-                PlayerSettings.get('enableHEVC') || 'auto'
-            )}
+                            'hevc-force-select',
+                            forceStateOptions,
+                            PlayerSettings.get('enableHEVC') || 'auto'
+                        )}
                     </div>
                 </div>
 
@@ -4586,10 +4643,10 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-                'hdr-force-select',
-                forceStateOptions,
-                PlayerSettings.get('enableHDR') || 'auto'
-            )}
+                            'hdr-force-select',
+                            forceStateOptions,
+                            PlayerSettings.get('enableHDR') || 'auto'
+                        )}
                     </div>
                 </div>
 
@@ -4600,10 +4657,10 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-                'dv-force-select',
-                forceStateOptions,
-                PlayerSettings.get('enableDolbyVision') || 'auto'
-            )}
+                            'dv-force-select',
+                            forceStateOptions,
+                            PlayerSettings.get('enableDolbyVision') || 'auto'
+                        )}
                     </div>
                 </div>
 
@@ -4616,10 +4673,10 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-                'av1-force-select',
-                forceStateOptions,
-                PlayerSettings.get('enableAV1') || 'auto'
-            )}
+                            'av1-force-select',
+                            forceStateOptions,
+                            PlayerSettings.get('enableAV1') || 'auto'
+                        )}
                     </div>
                 </div>
 
@@ -4630,10 +4687,10 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-                'vp9-force-select',
-                forceStateOptions,
-                PlayerSettings.get('enableVP9') || 'auto'
-            )}
+                            'vp9-force-select',
+                            forceStateOptions,
+                            PlayerSettings.get('enableVP9') || 'auto'
+                        )}
                     </div>
                 </div>
 
@@ -4644,10 +4701,10 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-                'dts-force-select',
-                forceStateOptions,
-                PlayerSettings.get('enableDts') || 'auto'
-            )}
+                            'dts-force-select',
+                            forceStateOptions,
+                            PlayerSettings.get('enableDts') || 'auto'
+                        )}
                     </div>
                 </div>
 
@@ -4658,10 +4715,10 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-                'truehd-force-select',
-                forceStateOptions,
-                PlayerSettings.get('enableTrueHd') || 'auto'
-            )}
+                            'truehd-force-select',
+                            forceStateOptions,
+                            PlayerSettings.get('enableTrueHd') || 'auto'
+                        )}
                     </div>
                 </div>
 
@@ -4680,21 +4737,21 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-                'transcode-audio-codec-select',
-                [
-                    { value: 'auto', label: i18n.t('TranscodeCodecAuto') || 'Auto (Prefer E-AC3)' },
-                    {
-                        value: 'prefer_ac3',
-                        label: i18n.t('TranscodeCodecPreferAc3') || 'Prefer AC3 (with AAC fallback)'
-                    },
-                    { value: 'prefer_aac', label: i18n.t('TranscodeCodecPreferAac') || 'Prefer AAC' },
-                    { value: 'force_eac3', label: i18n.t('TranscodeCodecForceEac3') || 'Only E-AC3' },
-                    { value: 'force_ac3', label: i18n.t('TranscodeCodecForceAc3') || 'Only AC3' },
-                    { value: 'force_aac', label: i18n.t('TranscodeCodecForceAac') || 'Only AAC' },
-                    { value: 'force_mp3', label: i18n.t('TranscodeCodecForceMp3') || 'Only MP3' }
-                ],
-                PlayerSettings.get('transcodeAudioCodec') || 'auto'
-            )}
+                            'transcode-audio-codec-select',
+                            [
+                                { value: 'auto', label: i18n.t('TranscodeCodecAuto') || 'Auto (Prefer E-AC3)' },
+                                {
+                                    value: 'prefer_ac3',
+                                    label: i18n.t('TranscodeCodecPreferAc3') || 'Prefer AC3 (with AAC fallback)'
+                                },
+                                { value: 'prefer_aac', label: i18n.t('TranscodeCodecPreferAac') || 'Prefer AAC' },
+                                { value: 'force_eac3', label: i18n.t('TranscodeCodecForceEac3') || 'Only E-AC3' },
+                                { value: 'force_ac3', label: i18n.t('TranscodeCodecForceAc3') || 'Only AC3' },
+                                { value: 'force_aac', label: i18n.t('TranscodeCodecForceAac') || 'Only AAC' },
+                                { value: 'force_mp3', label: i18n.t('TranscodeCodecForceMp3') || 'Only MP3' }
+                            ],
+                            PlayerSettings.get('transcodeAudioCodec') || 'auto'
+                        )}
             </div>
         </div>
                 <!-- ============================================================
@@ -4711,10 +4768,10 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-                'eac3-force-select',
-                forceStateOptions,
-                PlayerSettings.get('enableEac3') || 'auto'
-            )}
+                            'eac3-force-select',
+                            forceStateOptions,
+                            PlayerSettings.get('enableEac3') || 'auto'
+                        )}
                     </div>
                 </div>
 
@@ -4725,15 +4782,16 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-                'mp2-force-select',
-                forceStateOptions,
-                PlayerSettings.get('enableMp2') || 'auto'
-            )}
+                            'mp2-force-select',
+                            forceStateOptions,
+                            PlayerSettings.get('enableMp2') || 'auto'
+                        )}
                     </div>
                 </div>
 
-                ${platformInfo.isTizen
-                ? `
+                ${
+                    platformInfo.isTizen
+                        ? `
                 <div class="setting-item">
                     <div class="setting-label">
                         <span class="setting-name" data-i18n="FLACPassthrough">${i18n.t('FLACPassthrough') || 'FLAC in Video Passthrough'}</span>
@@ -4762,8 +4820,8 @@ class SettingsPage extends Page {
                     </div>
                 </div>
                 `
-                : ''
-            }
+                        : ''
+                }
 
                 <div class="setting-item">
                     <div class="setting-label">
@@ -4828,15 +4886,21 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-                'force-direct-play-select',
-                [
-                    { value: 'off', label: i18n.t('ForceDirectPlayDisabled') || 'Disabled' },
-                    { value: 'video', label: i18n.t('ForceDirectPlayVideoOnly') || 'Force Direct Play Video Codecs Only' },
-                    { value: 'audio', label: i18n.t('ForceDirectPlayAudioOnly') || 'Force Direct Play Audio Codecs Only' },
-                    { value: 'all', label: i18n.t('ForceDirectPlayAll') || 'Force Direct Play Everything' }
-                ],
-                PlayerSettings.get('forceDirectPlay') || 'off'
-            )}
+                            'force-direct-play-select',
+                            [
+                                { value: 'off', label: i18n.t('ForceDirectPlayDisabled') || 'Disabled' },
+                                {
+                                    value: 'video',
+                                    label: i18n.t('ForceDirectPlayVideoOnly') || 'Force Direct Play Video Codecs Only'
+                                },
+                                {
+                                    value: 'audio',
+                                    label: i18n.t('ForceDirectPlayAudioOnly') || 'Force Direct Play Audio Codecs Only'
+                                },
+                                { value: 'all', label: i18n.t('ForceDirectPlayAll') || 'Force Direct Play Everything' }
+                            ],
+                            PlayerSettings.get('forceDirectPlay') || 'off'
+                        )}
                     </div>
                 </div>
 
@@ -4863,20 +4927,20 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-                'trailer-playback-select',
-                [
-                    {
-                        value: 'internal_proxy',
-                        label: i18n.t('InternalPlayerNew') || 'Internal Player (New)'
-                    },
-                    {
-                        value: 'internal_iframe',
-                        label: i18n.t('InternalPlayerLegacy') || 'Internal Player (Legacy Iframe)'
-                    },
-                    { value: 'external', label: i18n.t('ExternalApp') || 'External App' }
-                ],
-                PlayerSettings.get('trailerPlaybackMode')
-            )}
+                            'trailer-playback-select',
+                            [
+                                {
+                                    value: 'internal_proxy',
+                                    label: i18n.t('InternalPlayerNew') || 'Internal Player (New)'
+                                },
+                                {
+                                    value: 'internal_iframe',
+                                    label: i18n.t('InternalPlayerLegacy') || 'Internal Player (Legacy Iframe)'
+                                },
+                                { value: 'external', label: i18n.t('ExternalApp') || 'External App' }
+                            ],
+                            PlayerSettings.get('trailerPlaybackMode')
+                        )}
                     </div>
                 </div>
 
@@ -4911,11 +4975,11 @@ class SettingsPage extends Page {
                 <!-- Playback Buffering Section -->
                 
                 ${(() => {
-                let html = '';
+                    let html = '';
 
-                // WebOS Buffering
-                if (currentBackend === 'webos' || (currentBackend === 'auto' && platformInfo.isWebOS)) {
-                    html += `
+                    // WebOS Buffering
+                    if (currentBackend === 'webos' || (currentBackend === 'auto' && platformInfo.isWebOS)) {
+                        html += `
 
                     <h3 class="setting-section-title" data-i18n="PlaybackBuffering">${i18n.t('PlaybackBuffering') || 'Playback Buffering'}</h3>
                         <div class="setting-item">
@@ -4925,19 +4989,19 @@ class SettingsPage extends Page {
                             </div>
                             <div class="setting-control">
                                 ${this._renderDropdown(
-                        'webos-buffer-gate-select',
-                        [
-                            { value: 0.05, label: '0.05s' },
-                            { value: 0.1, label: '0.1s' },
-                            { value: 0.3, label: '0.3s' },
-                            { value: 0.5, label: '0.5s' },
-                            { value: 1.0, label: '1.0s' },
-                            { value: 2.0, label: '2.0s' },
-                            { value: 3.0, label: '3.0s' },
-                            { value: 5.0, label: '5.0s' }
-                        ],
-                        PlayerSettings.get('webosBufferGate') || 0.3
-                    )}
+                                    'webos-buffer-gate-select',
+                                    [
+                                        { value: 0.05, label: '0.05s' },
+                                        { value: 0.1, label: '0.1s' },
+                                        { value: 0.3, label: '0.3s' },
+                                        { value: 0.5, label: '0.5s' },
+                                        { value: 1.0, label: '1.0s' },
+                                        { value: 2.0, label: '2.0s' },
+                                        { value: 3.0, label: '3.0s' },
+                                        { value: 5.0, label: '5.0s' }
+                                    ],
+                                    PlayerSettings.get('webosBufferGate') || 0.3
+                                )}
                             </div>
                         </div>
                         <div class="setting-item">
@@ -4947,19 +5011,19 @@ class SettingsPage extends Page {
                             </div>
                             <div class="setting-control">
                                 ${this._renderDropdown(
-                        'webos-stall-recovery-select',
-                        [
-                            { value: 250, label: '250ms' },
-                            { value: 500, label: '500ms' },
-                            { value: 1000, label: '1000ms' },
-                            { value: 2000, label: '2000ms' },
-                            { value: 3000, label: '3000ms' },
-                            { value: 5000, label: '5000ms' },
-                            { value: 8000, label: '8000ms' },
-                            { value: 10000, label: '10000ms' }
-                        ],
-                        PlayerSettings.get('webosStallRecovery') || 8000
-                    )}
+                                    'webos-stall-recovery-select',
+                                    [
+                                        { value: 250, label: '250ms' },
+                                        { value: 500, label: '500ms' },
+                                        { value: 1000, label: '1000ms' },
+                                        { value: 2000, label: '2000ms' },
+                                        { value: 3000, label: '3000ms' },
+                                        { value: 5000, label: '5000ms' },
+                                        { value: 8000, label: '8000ms' },
+                                        { value: 10000, label: '10000ms' }
+                                    ],
+                                    PlayerSettings.get('webosStallRecovery') || 8000
+                                )}
                             </div>
                         </div>
                         <div class="setting-item">
@@ -4969,29 +5033,29 @@ class SettingsPage extends Page {
                             </div>
                             <div class="setting-control">
                                 ${this._renderDropdown(
-                        'webos-segment-length-select',
-                        [
-                            { value: 1, label: i18n.t('Seconds', [1]) || '1s' },
-                            { value: 2, label: i18n.t('Seconds', [2]) || '2s' },
-                            { value: 3, label: i18n.t('Seconds', [3]) || '3s' },
-                            { value: 4, label: i18n.t('Seconds', [4]) || '4s' },
-                            { value: 5, label: i18n.t('Seconds', [5]) || '5s' },
-                            { value: 6, label: i18n.t('Seconds', [6]) || '6s' },
-                            { value: 8, label: i18n.t('Seconds', [8]) || '8s' },
-                            { value: 10, label: i18n.t('Seconds', [10]) || '10s' },
-                            { value: 12, label: i18n.t('Seconds', [12]) || '12s' },
-                            { value: 15, label: i18n.t('Seconds', [15]) || '15s' }
-                        ],
-                        PlayerSettings.get('webosSegmentLength') || 3
-                    )}
+                                    'webos-segment-length-select',
+                                    [
+                                        { value: 1, label: i18n.t('Seconds', [1]) || '1s' },
+                                        { value: 2, label: i18n.t('Seconds', [2]) || '2s' },
+                                        { value: 3, label: i18n.t('Seconds', [3]) || '3s' },
+                                        { value: 4, label: i18n.t('Seconds', [4]) || '4s' },
+                                        { value: 5, label: i18n.t('Seconds', [5]) || '5s' },
+                                        { value: 6, label: i18n.t('Seconds', [6]) || '6s' },
+                                        { value: 8, label: i18n.t('Seconds', [8]) || '8s' },
+                                        { value: 10, label: i18n.t('Seconds', [10]) || '10s' },
+                                        { value: 12, label: i18n.t('Seconds', [12]) || '12s' },
+                                        { value: 15, label: i18n.t('Seconds', [15]) || '15s' }
+                                    ],
+                                    PlayerSettings.get('webosSegmentLength') || 3
+                                )}
                             </div>
                         </div>
                         `;
-                }
+                    }
 
-                // Tizen Buffering
-                if (currentBackend === 'avplay' || (currentBackend === 'auto' && platformInfo.isTizen)) {
-                    html += `
+                    // Tizen Buffering
+                    if (currentBackend === 'avplay' || (currentBackend === 'auto' && platformInfo.isTizen)) {
+                        html += `
                     <h3 class="setting-section-title" data-i18n="PlaybackBuffering">${i18n.t('PlaybackBuffering') || 'Playback Buffering'}</h3>
                         <div class="setting-item">
                             <div class="setting-label">
@@ -5000,21 +5064,21 @@ class SettingsPage extends Page {
                             </div>
                             <div class="setting-control">
                                 ${this._renderDropdown(
-                        'tizen-initial-buffer-select',
-                        [
-                            { value: 1, label: i18n.t('Seconds', [1]) || '1s' },
-                            { value: 2, label: i18n.t('Seconds', [2]) || '2s' },
-                            { value: 4, label: i18n.t('Seconds', [4]) || '4s' },
-                            { value: 6, label: i18n.t('Seconds', [6]) || '6s' },
-                            { value: 8, label: i18n.t('Seconds', [8]) || '8s' },
-                            { value: 10, label: i18n.t('Seconds', [10]) || '10s' },
-                            { value: 15, label: i18n.t('Seconds', [15]) || '15s' },
-                            { value: 20, label: i18n.t('Seconds', [20]) || '20s' },
-                            { value: 30, label: i18n.t('Seconds', [30]) || '30s' },
-                            { value: 60, label: i18n.t('Seconds', [60]) || '60s' }
-                        ],
-                        PlayerSettings.get('tizenInitialBuffer') || 6
-                    )}
+                                    'tizen-initial-buffer-select',
+                                    [
+                                        { value: 1, label: i18n.t('Seconds', [1]) || '1s' },
+                                        { value: 2, label: i18n.t('Seconds', [2]) || '2s' },
+                                        { value: 4, label: i18n.t('Seconds', [4]) || '4s' },
+                                        { value: 6, label: i18n.t('Seconds', [6]) || '6s' },
+                                        { value: 8, label: i18n.t('Seconds', [8]) || '8s' },
+                                        { value: 10, label: i18n.t('Seconds', [10]) || '10s' },
+                                        { value: 15, label: i18n.t('Seconds', [15]) || '15s' },
+                                        { value: 20, label: i18n.t('Seconds', [20]) || '20s' },
+                                        { value: 30, label: i18n.t('Seconds', [30]) || '30s' },
+                                        { value: 60, label: i18n.t('Seconds', [60]) || '60s' }
+                                    ],
+                                    PlayerSettings.get('tizenInitialBuffer') || 6
+                                )}
                             </div>
                         </div>
                         <div class="setting-item">
@@ -5024,21 +5088,21 @@ class SettingsPage extends Page {
                             </div>
                             <div class="setting-control">
                                 ${this._renderDropdown(
-                        'tizen-resume-buffer-select',
-                        [
-                            { value: 1, label: i18n.t('Seconds', [1]) || '1s' },
-                            { value: 2, label: i18n.t('Seconds', [2]) || '2s' },
-                            { value: 4, label: i18n.t('Seconds', [4]) || '4s' },
-                            { value: 6, label: i18n.t('Seconds', [6]) || '6s' },
-                            { value: 8, label: i18n.t('Seconds', [8]) || '8s' },
-                            { value: 10, label: i18n.t('Seconds', [10]) || '10s' },
-                            { value: 15, label: i18n.t('Seconds', [15]) || '15s' },
-                            { value: 20, label: i18n.t('Seconds', [20]) || '20s' },
-                            { value: 30, label: i18n.t('Seconds', [30]) || '30s' },
-                            { value: 60, label: i18n.t('Seconds', [60]) || '60s' }
-                        ],
-                        PlayerSettings.get('tizenResumeBuffer') || 4
-                    )}
+                                    'tizen-resume-buffer-select',
+                                    [
+                                        { value: 1, label: i18n.t('Seconds', [1]) || '1s' },
+                                        { value: 2, label: i18n.t('Seconds', [2]) || '2s' },
+                                        { value: 4, label: i18n.t('Seconds', [4]) || '4s' },
+                                        { value: 6, label: i18n.t('Seconds', [6]) || '6s' },
+                                        { value: 8, label: i18n.t('Seconds', [8]) || '8s' },
+                                        { value: 10, label: i18n.t('Seconds', [10]) || '10s' },
+                                        { value: 15, label: i18n.t('Seconds', [15]) || '15s' },
+                                        { value: 20, label: i18n.t('Seconds', [20]) || '20s' },
+                                        { value: 30, label: i18n.t('Seconds', [30]) || '30s' },
+                                        { value: 60, label: i18n.t('Seconds', [60]) || '60s' }
+                                    ],
+                                    PlayerSettings.get('tizenResumeBuffer') || 4
+                                )}
                             </div>
                         </div>
                         <div class="setting-item">
@@ -5048,32 +5112,32 @@ class SettingsPage extends Page {
                             </div>
                             <div class="setting-control">
                                 ${this._renderDropdown(
-                        'tizen-segment-length-select',
-                        [
-                            { value: 1, label: i18n.t('Seconds', [1]) || '1s' },
-                            { value: 2, label: i18n.t('Seconds', [2]) || '2s' },
-                            { value: 3, label: i18n.t('Seconds', [3]) || '3s' },
-                            { value: 4, label: i18n.t('Seconds', [4]) || '4s' },
-                            { value: 5, label: i18n.t('Seconds', [5]) || '5s' },
-                            { value: 6, label: i18n.t('Seconds', [6]) || '6s' },
-                            { value: 8, label: i18n.t('Seconds', [8]) || '8s' },
-                            { value: 10, label: i18n.t('Seconds', [10]) || '10s' },
-                            { value: 12, label: i18n.t('Seconds', [12]) || '12s' },
-                            { value: 15, label: i18n.t('Seconds', [15]) || '15s' }
-                        ],
-                        PlayerSettings.get('tizenSegmentLength') || 6
-                    )}
+                                    'tizen-segment-length-select',
+                                    [
+                                        { value: 1, label: i18n.t('Seconds', [1]) || '1s' },
+                                        { value: 2, label: i18n.t('Seconds', [2]) || '2s' },
+                                        { value: 3, label: i18n.t('Seconds', [3]) || '3s' },
+                                        { value: 4, label: i18n.t('Seconds', [4]) || '4s' },
+                                        { value: 5, label: i18n.t('Seconds', [5]) || '5s' },
+                                        { value: 6, label: i18n.t('Seconds', [6]) || '6s' },
+                                        { value: 8, label: i18n.t('Seconds', [8]) || '8s' },
+                                        { value: 10, label: i18n.t('Seconds', [10]) || '10s' },
+                                        { value: 12, label: i18n.t('Seconds', [12]) || '12s' },
+                                        { value: 15, label: i18n.t('Seconds', [15]) || '15s' }
+                                    ],
+                                    PlayerSettings.get('tizenSegmentLength') || 6
+                                )}
                             </div>
                         </div>
                         `;
-                }
+                    }
 
-                // HTML5 Buffering
-                if (
-                    currentBackend === 'html5' ||
-                    (currentBackend === 'auto' && !platformInfo.isTizen && !platformInfo.isWebOS)
-                ) {
-                    html += `
+                    // HTML5 Buffering
+                    if (
+                        currentBackend === 'html5' ||
+                        (currentBackend === 'auto' && !platformInfo.isTizen && !platformInfo.isWebOS)
+                    ) {
+                        html += `
                     <h3 class="setting-section-title" data-i18n="PlaybackBuffering">${i18n.t('PlaybackBuffering') || 'Playback Buffering'}</h3>
                         <div class="setting-item">
                             <div class="setting-label">
@@ -5082,21 +5146,21 @@ class SettingsPage extends Page {
                             </div>
                             <div class="setting-control">
                                 ${this._renderDropdown(
-                        'html5-max-buffer-select',
-                        [
-                            { value: 15, label: i18n.t('Seconds', [15]) || '15s' },
-                            { value: 30, label: i18n.t('Seconds', [30]) || '30s' },
-                            { value: 45, label: i18n.t('Seconds', [45]) || '45s' },
-                            { value: 60, label: i18n.t('Seconds', [60]) || '60s' },
-                            { value: 90, label: i18n.t('Seconds', [90]) || '90s' },
-                            { value: 120, label: i18n.t('Seconds', [120]) || '120s' },
-                            { value: 180, label: i18n.t('Seconds', [180]) || '180s' },
-                            { value: 300, label: i18n.t('Seconds', [300]) || '300s' },
-                            { value: 600, label: i18n.t('Seconds', [600]) || '600s' },
-                            { value: 900, label: i18n.t('Seconds', [900]) || '900s' }
-                        ],
-                        PlayerSettings.get('html5MaxBufferLength') || 60
-                    )}
+                                    'html5-max-buffer-select',
+                                    [
+                                        { value: 15, label: i18n.t('Seconds', [15]) || '15s' },
+                                        { value: 30, label: i18n.t('Seconds', [30]) || '30s' },
+                                        { value: 45, label: i18n.t('Seconds', [45]) || '45s' },
+                                        { value: 60, label: i18n.t('Seconds', [60]) || '60s' },
+                                        { value: 90, label: i18n.t('Seconds', [90]) || '90s' },
+                                        { value: 120, label: i18n.t('Seconds', [120]) || '120s' },
+                                        { value: 180, label: i18n.t('Seconds', [180]) || '180s' },
+                                        { value: 300, label: i18n.t('Seconds', [300]) || '300s' },
+                                        { value: 600, label: i18n.t('Seconds', [600]) || '600s' },
+                                        { value: 900, label: i18n.t('Seconds', [900]) || '900s' }
+                                    ],
+                                    PlayerSettings.get('html5MaxBufferLength') || 60
+                                )}
                             </div>
                         </div>
                         <div class="setting-item">
@@ -5106,22 +5170,22 @@ class SettingsPage extends Page {
                             </div>
                             <div class="setting-control">
                                 ${this._renderDropdown(
-                        'html5-max-max-buffer-select',
-                        [
-                            { value: 30, label: i18n.t('Seconds', [30]) || '30s' },
-                            { value: 60, label: i18n.t('Seconds', [60]) || '60s' },
-                            { value: 90, label: i18n.t('Seconds', [90]) || '90s' },
-                            { value: 120, label: i18n.t('Seconds', [120]) || '120s' },
-                            { value: 180, label: i18n.t('Seconds', [180]) || '180s' },
-                            { value: 240, label: i18n.t('Seconds', [240]) || '240s' },
-                            { value: 300, label: i18n.t('Seconds', [300]) || '300s' },
-                            { value: 480, label: i18n.t('Seconds', [480]) || '480s' },
-                            { value: 600, label: i18n.t('Seconds', [600]) || '600s' },
-                            { value: 900, label: i18n.t('Seconds', [900]) || '900s' },
-                            { value: 1200, label: i18n.t('Seconds', [1200]) || '1200s' }
-                        ],
-                        PlayerSettings.get('html5MaxMaxBufferLength') || 120
-                    )}
+                                    'html5-max-max-buffer-select',
+                                    [
+                                        { value: 30, label: i18n.t('Seconds', [30]) || '30s' },
+                                        { value: 60, label: i18n.t('Seconds', [60]) || '60s' },
+                                        { value: 90, label: i18n.t('Seconds', [90]) || '90s' },
+                                        { value: 120, label: i18n.t('Seconds', [120]) || '120s' },
+                                        { value: 180, label: i18n.t('Seconds', [180]) || '180s' },
+                                        { value: 240, label: i18n.t('Seconds', [240]) || '240s' },
+                                        { value: 300, label: i18n.t('Seconds', [300]) || '300s' },
+                                        { value: 480, label: i18n.t('Seconds', [480]) || '480s' },
+                                        { value: 600, label: i18n.t('Seconds', [600]) || '600s' },
+                                        { value: 900, label: i18n.t('Seconds', [900]) || '900s' },
+                                        { value: 1200, label: i18n.t('Seconds', [1200]) || '1200s' }
+                                    ],
+                                    PlayerSettings.get('html5MaxMaxBufferLength') || 120
+                                )}
                             </div>
                         </div>
                         <div class="setting-item">
@@ -5131,29 +5195,29 @@ class SettingsPage extends Page {
                             </div>
                             <div class="setting-control">
                                 ${this._renderDropdown(
-                        'html5-segment-length-select',
-                        [
-                            { value: 1, label: i18n.t('Seconds', [1]) || '1s' },
-                            { value: 2, label: i18n.t('Seconds', [2]) || '2s' },
-                            { value: 3, label: i18n.t('Seconds', [3]) || '3s' },
-                            { value: 4, label: i18n.t('Seconds', [4]) || '4s' },
-                            { value: 5, label: i18n.t('Seconds', [5]) || '5s' },
-                            { value: 6, label: i18n.t('Seconds', [6]) || '6s' },
-                            { value: 8, label: i18n.t('Seconds', [8]) || '8s' },
-                            { value: 10, label: i18n.t('Seconds', [10]) || '10s' },
-                            { value: 12, label: i18n.t('Seconds', [12]) || '12s' },
-                            { value: 15, label: i18n.t('Seconds', [15]) || '15s' }
-                        ],
-                        PlayerSettings.get('html5SegmentLength') || 2
-                    )}
+                                    'html5-segment-length-select',
+                                    [
+                                        { value: 1, label: i18n.t('Seconds', [1]) || '1s' },
+                                        { value: 2, label: i18n.t('Seconds', [2]) || '2s' },
+                                        { value: 3, label: i18n.t('Seconds', [3]) || '3s' },
+                                        { value: 4, label: i18n.t('Seconds', [4]) || '4s' },
+                                        { value: 5, label: i18n.t('Seconds', [5]) || '5s' },
+                                        { value: 6, label: i18n.t('Seconds', [6]) || '6s' },
+                                        { value: 8, label: i18n.t('Seconds', [8]) || '8s' },
+                                        { value: 10, label: i18n.t('Seconds', [10]) || '10s' },
+                                        { value: 12, label: i18n.t('Seconds', [12]) || '12s' },
+                                        { value: 15, label: i18n.t('Seconds', [15]) || '15s' }
+                                    ],
+                                    PlayerSettings.get('html5SegmentLength') || 2
+                                )}
                             </div>
                         </div>
                         
                         `;
-                }
+                    }
 
-                return html;
-            })()}
+                    return html;
+                })()}
             </div>
         `;
     }
@@ -5176,10 +5240,10 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-            'subtitle-lang-select',
-            [{ value: 'none', label: i18n.t('None') }, ...this.prefLanguages],
-            storage.getItem('pref:subtitleLang') || 'none'
-        )}
+                            'subtitle-lang-select',
+                            [{ value: 'none', label: i18n.t('None') }, ...this.prefLanguages],
+                            storage.getItem('pref:subtitleLang') || 'none'
+                        )}
                     </div>
                 </div>
 
@@ -5190,16 +5254,16 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-            'subtitle-mode-select',
-            [
-                { value: 'Default', label: i18n.t('DefaultServerPreference') },
-                { value: 'Smart', label: i18n.t('SmartForeignAudioOnly') },
-                { value: 'OnlyForced', label: i18n.t('OnlyForced') },
-                { value: 'Always', label: i18n.t('Always') },
-                { value: 'None', label: i18n.t('None') }
-            ],
-            PlayerSettings.get('subtitleMode')
-        )}
+                            'subtitle-mode-select',
+                            [
+                                { value: 'Default', label: i18n.t('DefaultServerPreference') },
+                                { value: 'Smart', label: i18n.t('SmartForeignAudioOnly') },
+                                { value: 'OnlyForced', label: i18n.t('OnlyForced') },
+                                { value: 'Always', label: i18n.t('Always') },
+                                { value: 'None', label: i18n.t('None') }
+                            ],
+                            PlayerSettings.get('subtitleMode')
+                        )}
                     </div>
                 </div>
 
@@ -5210,14 +5274,14 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-            'subtitle-burn-in-select',
-            [
-                { value: '', label: i18n.t('ClientRendersRecommended') },
-                { value: 'allcomplex', label: i18n.t('AutoComplexFormatsOnly') },
-                { value: 'all', label: i18n.t('AlwaysBurnIn') }
-            ],
-            PlayerSettings.get('subtitleBurnIn') || ''
-        )}
+                            'subtitle-burn-in-select',
+                            [
+                                { value: '', label: i18n.t('ClientRendersRecommended') },
+                                { value: 'allcomplex', label: i18n.t('AutoComplexFormatsOnly') },
+                                { value: 'all', label: i18n.t('AlwaysBurnIn') }
+                            ],
+                            PlayerSettings.get('subtitleBurnIn') || ''
+                        )}
                     </div>
                 </div>
 
@@ -5270,27 +5334,27 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-            'ass-renderer-select',
-            [
-                // Prioritize libass-wasm as the recommended option on devices with WebAssembly support
-                {
-                    value: 'libass-wasm',
-                    label: platformInfo.hasWasmSupport
-                        ? 'libass-wasm (WebGL/WASM, Recommended)'
-                        : 'libass-wasm (WebGL/WASM, Unsupported)'
-                },
-                // libjass is the DOM fallback for older engines lacking WebAssembly (Tizen 3/4, WebOS <= 4.0)
-                {
-                    value: 'libjass',
-                    label: platformInfo.hasWasmSupport
-                        ? 'libjass (DOM, Older TV Compatible)'
-                        : 'libjass (DOM, Recommended / Older TV)'
-                },
-                // ass.js lightweight experimental fallback
-                { value: 'assjs', label: 'ass.js (Lightweight DOM, Experimental)' }
-            ],
-            PlayerSettings.get('assRenderer')
-        )}
+                            'ass-renderer-select',
+                            [
+                                // Prioritize libass-wasm as the recommended option on devices with WebAssembly support
+                                {
+                                    value: 'libass-wasm',
+                                    label: platformInfo.hasWasmSupport
+                                        ? 'libass-wasm (WebGL/WASM, Recommended)'
+                                        : 'libass-wasm (WebGL/WASM, Unsupported)'
+                                },
+                                // libjass is the DOM fallback for older engines lacking WebAssembly (Tizen 3/4, WebOS <= 4.0)
+                                {
+                                    value: 'libjass',
+                                    label: platformInfo.hasWasmSupport
+                                        ? 'libjass (DOM, Older TV Compatible)'
+                                        : 'libjass (DOM, Recommended / Older TV)'
+                                },
+                                // ass.js lightweight experimental fallback
+                                { value: 'assjs', label: 'ass.js (Lightweight DOM, Experimental)' }
+                            ],
+                            PlayerSettings.get('assRenderer')
+                        )}
                     </div>
                 </div>
 
@@ -5315,17 +5379,17 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-            'ass-prescale-factor-select',
-            [
-                { value: 0.5, label: '0.5x (fastest)' },
-                { value: 0.6, label: '0.6x' },
-                { value: 0.7, label: '0.7x' },
-                { value: 0.8, label: '0.8x (recommended)' },
-                { value: 0.9, label: '0.9x' },
-                { value: 1.0, label: '1.0x (highest quality)' }
-            ],
-            PlayerSettings.get('subtitleAssPrescaleFactor')
-        )}
+                            'ass-prescale-factor-select',
+                            [
+                                { value: 0.5, label: '0.5x (fastest)' },
+                                { value: 0.6, label: '0.6x' },
+                                { value: 0.7, label: '0.7x' },
+                                { value: 0.8, label: '0.8x (recommended)' },
+                                { value: 0.9, label: '0.9x' },
+                                { value: 1.0, label: '1.0x (highest quality)' }
+                            ],
+                            PlayerSettings.get('subtitleAssPrescaleFactor')
+                        )}
                     </div>
                 </div>
 
@@ -5336,17 +5400,17 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-            'pgs-playback-mode-select',
-            [
-                {
-                    value: 'client',
-                    label: i18n.t('PgsModeClient') || 'Client Rendering (Web Worker, Smooth TV UI)'
-                },
-                { value: 'burn', label: i18n.t('PgsModeBurn') || 'Transcode (Force Server Burn-In)' },
-                { value: 'disable', label: i18n.t('PgsModeDisable') || 'Disable and Hide Completely' }
-            ],
-            PlayerSettings.get('pgsPlaybackMode')
-        )}
+                            'pgs-playback-mode-select',
+                            [
+                                {
+                                    value: 'client',
+                                    label: i18n.t('PgsModeClient') || 'Client Rendering (Web Worker, Smooth TV UI)'
+                                },
+                                { value: 'burn', label: i18n.t('PgsModeBurn') || 'Transcode (Force Server Burn-In)' },
+                                { value: 'disable', label: i18n.t('PgsModeDisable') || 'Disable and Hide Completely' }
+                            ],
+                            PlayerSettings.get('pgsPlaybackMode')
+                        )}
                     </div>
                 </div>
 
@@ -5360,44 +5424,44 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-            'subtitle-font-select',
-            [
-                {
-                    value: '',
-                    label: i18n.t(platformInfo.isWebOS ? 'DefaultWebOSSans' : 'DefaultTizenSans')
-                },
-                {
-                    value: 'fallback-font',
-                    label: i18n.t('JellyfinFallbackFont') || 'Jellyfin Fallback Font'
-                },
-                { value: 'poppins', label: i18n.t('FontPoppins') || 'Poppins' },
-                { value: 'roboto', label: i18n.t('FontRoboto') || 'Roboto' },
-                { value: 'google', label: i18n.t('FontGoogleSans') || 'Google Sans' },
-                { value: 'inter', label: i18n.t('FontInter') || 'Inter' },
-                { value: 'proxima', label: i18n.t('FontProxima') || 'Proxima Nova' },
-                { value: 'noto-arabic', label: i18n.t('ArabicNotoSans') },
-                { value: 'typewriter', label: i18n.t('Typewriter') },
-                { value: 'print', label: i18n.t('Print') },
-                { value: 'console', label: i18n.t('Console') },
-                { value: 'cursive', label: i18n.t('Cursive') },
-                { value: 'casual', label: i18n.t('Casual') },
-                { value: 'smallcaps', label: i18n.t('SmallCaps') },
-                { value: 'silkscreen', label: i18n.t('FontSilkscreen') || 'Silkscreen' },
-                { value: 'space-grotesk', label: i18n.t('FontSpaceGrotesk') || 'Space Grotesk' },
-                { value: 'retrotech', label: i18n.t('FontRetrotech') || 'RETROTECH' },
-                { value: 'kitty', label: i18n.t('FontKitty') || 'Kitty' },
-                { value: 'baloo', label: i18n.t('FontBaloo') || 'Baloo Bhaijaan 2' },
-                { value: 'poiret-one', label: i18n.t('FontPoiretOne') || 'Poiret One' },
-                {
-                    value: 'zen-kaku-gothic-new',
-                    label: i18n.t('FontZenKakuGothicNew') || 'Zen Kaku Gothic New'
-                },
-                { value: 'opendyslexic', label: i18n.t('FontOpenDyslexic') || 'OpenDyslexic' },
-                { value: 'atkinson', label: i18n.t('FontAtkinson') || 'Atkinson Hyperlegible' },
-                { value: 'manrope', label: i18n.t('FontManrope') || 'Manrope' }
-            ],
-            PlayerSettings.get('subtitleFont')
-        )}
+                            'subtitle-font-select',
+                            [
+                                {
+                                    value: '',
+                                    label: i18n.t(platformInfo.isWebOS ? 'DefaultWebOSSans' : 'DefaultTizenSans')
+                                },
+                                {
+                                    value: 'fallback-font',
+                                    label: i18n.t('JellyfinFallbackFont') || 'Jellyfin Fallback Font'
+                                },
+                                { value: 'poppins', label: i18n.t('FontPoppins') || 'Poppins' },
+                                { value: 'roboto', label: i18n.t('FontRoboto') || 'Roboto' },
+                                { value: 'google', label: i18n.t('FontGoogleSans') || 'Google Sans' },
+                                { value: 'inter', label: i18n.t('FontInter') || 'Inter' },
+                                { value: 'proxima', label: i18n.t('FontProxima') || 'Proxima Nova' },
+                                { value: 'noto-arabic', label: i18n.t('ArabicNotoSans') },
+                                { value: 'typewriter', label: i18n.t('Typewriter') },
+                                { value: 'print', label: i18n.t('Print') },
+                                { value: 'console', label: i18n.t('Console') },
+                                { value: 'cursive', label: i18n.t('Cursive') },
+                                { value: 'casual', label: i18n.t('Casual') },
+                                { value: 'smallcaps', label: i18n.t('SmallCaps') },
+                                { value: 'silkscreen', label: i18n.t('FontSilkscreen') || 'Silkscreen' },
+                                { value: 'space-grotesk', label: i18n.t('FontSpaceGrotesk') || 'Space Grotesk' },
+                                { value: 'retrotech', label: i18n.t('FontRetrotech') || 'RETROTECH' },
+                                { value: 'kitty', label: i18n.t('FontKitty') || 'Kitty' },
+                                { value: 'baloo', label: i18n.t('FontBaloo') || 'Baloo Bhaijaan 2' },
+                                { value: 'poiret-one', label: i18n.t('FontPoiretOne') || 'Poiret One' },
+                                {
+                                    value: 'zen-kaku-gothic-new',
+                                    label: i18n.t('FontZenKakuGothicNew') || 'Zen Kaku Gothic New'
+                                },
+                                { value: 'opendyslexic', label: i18n.t('FontOpenDyslexic') || 'OpenDyslexic' },
+                                { value: 'atkinson', label: i18n.t('FontAtkinson') || 'Atkinson Hyperlegible' },
+                                { value: 'manrope', label: i18n.t('FontManrope') || 'Manrope' }
+                            ],
+                            PlayerSettings.get('subtitleFont')
+                        )}
                     </div>
                 </div>
                 
@@ -5408,18 +5472,18 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-            'subtitle-size-select',
-            [
-                { value: 'small', label: i18n.t('Small') },
-                { value: 'medium', label: i18n.t('Medium') },
-                { value: 'mediumlarge', label: i18n.t('MediumLarge') },
-                { value: 'large', label: i18n.t('Large') },
-                { value: 'larger', label: i18n.t('Larger') },
-                { value: 'extralarge', label: i18n.t('ExtraLarge') },
-                { value: 'custom', label: i18n.t('Custom') }
-            ],
-            PlayerSettings.get('subtitleSize')
-        )}
+                            'subtitle-size-select',
+                            [
+                                { value: 'small', label: i18n.t('Small') },
+                                { value: 'medium', label: i18n.t('Medium') },
+                                { value: 'mediumlarge', label: i18n.t('MediumLarge') },
+                                { value: 'large', label: i18n.t('Large') },
+                                { value: 'larger', label: i18n.t('Larger') },
+                                { value: 'extralarge', label: i18n.t('ExtraLarge') },
+                                { value: 'custom', label: i18n.t('Custom') }
+                            ],
+                            PlayerSettings.get('subtitleSize')
+                        )}
                     </div>
                 </div>
 
@@ -5430,13 +5494,13 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control slider-control">
                         ${this._renderSlider(
-            'subtitle-custom-size',
-            PlayerSettings.get('subtitleSizeCustomValue'),
-            1,
-            20,
-            0.1,
-            'vh'
-        )}
+                            'subtitle-custom-size',
+                            PlayerSettings.get('subtitleSizeCustomValue'),
+                            1,
+                            20,
+                            0.1,
+                            'vh'
+                        )}
                     </div>
                 </div>
 
@@ -5447,17 +5511,17 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-            'subtitle-position-select',
-            [
-                { value: '-1', label: i18n.t('BottomLow') },
-                { value: '-2', label: i18n.t('BottomStandard') },
-                { value: '-5', label: i18n.t('BottomHigh') },
-                { value: '0', label: i18n.t('Top') },
-                { value: '2', label: i18n.t('TopLow') },
-                { value: 'custom', label: i18n.t('CustomAbsolute') }
-            ],
-            String(PlayerSettings.get('subtitleVerticalPosition'))
-        )}
+                            'subtitle-position-select',
+                            [
+                                { value: '-1', label: i18n.t('BottomLow') },
+                                { value: '-2', label: i18n.t('BottomStandard') },
+                                { value: '-5', label: i18n.t('BottomHigh') },
+                                { value: '0', label: i18n.t('Top') },
+                                { value: '2', label: i18n.t('TopLow') },
+                                { value: 'custom', label: i18n.t('CustomAbsolute') }
+                            ],
+                            String(PlayerSettings.get('subtitleVerticalPosition'))
+                        )}
                     </div>
                 </div>
 
@@ -5468,12 +5532,12 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control slider-control">
                         ${this._renderSlider(
-            'subtitle-custom-pos',
-            PlayerSettings.get('subtitleVerticalPositionCustom'),
-            0,
-            100,
-            1
-        )}
+                            'subtitle-custom-pos',
+                            PlayerSettings.get('subtitleVerticalPositionCustom'),
+                            0,
+                            100,
+                            1
+                        )}
                     </div>
                 </div>
 
@@ -5499,13 +5563,13 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-            'subtitle-weight-select',
-            [
-                { value: 'normal', label: i18n.t('Normal') },
-                { value: 'bold', label: i18n.t('Bold') }
-            ],
-            PlayerSettings.get('subtitleWeight') || 'normal'
-        )}
+                            'subtitle-weight-select',
+                            [
+                                { value: 'normal', label: i18n.t('Normal') },
+                                { value: 'bold', label: i18n.t('Bold') }
+                            ],
+                            PlayerSettings.get('subtitleWeight') || 'normal'
+                        )}
                     </div>
                 </div>
 
@@ -5516,18 +5580,18 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-            'subtitle-color-select',
-            [
-                { value: '#ffffff', label: i18n.t('SubtitleWhite') },
-                { value: '#d3d3d3', label: i18n.t('LightGrey') },
-                { value: '#a9a9a9', label: i18n.t('DarkGrey') },
-                { value: '#000000', label: i18n.t('SubtitleBlack') },
-                { value: '#ffff00', label: i18n.t('SubtitleYellow') },
-                { value: '#00ffff', label: i18n.t('SubtitleCyan') },
-                { value: '#0000ff', label: i18n.t('SubtitleBlue') }
-            ],
-            PlayerSettings.get('subtitleTextColor') || '#ffffff'
-        )}
+                            'subtitle-color-select',
+                            [
+                                { value: '#ffffff', label: i18n.t('SubtitleWhite') },
+                                { value: '#d3d3d3', label: i18n.t('LightGrey') },
+                                { value: '#a9a9a9', label: i18n.t('DarkGrey') },
+                                { value: '#000000', label: i18n.t('SubtitleBlack') },
+                                { value: '#ffff00', label: i18n.t('SubtitleYellow') },
+                                { value: '#00ffff', label: i18n.t('SubtitleCyan') },
+                                { value: '#0000ff', label: i18n.t('SubtitleBlue') }
+                            ],
+                            PlayerSettings.get('subtitleTextColor') || '#ffffff'
+                        )}
                     </div>
                 </div>
 
@@ -5538,18 +5602,18 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-            'subtitle-color-select-hdr',
-            [
-                { value: '#ffffff', label: i18n.t('SubtitleWhite') },
-                { value: '#d3d3d3', label: i18n.t('LightGrey') },
-                { value: '#a9a9a9', label: i18n.t('DarkGrey') },
-                { value: '#000000', label: i18n.t('SubtitleBlack') },
-                { value: '#ffff00', label: i18n.t('SubtitleYellow') },
-                { value: '#00ffff', label: i18n.t('SubtitleCyan') },
-                { value: '#0000ff', label: i18n.t('SubtitleBlue') }
-            ],
-            PlayerSettings.get('subtitleTextColorHdr') || '#ffffff'
-        )}
+                            'subtitle-color-select-hdr',
+                            [
+                                { value: '#ffffff', label: i18n.t('SubtitleWhite') },
+                                { value: '#d3d3d3', label: i18n.t('LightGrey') },
+                                { value: '#a9a9a9', label: i18n.t('DarkGrey') },
+                                { value: '#000000', label: i18n.t('SubtitleBlack') },
+                                { value: '#ffff00', label: i18n.t('SubtitleYellow') },
+                                { value: '#00ffff', label: i18n.t('SubtitleCyan') },
+                                { value: '#0000ff', label: i18n.t('SubtitleBlue') }
+                            ],
+                            PlayerSettings.get('subtitleTextColorHdr') || '#ffffff'
+                        )}
                     </div>
                 </div>
 
@@ -5576,12 +5640,12 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control slider-control">
                         ${this._renderSlider(
-            'subtitle-text-opacity',
-            PlayerSettings.get('subtitleTextOpacity'),
-            0,
-            100,
-            5
-        )}
+                            'subtitle-text-opacity',
+                            PlayerSettings.get('subtitleTextOpacity'),
+                            0,
+                            100,
+                            5
+                        )}
                     </div>
                 </div>
 
@@ -5592,12 +5656,12 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control slider-control">
                         ${this._renderSlider(
-            'subtitle-text-opacity-hdr',
-            PlayerSettings.get('subtitleTextOpacityHdr'),
-            0,
-            100,
-            5
-        )}
+                            'subtitle-text-opacity-hdr',
+                            PlayerSettings.get('subtitleTextOpacityHdr'),
+                            0,
+                            100,
+                            5
+                        )}
                     </div>
                 </div>
 
@@ -5608,12 +5672,12 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control slider-control">
                         ${this._renderSlider(
-            'subtitle-pgs-opacity',
-            PlayerSettings.get('subtitlePgsOpacity') ?? 100,
-            0,
-            100,
-            5
-        )}
+                            'subtitle-pgs-opacity',
+                            PlayerSettings.get('subtitlePgsOpacity') ?? 100,
+                            0,
+                            100,
+                            5
+                        )}
                     </div>
                 </div>
 
@@ -5624,12 +5688,12 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control slider-control">
                         ${this._renderSlider(
-            'subtitle-pgs-opacity-hdr',
-            PlayerSettings.get('subtitlePgsOpacityHdr') ?? 70,
-            0,
-            100,
-            5
-        )}
+                            'subtitle-pgs-opacity-hdr',
+                            PlayerSettings.get('subtitlePgsOpacityHdr') ?? 70,
+                            0,
+                            100,
+                            5
+                        )}
                     </div>
                 </div>
 
@@ -5640,19 +5704,19 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-            'subtitle-bg-select',
-            [
-                { value: 'transparent', label: i18n.t('None') },
-                { value: '#000000', label: i18n.t('SubtitleBlack') },
-                { value: '#ffffff', label: i18n.t('SubtitleWhite') },
-                { value: '#d3d3d3', label: i18n.t('LightGrey') },
-                { value: '#a9a9a9', label: i18n.t('DarkGrey') },
-                { value: '#ffff00', label: i18n.t('SubtitleYellow') },
-                { value: '#00ffff', label: i18n.t('SubtitleCyan') },
-                { value: '#0000ff', label: i18n.t('SubtitleBlue') }
-            ],
-            PlayerSettings.get('subtitleTextBackground')
-        )}
+                            'subtitle-bg-select',
+                            [
+                                { value: 'transparent', label: i18n.t('None') },
+                                { value: '#000000', label: i18n.t('SubtitleBlack') },
+                                { value: '#ffffff', label: i18n.t('SubtitleWhite') },
+                                { value: '#d3d3d3', label: i18n.t('LightGrey') },
+                                { value: '#a9a9a9', label: i18n.t('DarkGrey') },
+                                { value: '#ffff00', label: i18n.t('SubtitleYellow') },
+                                { value: '#00ffff', label: i18n.t('SubtitleCyan') },
+                                { value: '#0000ff', label: i18n.t('SubtitleBlue') }
+                            ],
+                            PlayerSettings.get('subtitleTextBackground')
+                        )}
                     </div>
                 </div>
 
@@ -5663,12 +5727,12 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control slider-control">
                         ${this._renderSlider(
-            'subtitle-bg-opacity',
-            PlayerSettings.get('subtitleBackgroundOpacity'),
-            0,
-            100,
-            5
-        )}
+                            'subtitle-bg-opacity',
+                            PlayerSettings.get('subtitleBackgroundOpacity'),
+                            0,
+                            100,
+                            5
+                        )}
                     </div>
                 </div>
 
@@ -5679,18 +5743,18 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-            'subtitle-shadow-select',
-            [
-                { value: 'none', label: i18n.t('None') },
-                { value: 'uniform', label: i18n.t('Uniform') },
-                { value: 'border', label: i18n.t('Border') },
-                { value: 'uniform_border', label: i18n.t('UniformBorders') || 'Uniform + borders' },
-                { value: 'dropshadow', label: i18n.t('DropShadow') },
-                { value: 'raised', label: i18n.t('Raised') },
-                { value: 'depressed', label: i18n.t('Depressed') }
-            ],
-            PlayerSettings.get('subtitleDropShadow')
-        )}
+                            'subtitle-shadow-select',
+                            [
+                                { value: 'none', label: i18n.t('None') },
+                                { value: 'uniform', label: i18n.t('Uniform') },
+                                { value: 'border', label: i18n.t('Border') },
+                                { value: 'uniform_border', label: i18n.t('UniformBorders') || 'Uniform + borders' },
+                                { value: 'dropshadow', label: i18n.t('DropShadow') },
+                                { value: 'raised', label: i18n.t('Raised') },
+                                { value: 'depressed', label: i18n.t('Depressed') }
+                            ],
+                            PlayerSettings.get('subtitleDropShadow')
+                        )}
                     </div>
                 </div>
 
@@ -5701,12 +5765,12 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control slider-control">
                         ${this._renderSlider(
-            'subtitle-border-width',
-            PlayerSettings.get('subtitleBorderWidth'),
-            1,
-            20,
-            1
-        )}
+                            'subtitle-border-width',
+                            PlayerSettings.get('subtitleBorderWidth'),
+                            1,
+                            20,
+                            1
+                        )}
                     </div>
                 </div>
 
@@ -5717,12 +5781,12 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control slider-control">
                         ${this._renderSlider(
-            'subtitle-border-opacity',
-            PlayerSettings.get('subtitleBorderOpacity') ?? 100,
-            0,
-            100,
-            5
-        )}
+                            'subtitle-border-opacity',
+                            PlayerSettings.get('subtitleBorderOpacity') ?? 100,
+                            0,
+                            100,
+                            5
+                        )}
                     </div>
                 </div>
 
@@ -5733,20 +5797,20 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-            'subtitle-shadow-color-select',
-            [
-                { value: '#000000', label: i18n.t('SubtitleBlack') },
-                { value: '#ffffff', label: i18n.t('SubtitleWhite') },
-                { value: '#ff0000', label: i18n.t('SubtitleRed') },
-                { value: '#00ff00', label: i18n.t('SubtitleGreen') },
-                { value: '#0000ff', label: i18n.t('SubtitleBlue') },
-                { value: '#ffff00', label: i18n.t('SubtitleYellow') },
-                { value: '#00ffff', label: i18n.t('SubtitleCyan') },
-                { value: '#ff00ff', label: i18n.t('SubtitleMagenta') },
-                { value: '#808080', label: i18n.t('Grey') }
-            ],
-            PlayerSettings.get('subtitleDropShadowColor') || '#000000'
-        )}
+                            'subtitle-shadow-color-select',
+                            [
+                                { value: '#000000', label: i18n.t('SubtitleBlack') },
+                                { value: '#ffffff', label: i18n.t('SubtitleWhite') },
+                                { value: '#ff0000', label: i18n.t('SubtitleRed') },
+                                { value: '#00ff00', label: i18n.t('SubtitleGreen') },
+                                { value: '#0000ff', label: i18n.t('SubtitleBlue') },
+                                { value: '#ffff00', label: i18n.t('SubtitleYellow') },
+                                { value: '#00ffff', label: i18n.t('SubtitleCyan') },
+                                { value: '#ff00ff', label: i18n.t('SubtitleMagenta') },
+                                { value: '#808080', label: i18n.t('Grey') }
+                            ],
+                            PlayerSettings.get('subtitleDropShadowColor') || '#000000'
+                        )}
                     </div>
                 </div>
 
@@ -5757,12 +5821,12 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control slider-control">
                         ${this._renderSlider(
-            'subtitle-shadow-opacity',
-            PlayerSettings.get('subtitleDropShadowOpacity') ?? 100,
-            0,
-            100,
-            5
-        )}
+                            'subtitle-shadow-opacity',
+                            PlayerSettings.get('subtitleDropShadowOpacity') ?? 100,
+                            0,
+                            100,
+                            5
+                        )}
                     </div>
                 </div>
 
@@ -5805,42 +5869,42 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-            'subtitle-font-ass-select',
-            [
-                {
-                    value: '',
-                    label: i18n.t(platformInfo.isWebOS ? 'DefaultWebOSSans' : 'DefaultTizenSans')
-                },
-                { value: 'poppins', label: i18n.t('ModernPoppins') },
-                { value: 'noto-arabic', label: i18n.t('ArabicNotoSans') },
-                { value: 'typewriter', label: i18n.t('Typewriter') },
-                { value: 'print', label: i18n.t('Print') },
-                { value: 'console', label: i18n.t('Console') },
-                { value: 'cursive', label: i18n.t('Cursive') },
-                { value: 'casual', label: i18n.t('Casual') },
-                { value: 'smallcaps', label: i18n.t('SmallCaps') },
-                { value: 'silkscreen', label: i18n.t('FontSilkscreen') || 'Silkscreen' },
-                { value: 'space-grotesk', label: i18n.t('FontSpaceGrotesk') || 'Space Grotesk' },
-                { value: 'retrotech', label: i18n.t('FontRetrotech') || 'RETROTECH' },
-                { value: 'kitty', label: i18n.t('FontKitty') || 'Kitty' },
-                { value: 'inter', label: i18n.t('FontInter') || 'Inter' },
-                { value: 'proxima', label: i18n.t('FontProxima') || 'Proxima Nova' },
-                { value: 'baloo', label: i18n.t('FontBaloo') || 'Baloo Bhaijaan 2' },
-                { value: 'poiret-one', label: i18n.t('FontPoiretOne') || 'Poiret One' },
-                {
-                    value: 'zen-kaku-gothic-new',
-                    label: i18n.t('FontZenKakuGothicNew') || 'Zen Kaku Gothic New'
-                },
-                { value: 'opendyslexic', label: i18n.t('FontOpenDyslexic') || 'OpenDyslexic' },
-                { value: 'atkinson', label: i18n.t('FontAtkinson') || 'Atkinson Hyperlegible' },
-                { value: 'manrope', label: i18n.t('FontManrope') || 'Manrope' },
-                {
-                    value: 'fallback-font',
-                    label: i18n.t('JellyfinFallbackFont') || 'Jellyfin Fallback Font'
-                }
-            ],
-            PlayerSettings.get('subtitleFontAss')
-        )}
+                            'subtitle-font-ass-select',
+                            [
+                                {
+                                    value: '',
+                                    label: i18n.t(platformInfo.isWebOS ? 'DefaultWebOSSans' : 'DefaultTizenSans')
+                                },
+                                { value: 'poppins', label: i18n.t('ModernPoppins') },
+                                { value: 'noto-arabic', label: i18n.t('ArabicNotoSans') },
+                                { value: 'typewriter', label: i18n.t('Typewriter') },
+                                { value: 'print', label: i18n.t('Print') },
+                                { value: 'console', label: i18n.t('Console') },
+                                { value: 'cursive', label: i18n.t('Cursive') },
+                                { value: 'casual', label: i18n.t('Casual') },
+                                { value: 'smallcaps', label: i18n.t('SmallCaps') },
+                                { value: 'silkscreen', label: i18n.t('FontSilkscreen') || 'Silkscreen' },
+                                { value: 'space-grotesk', label: i18n.t('FontSpaceGrotesk') || 'Space Grotesk' },
+                                { value: 'retrotech', label: i18n.t('FontRetrotech') || 'RETROTECH' },
+                                { value: 'kitty', label: i18n.t('FontKitty') || 'Kitty' },
+                                { value: 'inter', label: i18n.t('FontInter') || 'Inter' },
+                                { value: 'proxima', label: i18n.t('FontProxima') || 'Proxima Nova' },
+                                { value: 'baloo', label: i18n.t('FontBaloo') || 'Baloo Bhaijaan 2' },
+                                { value: 'poiret-one', label: i18n.t('FontPoiretOne') || 'Poiret One' },
+                                {
+                                    value: 'zen-kaku-gothic-new',
+                                    label: i18n.t('FontZenKakuGothicNew') || 'Zen Kaku Gothic New'
+                                },
+                                { value: 'opendyslexic', label: i18n.t('FontOpenDyslexic') || 'OpenDyslexic' },
+                                { value: 'atkinson', label: i18n.t('FontAtkinson') || 'Atkinson Hyperlegible' },
+                                { value: 'manrope', label: i18n.t('FontManrope') || 'Manrope' },
+                                {
+                                    value: 'fallback-font',
+                                    label: i18n.t('JellyfinFallbackFont') || 'Jellyfin Fallback Font'
+                                }
+                            ],
+                            PlayerSettings.get('subtitleFontAss')
+                        )}
                     </div>
                 </div>
 
@@ -5851,13 +5915,13 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control slider-control">
                         ${this._renderSlider(
-            'subtitle-font-scale',
-            PlayerSettings.get('subtitleFontScale') ?? 1,
-            0.5,
-            3,
-            0.1,
-            'x'
-        )}
+                            'subtitle-font-scale',
+                            PlayerSettings.get('subtitleFontScale') ?? 1,
+                            0.5,
+                            3,
+                            0.1,
+                            'x'
+                        )}
                     </div>
                 </div>
 
@@ -5868,13 +5932,13 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control slider-control">
                         ${this._renderSlider(
-            'subtitle-bottom-offset',
-            PlayerSettings.get('subtitleBottomOffset') ?? 0,
-            -100,
-            750,
-            5,
-            'px'
-        )}
+                            'subtitle-bottom-offset',
+                            PlayerSettings.get('subtitleBottomOffset') ?? 0,
+                            -100,
+                            750,
+                            5,
+                            'px'
+                        )}
                     </div>
                 </div>
 
@@ -5899,13 +5963,13 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control slider-control">
                         ${this._renderSlider(
-            'subtitle-outline-thickness',
-            PlayerSettings.get('subtitleOutlineThickness') ?? 0.4,
-            0,
-            5,
-            0.1,
-            ''
-        )}
+                            'subtitle-outline-thickness',
+                            PlayerSettings.get('subtitleOutlineThickness') ?? 0.4,
+                            0,
+                            5,
+                            0.1,
+                            ''
+                        )}
                     </div>
                 </div>
 
@@ -5916,13 +5980,13 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control slider-control">
                         ${this._renderSlider(
-            'subtitle-shadow-thickness',
-            PlayerSettings.get('subtitleShadowThickness') ?? 0.3,
-            0,
-            5,
-            0.1,
-            ''
-        )}
+                            'subtitle-shadow-thickness',
+                            PlayerSettings.get('subtitleShadowThickness') ?? 0.3,
+                            0,
+                            5,
+                            0.1,
+                            ''
+                        )}
                     </div>
                 </div>
 
@@ -5933,13 +5997,13 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control slider-control">
                         ${this._renderSlider(
-            'subtitle-line-height',
-            PlayerSettings.get('subtitleLineHeight') ?? 0,
-            -50,
-            50,
-            1,
-            'px'
-        )}
+                            'subtitle-line-height',
+                            PlayerSettings.get('subtitleLineHeight') ?? 0,
+                            -50,
+                            50,
+                            1,
+                            'px'
+                        )}
                     </div>
                 </div>
 
@@ -5950,20 +6014,19 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control slider-control">
                         ${this._renderSlider(
-            'subtitle-letter-spacing',
-            PlayerSettings.get('subtitleLetterSpacing') ?? 0,
-            -20,
-            40,
-            0.5,
-            'px'
-        )}
+                            'subtitle-letter-spacing',
+                            PlayerSettings.get('subtitleLetterSpacing') ?? 0,
+                            -20,
+                            40,
+                            0.5,
+                            'px'
+                        )}
                     </div>
                 </div>
                 </div>
             </div>
         `;
     }
-
 
     /**
      * =========================================================================
@@ -6039,28 +6102,28 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-            'vertical-scroll-mode-select',
-            [
-                /* -------------------------------------------------------------
-                 * Normal (Current) scroll mode uses standard custom JS RAF loops
-                 * ------------------------------------------------------------- */
-                { value: 'current', label: i18n.t('ScrollModeCurrent') || 'Normal (Current)' },
-                /* -------------------------------------------------------------
-                 * Smooth (Native) mode delegates scrolling directly to the browser
-                 * ------------------------------------------------------------- */
-                { value: 'native', label: i18n.t('ScrollModeNative') || 'Smooth (Native)' },
-                /* -------------------------------------------------------------
-                 * Fast (GPU Accelerated) mode transforms page contents using CSS
-                 * ------------------------------------------------------------- */
-                { value: 'gpu', label: i18n.t('ScrollModeGpu') || 'Fast (GPU Accelerated)' },
-                /* -------------------------------------------------------------
-                 * Instant (No Animation) mode snaps content immediately to target
-                 * ------------------------------------------------------------- */
-                { value: 'instant', label: i18n.t('ScrollModeInstant') || 'Instant (No Animation)' }
-            ],
-            /* Defaults to 'gpu' on Android to eliminate CPU main-thread scrollTop reflows */
-            storage.getItem('pref:verticalScrollMode') || (platformInfo.isAndroid ? 'gpu' : 'native')
-        )}
+                            'vertical-scroll-mode-select',
+                            [
+                                /* -------------------------------------------------------------
+                                 * Normal (Current) scroll mode uses standard custom JS RAF loops
+                                 * ------------------------------------------------------------- */
+                                { value: 'current', label: i18n.t('ScrollModeCurrent') || 'Normal (Current)' },
+                                /* -------------------------------------------------------------
+                                 * Smooth (Native) mode delegates scrolling directly to the browser
+                                 * ------------------------------------------------------------- */
+                                { value: 'native', label: i18n.t('ScrollModeNative') || 'Smooth (Native)' },
+                                /* -------------------------------------------------------------
+                                 * Fast (GPU Accelerated) mode transforms page contents using CSS
+                                 * ------------------------------------------------------------- */
+                                { value: 'gpu', label: i18n.t('ScrollModeGpu') || 'Fast (GPU Accelerated)' },
+                                /* -------------------------------------------------------------
+                                 * Instant (No Animation) mode snaps content immediately to target
+                                 * ------------------------------------------------------------- */
+                                { value: 'instant', label: i18n.t('ScrollModeInstant') || 'Instant (No Animation)' }
+                            ],
+                            /* Defaults to 'gpu' on Android to eliminate CPU main-thread scrollTop reflows */
+                            storage.getItem('pref:verticalScrollMode') || (platformInfo.isAndroid ? 'gpu' : 'native')
+                        )}
                     </div>
                 </div>
 
@@ -6080,24 +6143,25 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-            'horizontal-scroll-mode-select',
-            [
-                /* -------------------------------------------------------------
-                 * Fast (GPU Accelerated): CSS translate3d transitions on track
-                 * ------------------------------------------------------------- */
-                { value: 'gpu', label: i18n.t('ScrollModeGpu') || 'Fast (GPU Accelerated)' },
-                /* -------------------------------------------------------------
-                 * Smooth (Native): Continuous animated scrolling via scrollLeft
-                 * ------------------------------------------------------------- */
-                { value: 'native', label: i18n.t('ScrollModeNative') || 'Smooth (Native)' },
-                /* -------------------------------------------------------------
-                 * Instant (No Animation): Snaps media rows with zero delay
-                 * ------------------------------------------------------------- */
-                { value: 'instant', label: i18n.t('ScrollModeInstant') || 'Instant (No Animation)' }
-            ],
-            /* Defaults to 'gpu' on TV/desktop and 'native' on touch-primary phones */
-            storage.getItem('pref:horizontalScrollMode') || (platformInfo.isAndroid && !platformInfo.isAndroidTv ? 'native' : 'gpu')
-        )}
+                            'horizontal-scroll-mode-select',
+                            [
+                                /* -------------------------------------------------------------
+                                 * Fast (GPU Accelerated): CSS translate3d transitions on track
+                                 * ------------------------------------------------------------- */
+                                { value: 'gpu', label: i18n.t('ScrollModeGpu') || 'Fast (GPU Accelerated)' },
+                                /* -------------------------------------------------------------
+                                 * Smooth (Native): Continuous animated scrolling via scrollLeft
+                                 * ------------------------------------------------------------- */
+                                { value: 'native', label: i18n.t('ScrollModeNative') || 'Smooth (Native)' },
+                                /* -------------------------------------------------------------
+                                 * Instant (No Animation): Snaps media rows with zero delay
+                                 * ------------------------------------------------------------- */
+                                { value: 'instant', label: i18n.t('ScrollModeInstant') || 'Instant (No Animation)' }
+                            ],
+                            /* Defaults to 'gpu' on TV/desktop and 'native' on touch-primary phones */
+                            storage.getItem('pref:horizontalScrollMode') ||
+                                (platformInfo.isAndroid && !platformInfo.isAndroidTv ? 'native' : 'gpu')
+                        )}
                     </div>
                 </div>
 
@@ -6108,15 +6172,18 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-            'scroll-smoothing-duration-select',
-            [
-                { value: 'instant', label: i18n.t('ScrollDurationInstant') || 'Instant (No Animation)' },
-                { value: 'current', label: i18n.t('ScrollDurationCurrent') || 'Fast (Default)' },
-                { value: 'smooth', label: i18n.t('ScrollDurationSmooth') || 'Smooth' },
-                { value: 'slower', label: i18n.t('ScrollDurationSlower') || 'Slower (Ultra Smooth)' }
-            ],
-            storage.getItem('pref:scrollSmoothingDuration') || 'current'
-        )}
+                            'scroll-smoothing-duration-select',
+                            [
+                                {
+                                    value: 'instant',
+                                    label: i18n.t('ScrollDurationInstant') || 'Instant (No Animation)'
+                                },
+                                { value: 'current', label: i18n.t('ScrollDurationCurrent') || 'Fast (Default)' },
+                                { value: 'smooth', label: i18n.t('ScrollDurationSmooth') || 'Smooth' },
+                                { value: 'slower', label: i18n.t('ScrollDurationSlower') || 'Slower (Ultra Smooth)' }
+                            ],
+                            storage.getItem('pref:scrollSmoothingDuration') || 'current'
+                        )}
                     </div>
                 </div>
 
@@ -6136,14 +6203,17 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-            'vertical-scroll-alignment-select',
-            [
-                { value: 'bottom', label: i18n.t('ScrollAlignmentBottom') || 'Bottom (Default - Minimal Scrolling)' },
-                { value: 'middle', label: i18n.t('ScrollAlignmentMiddle') || 'Middle (Centered)' },
-                { value: 'top', label: i18n.t('ScrollAlignmentTop') || 'Top (Classic Litefin)' }
-            ],
-            storage.getItem('pref:verticalScrollAlignment') || 'bottom'
-        )}
+                            'vertical-scroll-alignment-select',
+                            [
+                                {
+                                    value: 'bottom',
+                                    label: i18n.t('ScrollAlignmentBottom') || 'Bottom (Default - Minimal Scrolling)'
+                                },
+                                { value: 'middle', label: i18n.t('ScrollAlignmentMiddle') || 'Middle (Centered)' },
+                                { value: 'top', label: i18n.t('ScrollAlignmentTop') || 'Top (Classic Litefin)' }
+                            ],
+                            storage.getItem('pref:verticalScrollAlignment') || 'bottom'
+                        )}
                     </div>
                 </div>
                 
@@ -6154,17 +6224,20 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-            'library-page-size-select',
-            [
-                { value: 25, label: '25' },
-                { value: 50, label: '50 (Default)' },
-                { value: 75, label: '75' },
-                { value: 100, label: '100' },
-                { value: 150, label: '150' },
-                { value: 'unlimited', label: i18n.t('OptionUnlimited') || 'Unlimited (Infinite Scroll)' }
-            ],
-            storage.getItem('pref:libraryPageSize') || 50
-        )}
+                            'library-page-size-select',
+                            [
+                                { value: 25, label: '25' },
+                                { value: 50, label: '50 (Default)' },
+                                { value: 75, label: '75' },
+                                { value: 100, label: '100' },
+                                { value: 150, label: '150' },
+                                {
+                                    value: 'unlimited',
+                                    label: i18n.t('OptionUnlimited') || 'Unlimited (Infinite Scroll)'
+                                }
+                            ],
+                            storage.getItem('pref:libraryPageSize') || 50
+                        )}
                     </div>
                 </div>
 
@@ -6181,16 +6254,16 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-            'play-queue-episode-limit-select',
-            [
-                { value: 25, label: '25' },
-                { value: 50, label: '50 (Default)' },
-                { value: 75, label: '75' },
-                { value: 100, label: '100' },
-                { value: 150, label: '150' }
-            ],
-            PlayerSettings.get('playQueueEpisodeLimit') || 50
-        )}
+                            'play-queue-episode-limit-select',
+                            [
+                                { value: 25, label: '25' },
+                                { value: 50, label: '50 (Default)' },
+                                { value: 75, label: '75' },
+                                { value: 100, label: '100' },
+                                { value: 150, label: '150' }
+                            ],
+                            PlayerSettings.get('playQueueEpisodeLimit') || 50
+                        )}
                     </div>
                 </div>
 
@@ -6629,8 +6702,9 @@ class SettingsPage extends Page {
                     <p class="server-url-display">${serverUrl || i18n.t('Offline')}</p>
                 </div>
 
-                ${userId
-                ? `
+                ${
+                    userId
+                        ? `
                 <h3 class="setting-section-title" data-i18n="ProfilePin">${i18n.t('ProfilePin')}</h3>
                 <div class="setting-item">
                     <div class="setting-label">
@@ -6641,15 +6715,16 @@ class SettingsPage extends Page {
                         <button class="toggle-switch ${hasPin ? 'active' : ''}" id="toggle-profile-pin" tabindex="0"></button>
                     </div>
                 </div>
-                ${hasPin
-                    ? `<div class="setting-actions centered">
+                ${
+                    hasPin
+                        ? `<div class="setting-actions centered">
                         <button class="btn btn-secondary btn-small focusable" id="btn-change-pin" tabindex="0" data-i18n="ChangePin">${i18n.t('ChangePin')}</button>
                     </div>`
-                    : ''
+                        : ''
                 }
                 `
-                : ''
-            }
+                        : ''
+                }
 
                 <div class="setting-item">
                     <div class="setting-label">
@@ -6926,8 +7001,12 @@ class SettingsPage extends Page {
         }
 
         // 2. Resolution String
-        const screenW = caps.screenWidth || (typeof window !== 'undefined' ? (window.screen?.width || window.innerWidth || 1920) : 1920);
-        const screenH = caps.screenHeight || (typeof window !== 'undefined' ? (window.screen?.height || window.innerHeight || 1080) : 1080);
+        const screenW =
+            caps.screenWidth ||
+            (typeof window !== 'undefined' ? window.screen?.width || window.innerWidth || 1920 : 1920);
+        const screenH =
+            caps.screenHeight ||
+            (typeof window !== 'undefined' ? window.screen?.height || window.innerHeight || 1080 : 1080);
         const resTier = caps.uhd8K ? i18n.t('UHD8K') : caps.uhd ? i18n.t('UHD') : i18n.t('FHD');
         const resStr = i18n.t('ResolutionValue', [screenW, screenH, resTier]);
 
@@ -6990,17 +7069,19 @@ class SettingsPage extends Page {
         log.info(`Opening external link: ${url}`);
         // Desktop Tauri runtime shell support
         if (typeof window !== 'undefined' && window.__TAURI_INTERNALS__?.invoke) {
-            window.__TAURI_INTERNALS__.invoke('plugin:opener|open_url', { url })
-                .catch(() => {
-                    try { window.open(url, '_blank'); } catch (_) { }
-                });
+            window.__TAURI_INTERNALS__.invoke('plugin:opener|open_url', { url }).catch(() => {
+                try {
+                    window.open(url, '_blank');
+                } catch (_) {}
+            });
             return;
         }
         if (typeof window !== 'undefined' && window.__TAURI__?.core?.invoke) {
-            window.__TAURI__.core.invoke('plugin:opener|open_url', { url })
-                .catch(() => {
-                    try { window.open(url, '_blank'); } catch (_) { }
-                });
+            window.__TAURI__.core.invoke('plugin:opener|open_url', { url }).catch(() => {
+                try {
+                    window.open(url, '_blank');
+                } catch (_) {}
+            });
             return;
         }
         // Universal web browser fallback
@@ -7058,7 +7139,11 @@ class SettingsPage extends Page {
         const videoBadgesHtml = specs.videoCodecs
             .map((c) => {
                 const statusClass = !c.hw ? 'unsupported' : !c.user ? 'disabled' : 'supported';
-                const statusLabel = !c.hw ? ` (${i18n.t('Unsupported') || 'Unsupported'})` : !c.user ? ` (${i18n.t('Disabled') || 'Disabled'})` : '';
+                const statusLabel = !c.hw
+                    ? ` (${i18n.t('Unsupported') || 'Unsupported'})`
+                    : !c.user
+                      ? ` (${i18n.t('Disabled') || 'Disabled'})`
+                      : '';
                 return `<span class="about-codec-badge ${statusClass}">${c.name}${statusLabel}</span>`;
             })
             .join('');
@@ -7067,7 +7152,11 @@ class SettingsPage extends Page {
         const audioBadgesHtml = specs.audioCodecs
             .map((c) => {
                 const statusClass = !c.hw ? 'unsupported' : !c.user ? 'disabled' : 'supported';
-                const statusLabel = !c.hw ? ` (${i18n.t('Unsupported') || 'Unsupported'})` : !c.user ? ` (${i18n.t('Disabled') || 'Disabled'})` : '';
+                const statusLabel = !c.hw
+                    ? ` (${i18n.t('Unsupported') || 'Unsupported'})`
+                    : !c.user
+                      ? ` (${i18n.t('Disabled') || 'Disabled'})`
+                      : '';
                 return `<span class="about-codec-badge ${statusClass}">${c.name}${statusLabel}</span>`;
             })
             .join('');
@@ -7621,8 +7710,9 @@ class SettingsPage extends Page {
                     <!-- Populated dynamically -->
                 </div>
 
-                ${storage.getItem('litefin:settings_per_user') === 'true'
-                ? `
+                ${
+                    storage.getItem('litefin:settings_per_user') === 'true'
+                        ? `
                 <!-- Reset to Global Settings (Visible only when settings per user is enabled) -->
                 <div class="setting-item" style="margin-top: 40px; border-top: 1px solid var(--jf-divider); padding-top: 40px;">
                     <div class="setting-label">
@@ -7636,8 +7726,8 @@ class SettingsPage extends Page {
                     </div>
                 </div>
                 `
-                : ''
-            }
+                        : ''
+                }
 
                 <!-- Reset Section -->
                 <div class="setting-item" style="${storage.getItem('litefin:settings_per_user') === 'true' ? 'margin-top: 20px;' : 'margin-top: 40px; border-top: 1px solid var(--jf-divider); padding-top: 40px;'}">
@@ -8376,15 +8466,15 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-            'debug-width-select',
-            [
-                { value: 'small', label: i18n.t('Small') },
-                { value: 'medium', label: i18n.t('Medium') },
-                { value: 'large', label: i18n.t('Large') },
-                { value: 'full', label: i18n.t('FullScreen') }
-            ],
-            debugOverlay.Width || 'small'
-        )}
+                            'debug-width-select',
+                            [
+                                { value: 'small', label: i18n.t('Small') },
+                                { value: 'medium', label: i18n.t('Medium') },
+                                { value: 'large', label: i18n.t('Large') },
+                                { value: 'full', label: i18n.t('FullScreen') }
+                            ],
+                            debugOverlay.Width || 'small'
+                        )}
                     </div>
                 </div>
 
@@ -8395,15 +8485,15 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-            'debug-height-select',
-            [
-                { value: 'small', label: i18n.t('Small') },
-                { value: 'medium', label: i18n.t('Medium') },
-                { value: 'large', label: i18n.t('Large') },
-                { value: 'full', label: i18n.t('FullScreen') }
-            ],
-            debugOverlay.Height || 'small'
-        )}
+                            'debug-height-select',
+                            [
+                                { value: 'small', label: i18n.t('Small') },
+                                { value: 'medium', label: i18n.t('Medium') },
+                                { value: 'large', label: i18n.t('Large') },
+                                { value: 'full', label: i18n.t('FullScreen') }
+                            ],
+                            debugOverlay.Height || 'small'
+                        )}
                     </div>
                 </div>
 
@@ -8414,15 +8504,15 @@ class SettingsPage extends Page {
                     </div>
                     <div class="setting-control">
                         ${this._renderDropdown(
-            'debug-position-select',
-            [
-                { value: 'top-left', label: i18n.t('TopLeft') },
-                { value: 'top-right', label: i18n.t('TopRight') },
-                { value: 'bottom-left', label: i18n.t('BottomLeft') },
-                { value: 'bottom-right', label: i18n.t('BottomRight') }
-            ],
-            debugOverlay.Position || 'bottom-right'
-        )}
+                            'debug-position-select',
+                            [
+                                { value: 'top-left', label: i18n.t('TopLeft') },
+                                { value: 'top-right', label: i18n.t('TopRight') },
+                                { value: 'bottom-left', label: i18n.t('BottomLeft') },
+                                { value: 'bottom-right', label: i18n.t('BottomRight') }
+                            ],
+                            debugOverlay.Position || 'bottom-right'
+                        )}
                     </div>
                 </div>
 
@@ -8502,9 +8592,9 @@ class SettingsPage extends Page {
                         </div>
                     </div>
                     ${debugOverlay
-                .getKnownModules()
-                .map(
-                    (module) => `
+                        .getKnownModules()
+                        .map(
+                            (module) => `
                         <div class="setting-item compact">
                             <div class="setting-label">
                                 <span class="setting-name">${module}</span>
@@ -8517,8 +8607,8 @@ class SettingsPage extends Page {
                             </div>
                         </div>
                     `
-                )
-                .join('')}
+                        )
+                        .join('')}
                 </div>
 
             </div>
@@ -8602,7 +8692,9 @@ class SettingsPage extends Page {
         const item = this.$('#signature-accent-item');
         if (item) {
             const currentMode = layoutManager.getThemeMode();
-            const isSupported = ['ember', 'sunset', 'frost', 'paper', 'nocturne', 'abyss', 'cyberpunk'].includes(currentMode);
+            const isSupported = ['ember', 'sunset', 'frost', 'paper', 'nocturne', 'abyss', 'cyberpunk'].includes(
+                currentMode
+            );
             item.classList.toggle('hidden', !isSupported);
             focusManager.invalidateCache('settings-content');
         }
@@ -8844,7 +8936,10 @@ class SettingsPage extends Page {
                 suppressScreensaverBtn.classList.toggle('active', newValue);
 
                 // Immediately inform webOS adapter to update dynamic screensaver guard if in playback
-                if ((platformInfo.isWebOS || webosAdapter.isWebOS) && typeof webosAdapter?.updateScreensaverSuppressionPreference === 'function') {
+                if (
+                    (platformInfo.isWebOS || webosAdapter.isWebOS) &&
+                    typeof webosAdapter?.updateScreensaverSuppressionPreference === 'function'
+                ) {
                     webosAdapter.updateScreensaverSuppressionPreference(newValue);
                 }
             });
@@ -9069,7 +9164,6 @@ class SettingsPage extends Page {
                 log.info(`Hide Ghost Mode Button set to: ${newValue}`);
             });
         }
-
 
         // ==========================================
         // TOGGLE FORCE EXPANDABLE POSTERS (MODERN)
@@ -9406,10 +9500,13 @@ class SettingsPage extends Page {
                 if (compactItem) compactItem.style.display = newValue ? '' : 'none';
                 if (styleItem) styleItem.style.display = newValue ? '' : 'none';
                 if (zoomItem) zoomItem.style.display = newValue ? '' : 'none';
-                if (blurhashFillItem) blurhashFillItem.style.display = newValue && currentCarouselStyle === 'immersive-performance' ? '' : 'none';
+                if (blurhashFillItem)
+                    blurhashFillItem.style.display =
+                        newValue && currentCarouselStyle === 'immersive-performance' ? '' : 'none';
                 if (heroQualityItem) heroQualityItem.style.display = newValue ? '' : 'none';
                 if (indicatorStyleItem) indicatorStyleItem.style.display = newValue ? '' : 'none';
-                if (indicatorAnimItem) indicatorAnimItem.style.display = newValue && indicatorStyle === 'progress' ? '' : 'none';
+                if (indicatorAnimItem)
+                    indicatorAnimItem.style.display = newValue && indicatorStyle === 'progress' ? '' : 'none';
                 if (intervalItem) intervalItem.style.display = newValue ? '' : 'none';
                 if (countItem) countItem.style.display = newValue ? '' : 'none';
 
@@ -9643,7 +9740,7 @@ class SettingsPage extends Page {
         // =====================================================================
         // Toggle Hide Next Up Row on Details Page
         // =====================================================================
-        // Manages local state persistence and tactile UI animation feedback 
+        // Manages local state persistence and tactile UI animation feedback
         // for hiding the Next Up episode row on item details pages.
         // =====================================================================
         const hideNextUpBtn = this.$('#toggle-hide-next-up-section');
@@ -9888,7 +9985,7 @@ class SettingsPage extends Page {
             const wolExtended = storage.getItem('pref:enableWolExtendedWait') === 'true';
             const macContainer = this.$('#wol-mac-container');
             if (macContainer) {
-                macContainer.style.display = (wolStartup || wolTimeout || wolScan || wolExtended) ? '' : 'none';
+                macContainer.style.display = wolStartup || wolTimeout || wolScan || wolExtended ? '' : 'none';
             }
             focusManager.invalidateCache('settings-content');
         };
@@ -9967,7 +10064,10 @@ class SettingsPage extends Page {
         const wolMacInput = this.$('#input-wol-mac-address');
         if (wolMacInput) {
             const formatMac = (val) => {
-                const hexOnly = val.replace(/[^0-9a-fA-F]/g, '').toUpperCase().slice(0, 12);
+                const hexOnly = val
+                    .replace(/[^0-9a-fA-F]/g, '')
+                    .toUpperCase()
+                    .slice(0, 12);
                 const pairs = hexOnly.match(/.{1,2}/g);
                 return pairs ? pairs.join(':') : hexOnly;
             };
@@ -10412,11 +10512,11 @@ class SettingsPage extends Page {
             const triggerLabel = this.$('#loader-style-btn-label');
             if (triggerLabel) {
                 const styleNames = {
-                    'dots': i18n.t('LoaderStyleDots') || 'Pulsing Dots',
-                    'ring': i18n.t('LoaderStyleRing') || 'Rotating Ring',
+                    dots: i18n.t('LoaderStyleDots') || 'Pulsing Dots',
+                    ring: i18n.t('LoaderStyleRing') || 'Rotating Ring',
                     'dual-ring': i18n.t('LoaderStyleDualRing') || 'Dual Ring',
-                    'orbit': i18n.t('LoaderStyleOrbit') || 'Orbital Bead',
-                    'satellite': i18n.t('LoaderStyleSatellite') || 'Satellite Ring',
+                    orbit: i18n.t('LoaderStyleOrbit') || 'Orbital Bead',
+                    satellite: i18n.t('LoaderStyleSatellite') || 'Satellite Ring',
                     'triple-ring': i18n.t('LoaderStyleTripleRing') || 'Triple Gyro',
                     'dotted-ring': i18n.t('LoaderStyleDottedRing') || 'Dotted Eclipse',
                     'sonar-ring': i18n.t('LoaderStyleSonarRing') || 'Sonar Aperture',
@@ -10838,9 +10938,7 @@ class SettingsPage extends Page {
                 { value: '4', label: '4 ' + (i18n.t('Items') || 'Items') },
                 { value: '5', label: '5 ' + (i18n.t('Items') || 'Items') }
             ],
-            list: [
-                { value: '1', label: '1 ' + (i18n.t('Items') || 'Item') }
-            ]
+            list: [{ value: '1', label: '1 ' + (i18n.t('Items') || 'Item') }]
         };
 
         // Fall back to poster column options for unrecognized modes
@@ -10856,14 +10954,19 @@ class SettingsPage extends Page {
         this._prevSection = focusManager.getActiveSection();
 
         // Check if this dropdown is a language selection menu
-        const isLanguageSelect = selectId === 'app-language-select' ||
+        const isLanguageSelect =
+            selectId === 'app-language-select' ||
             selectId === 'audio-lang-select' ||
             isAudioFallbackSelect(selectId) ||
             selectId === 'subtitle-lang-select' ||
-            (title && (title.toLowerCase().includes('language') || title.toLowerCase().includes('idioma') || title.toLowerCase().includes('langue') || title.toLowerCase().includes('sprache')));
+            (title &&
+                (title.toLowerCase().includes('language') ||
+                    title.toLowerCase().includes('idioma') ||
+                    title.toLowerCase().includes('langue') ||
+                    title.toLowerCase().includes('sprache')));
 
         // Determine initial filter view (if favorites exist and this is a language picker, default to favorites)
-        let activeFilter = (isLanguageSelect && languageManager.hasFavorites()) ? 'favorites' : 'all';
+        let activeFilter = isLanguageSelect && languageManager.hasFavorites() ? 'favorites' : 'all';
 
         const renderModalContent = () => {
             // Determine active options according to filter
@@ -10872,7 +10975,7 @@ class SettingsPage extends Page {
                 displayOptions = languageManager.filterOptions(options);
             }
 
-            const favoritesCount = options.filter(o => languageManager.isFavorite(o)).length;
+            const favoritesCount = options.filter((o) => languageManager.isFavorite(o)).length;
 
             let filterPillsHtml = '';
             if (isLanguageSelect && languageManager.hasFavorites()) {
@@ -10888,43 +10991,46 @@ class SettingsPage extends Page {
                 `;
             }
 
-            const optionsHtml = displayOptions.length === 0
-                ? `
+            const optionsHtml =
+                displayOptions.length === 0
+                    ? `
                     <div class="modal-empty-placeholder" style="padding: 24px 16px; text-align: center; opacity: 0.7; font-size: 1.1rem; pointer-events: none;" data-i18n="NoOptionsAvailable">
                         ${i18n.t('NoOptionsAvailable') || 'No options available'}
                     </div>
                 `
-                : displayOptions.map((opt) => {
-                    let badge = '';
-                    if (opt.completeness !== undefined) {
-                        const percentage = Math.floor(opt.completeness);
-                        let innerBadge = '';
-                        if (percentage === 0) {
-                            innerBadge = `<span class="track-badge lang-badge badge-danger">0%</span>`;
-                        } else if (percentage < 85) {
-                            innerBadge = `<span class="track-badge lang-badge badge-warning">${percentage}%</span>`;
-                        } else {
-                            innerBadge = `<span class="track-badge lang-badge badge-success">100%</span>`;
-                        }
-                        badge = `<span class="track-badges">${innerBadge}</span>`;
-                    }
+                    : displayOptions
+                          .map((opt) => {
+                              let badge = '';
+                              if (opt.completeness !== undefined) {
+                                  const percentage = Math.floor(opt.completeness);
+                                  let innerBadge = '';
+                                  if (percentage === 0) {
+                                      innerBadge = `<span class="track-badge lang-badge badge-danger">0%</span>`;
+                                  } else if (percentage < 85) {
+                                      innerBadge = `<span class="track-badge lang-badge badge-warning">${percentage}%</span>`;
+                                  } else {
+                                      innerBadge = `<span class="track-badge lang-badge badge-success">100%</span>`;
+                                  }
+                                  badge = `<span class="track-badges">${innerBadge}</span>`;
+                              }
 
-                    // For language dropdowns, show a star toggle button on the right
-                    let starBtnHtml = '';
-                    if (isLanguageSelect) {
-                        const valStr = String(opt.value).toLowerCase();
-                        const isSpecial = valStr === 'none' || valStr === 'default' || valStr === 'auto' || valStr === '-1';
-                        if (!isSpecial) {
-                            const isFav = languageManager.isFavorite(opt);
-                            starBtnHtml = `
+                              // For language dropdowns, show a star toggle button on the right
+                              let starBtnHtml = '';
+                              if (isLanguageSelect) {
+                                  const valStr = String(opt.value).toLowerCase();
+                                  const isSpecial =
+                                      valStr === 'none' || valStr === 'default' || valStr === 'auto' || valStr === '-1';
+                                  if (!isSpecial) {
+                                      const isFav = languageManager.isFavorite(opt);
+                                      starBtnHtml = `
                                 <span class="modal-star-btn ${isFav ? 'active' : ''}" data-value="${opt.value}" title="Toggle Favorite" role="button" aria-label="Toggle Favorite">
                                     ${isFav ? '★' : '☆'}
                                 </span>
                             `;
-                        }
-                    }
+                                  }
+                              }
 
-                    return `
+                              return `
                         <button class="modal-option-btn ${String(opt.value) === String(currentValue) ? 'selected' : ''}" 
                                 data-value="${escapeHtml(String(opt.value))}"
                                 tabindex="0">
@@ -10933,7 +11039,8 @@ class SettingsPage extends Page {
                             ${starBtnHtml}
                         </button>
                     `;
-                }).join('');
+                          })
+                          .join('');
 
             overlay.innerHTML = `
                 <div class="settings-modal" role="dialog" aria-modal="true">
@@ -11026,7 +11133,9 @@ class SettingsPage extends Page {
                                 activeFilter = targetFilter;
                                 renderModalContent();
                                 setTimeout(() => {
-                                    const pill = overlay.querySelector(`.modal-filter-pill[data-filter="${targetFilter}"]`);
+                                    const pill = overlay.querySelector(
+                                        `.modal-filter-pill[data-filter="${targetFilter}"]`
+                                    );
                                     if (pill) focusManager.focusElement(pill);
                                 }, 50);
                                 return true;
@@ -11037,7 +11146,9 @@ class SettingsPage extends Page {
                                 activeFilter = targetFilter;
                                 renderModalContent();
                                 setTimeout(() => {
-                                    const pill = overlay.querySelector(`.modal-filter-pill[data-filter="${targetFilter}"]`);
+                                    const pill = overlay.querySelector(
+                                        `.modal-filter-pill[data-filter="${targetFilter}"]`
+                                    );
                                     if (pill) focusManager.focusElement(pill);
                                 }, 50);
                                 return true;
@@ -11099,7 +11210,9 @@ class SettingsPage extends Page {
             } else {
                 focusManager.setActiveSection('modal-options');
                 setTimeout(() => {
-                    const selected = overlay.querySelector('.modal-option-btn.selected') || overlay.querySelector('.modal-option-btn');
+                    const selected =
+                        overlay.querySelector('.modal-option-btn.selected') ||
+                        overlay.querySelector('.modal-option-btn');
                     if (selected) focusManager.focusElement(selected);
                 }, 50);
             }
@@ -11168,7 +11281,7 @@ class SettingsPage extends Page {
     _getAudioPreferencesSummaryLabel() {
         // Retrieve preferred audio language setting
         const rawPref = storage.getItem('pref:audioLang');
-        const prefVal = (!rawPref || rawPref === 'Default') ? 'Default' : rawPref;
+        const prefVal = !rawPref || rawPref === 'Default' ? 'Default' : rawPref;
         let prefLabel = i18n.t('Default') || 'Default';
 
         // Match localized label for preferred language if available
@@ -11240,15 +11353,13 @@ class SettingsPage extends Page {
         let activeFilter = languageManager.hasFavorites() ? 'favorites' : 'all';
 
         // Clean list of server cultures (excluding sentinel keys)
-        const validLanguages = (this.prefLanguages || []).filter(
-            (o) => o.value !== 'Default' && o.value !== 'none'
-        );
+        const validLanguages = (this.prefLanguages || []).filter((o) => o.value !== 'Default' && o.value !== 'none');
 
         // Helper: retrieve human-readable display label, short code, and value for a given slot
         const getSlotValueAndLabel = (slot) => {
             if (slot === 'pref') {
                 const raw = storage.getItem('pref:audioLang');
-                const val = (!raw || raw === 'Default') ? 'Default' : raw;
+                const val = !raw || raw === 'Default' ? 'Default' : raw;
                 if (val === 'Default') {
                     return {
                         value: 'Default',
@@ -11264,7 +11375,7 @@ class SettingsPage extends Page {
                 return { value: val, label: fullLabel, shortLabel: shortCode };
             } else {
                 const raw = storage.getItem(`pref:audioLangFallback${slot}`);
-                const val = (!raw || raw === 'Default' || raw === 'none') ? 'none' : raw;
+                const val = !raw || raw === 'Default' || raw === 'none' ? 'none' : raw;
                 if (val === 'none') {
                     return {
                         value: 'none',
@@ -11287,9 +11398,10 @@ class SettingsPage extends Page {
             const currentSlotVal = currentSlotInfo.value;
 
             // Slot special top option ('Default' for pref, 'None' for fallbacks)
-            const specialOption = activeSlot === 'pref'
-                ? { value: 'Default', label: i18n.t('Default') || 'Default' }
-                : { value: 'none', label: i18n.t('None') || 'None' };
+            const specialOption =
+                activeSlot === 'pref'
+                    ? { value: 'Default', label: i18n.t('Default') || 'Default' }
+                    : { value: 'none', label: i18n.t('None') || 'None' };
 
             // Languages filtered according to active filter tab
             // Dynamically verify if any languages are in favorites
@@ -11299,9 +11411,10 @@ class SettingsPage extends Page {
             }
 
             // Languages filtered according to active filter tab
-            const filteredLanguages = (hasFavorites && activeFilter === 'favorites')
-                ? languageManager.filterOptions(validLanguages)
-                : validLanguages;
+            const filteredLanguages =
+                hasFavorites && activeFilter === 'favorites'
+                    ? languageManager.filterOptions(validLanguages)
+                    : validLanguages;
 
             // Full options list for the active slot
             const slotOptions = [specialOption, ...filteredLanguages];
@@ -11333,15 +11446,16 @@ class SettingsPage extends Page {
             const slotPillsHtml = `
                 <div class="modal-slot-pills" id="modal-audio-slot-pills">
                     ${SLOTS.map((slot) => {
-                const isActive = slot === activeSlot;
-                const info = getSlotValueAndLabel(slot);
+                        const isActive = slot === activeSlot;
+                        const info = getSlotValueAndLabel(slot);
 
-                // Concise tab title prefix: "Preferred" or "Fallback 1", "Fallback 2", etc.
-                const displayTitle = slot === 'pref'
-                    ? (i18n.t('Preferred') || 'Preferred')
-                    : `${i18n.t('Fallback') || 'Fallback'} ${slot}`;
+                        // Concise tab title prefix: "Preferred" or "Fallback 1", "Fallback 2", etc.
+                        const displayTitle =
+                            slot === 'pref'
+                                ? i18n.t('Preferred') || 'Preferred'
+                                : `${i18n.t('Fallback') || 'Fallback'} ${slot}`;
 
-                return `
+                        return `
                             <button class="modal-filter-pill modal-slot-pill ${isActive ? 'active' : ''}" 
                                     data-slot="${slot}" 
                                     tabindex="0"
@@ -11350,20 +11464,21 @@ class SettingsPage extends Page {
                                 <span class="slot-pill-val">${escapeHtml(info.shortLabel)}</span>
                             </button>
                         `;
-            }).join('')}
+                    }).join('')}
                 </div>
             `;
 
             // Tier 3: Language Options List
-            const optionsHtml = slotOptions.map((opt) => {
-                const isSelected = String(opt.value) === String(currentSlotVal);
-                const valStr = String(opt.value).toLowerCase();
-                const isSpecial = valStr === 'none' || valStr === 'default' || valStr === 'auto' || valStr === '-1';
+            const optionsHtml = slotOptions
+                .map((opt) => {
+                    const isSelected = String(opt.value) === String(currentSlotVal);
+                    const valStr = String(opt.value).toLowerCase();
+                    const isSpecial = valStr === 'none' || valStr === 'default' || valStr === 'auto' || valStr === '-1';
 
-                let starBtnHtml = '';
-                if (!isSpecial) {
-                    const isFav = languageManager.isFavorite(opt);
-                    starBtnHtml = `
+                    let starBtnHtml = '';
+                    if (!isSpecial) {
+                        const isFav = languageManager.isFavorite(opt);
+                        starBtnHtml = `
                         <span class="modal-star-btn ${isFav ? 'active' : ''}" 
                               data-value="${opt.value}" 
                               title="Toggle Favorite" 
@@ -11372,9 +11487,9 @@ class SettingsPage extends Page {
                             ${isFav ? '★' : '☆'}
                         </span>
                     `;
-                }
+                    }
 
-                return `
+                    return `
                     <button class="modal-option-btn ${isSelected ? 'selected' : ''}" 
                             data-value="${opt.value}" 
                             tabindex="0">
@@ -11382,7 +11497,8 @@ class SettingsPage extends Page {
                         ${starBtnHtml}
                     </button>
                 `;
-            }).join('');
+                })
+                .join('');
 
             // Assemble Modal Overlay Markup
             overlay.innerHTML = `
@@ -11506,7 +11622,7 @@ class SettingsPage extends Page {
             const switchSlot = (direction, focusTarget) => {
                 const isRtl = document.documentElement.getAttribute('dir') === 'rtl';
                 const currentIndex = SLOTS.indexOf(activeSlot);
-                const delta = direction === 'left' ? (isRtl ? 1 : -1) : (isRtl ? -1 : 1);
+                const delta = direction === 'left' ? (isRtl ? 1 : -1) : isRtl ? -1 : 1;
                 const nextIndex = currentIndex + delta;
                 if (nextIndex >= 0 && nextIndex < SLOTS.length) {
                     activeSlot = SLOTS[nextIndex];
@@ -11582,13 +11698,17 @@ class SettingsPage extends Page {
             if (focusTarget === 'filter-pills' && hasFavorites) {
                 focusManager.setActiveSection('modal-filter-pills');
                 setTimeout(() => {
-                    const activePill = overlay.querySelector(`#modal-lang-filter-pills .modal-filter-pill[data-filter="${activeFilter}"]`);
+                    const activePill = overlay.querySelector(
+                        `#modal-lang-filter-pills .modal-filter-pill[data-filter="${activeFilter}"]`
+                    );
                     if (activePill) focusManager.focusElement(activePill);
                 }, 40);
             } else if (focusTarget === 'slot-pills' || (focusTarget === 'filter-pills' && !hasFavorites)) {
                 focusManager.setActiveSection('modal-slot-pills');
                 setTimeout(() => {
-                    const activePill = overlay.querySelector(`#modal-audio-slot-pills .modal-slot-pill[data-slot="${activeSlot}"]`);
+                    const activePill = overlay.querySelector(
+                        `#modal-audio-slot-pills .modal-slot-pill[data-slot="${activeSlot}"]`
+                    );
                     if (activePill) focusManager.focusElement(activePill);
                 }, 40);
             } else if (focusTarget === 'actions') {
@@ -11600,7 +11720,9 @@ class SettingsPage extends Page {
             } else {
                 focusManager.setActiveSection('modal-options');
                 setTimeout(() => {
-                    const selected = overlay.querySelector('.modal-option-btn.selected') || overlay.querySelector('.modal-option-btn');
+                    const selected =
+                        overlay.querySelector('.modal-option-btn.selected') ||
+                        overlay.querySelector('.modal-option-btn');
                     if (selected) {
                         focusManager.focusElement(selected);
                         if (typeof selected.scrollIntoView === 'function') {
@@ -11769,11 +11891,10 @@ class SettingsPage extends Page {
 
         const colors = this._getThemeColors();
         const currentColor = (layoutManager.getThemeColor() || '#00a4dc').toLowerCase();
-        const activeObj =
-            colors.find((c) => c.hex.toLowerCase() === currentColor) || {
-                name: 'Jellyfin Blue',
-                hex: currentColor
-            };
+        const activeObj = colors.find((c) => c.hex.toLowerCase() === currentColor) || {
+            name: 'Jellyfin Blue',
+            hex: currentColor
+        };
 
         overlay.innerHTML = `
             <div class="settings-modal theme-color-modal" role="dialog" aria-modal="true">
@@ -11787,8 +11908,8 @@ class SettingsPage extends Page {
                 <div class="modal-options theme-color-modal-grid-container">
                     <div class="theme-color-modal-grid" id="theme-color-modal-grid">
                         ${colors
-                .map(
-                    (c) => `
+                            .map(
+                                (c) => `
                             <button class="color-option ${currentColor === c.hex.toLowerCase() ? 'active' : ''}" 
                                     data-color="${c.hex}"
                                     data-name="${escapeHtml(c.name)}"
@@ -11798,8 +11919,8 @@ class SettingsPage extends Page {
                                 <div class="color-option-fill" style="background-color: ${c.hex};"></div>
                             </button>
                         `
-                )
-                .join('')}
+                            )
+                            .join('')}
                     </div>
                 </div>
                 <div class="modal-actions">
@@ -11906,7 +12027,7 @@ class SettingsPage extends Page {
      * =========================================================================
      * Opens a detail dialog allowing users to select their preferred loading
      * indicator visual style.
-     * 
+     *
      * Features:
      * - Left options column with tactile spring feedback on focus / hover
      * - Right live animated preview stage on an isolated glass pedestal
@@ -11933,7 +12054,8 @@ class SettingsPage extends Page {
             {
                 id: 'ring',
                 name: i18n.t('LoaderStyleRing') || 'Rotating Ring',
-                description: i18n.t('LoaderStyleRingDesc') || 'Lightweight circular ring with minimal GPU & CPU overhead.',
+                description:
+                    i18n.t('LoaderStyleRingDesc') || 'Lightweight circular ring with minimal GPU & CPU overhead.',
                 badge: i18n.t('LoaderStyleBadgeEfficient') || 'Lightweight'
             },
             {
@@ -11945,55 +12067,73 @@ class SettingsPage extends Page {
             {
                 id: 'orbit',
                 name: i18n.t('LoaderStyleOrbit') || 'Orbital Bead',
-                description: i18n.t('LoaderStyleOrbitDesc') || 'Translucent circular path with an orbiting accent satellite point.',
+                description:
+                    i18n.t('LoaderStyleOrbitDesc') ||
+                    'Translucent circular path with an orbiting accent satellite point.',
                 badge: i18n.t('LoaderStyleBadgeOrbit') || 'Planetary'
             },
             {
                 id: 'satellite',
                 name: i18n.t('LoaderStyleSatellite') || 'Satellite Ring',
-                description: i18n.t('LoaderStyleSatelliteDesc') || 'Rotating primary accent frame with an offset secondary orbiting ring.',
+                description:
+                    i18n.t('LoaderStyleSatelliteDesc') ||
+                    'Rotating primary accent frame with an offset secondary orbiting ring.',
                 badge: i18n.t('LoaderStyleBadgeSatellite') || 'Dual Axis'
             },
             {
                 id: 'triple-ring',
                 name: i18n.t('LoaderStyleTripleRing') || 'Triple Gyro',
-                description: i18n.t('LoaderStyleTripleRingDesc') || 'Multi-tier concentric arcs spinning in alternating counter directions.',
+                description:
+                    i18n.t('LoaderStyleTripleRingDesc') ||
+                    'Multi-tier concentric arcs spinning in alternating counter directions.',
                 badge: i18n.t('LoaderStyleBadgeTripleRing') || 'Gyroscope'
             },
             {
                 id: 'dotted-ring',
                 name: i18n.t('LoaderStyleDottedRing') || 'Dotted Eclipse',
-                description: i18n.t('LoaderStyleDottedRingDesc') || 'Dual-ring concentric spinner featuring dotted and solid accent strokes.',
+                description:
+                    i18n.t('LoaderStyleDottedRingDesc') ||
+                    'Dual-ring concentric spinner featuring dotted and solid accent strokes.',
                 badge: i18n.t('LoaderStyleBadgeDottedRing') || 'Dotted'
             },
             {
                 id: 'sonar-ring',
                 name: i18n.t('LoaderStyleSonarRing') || 'Sonar Aperture',
-                description: i18n.t('LoaderStyleSonarRingDesc') || 'Spinning theme-colored disc with opposing high-contrast aperture cutouts.',
+                description:
+                    i18n.t('LoaderStyleSonarRingDesc') ||
+                    'Spinning theme-colored disc with opposing high-contrast aperture cutouts.',
                 badge: i18n.t('LoaderStyleBadgeSonarRing') || 'Aperture'
             },
             {
                 id: 'eclipse-sweep',
                 name: i18n.t('LoaderStyleEclipseSweep') || 'Crescent Sweep',
-                description: i18n.t('LoaderStyleEclipseSweepDesc') || 'Minimalist circular disc illuminated by a traveling inset crescent shadow.',
+                description:
+                    i18n.t('LoaderStyleEclipseSweepDesc') ||
+                    'Minimalist circular disc illuminated by a traveling inset crescent shadow.',
                 badge: i18n.t('LoaderStyleBadgeEclipseSweep') || 'Crescent'
             },
             {
                 id: 'push-pulse',
                 name: i18n.t('LoaderStylePushPulse') || 'Push Pulse',
-                description: i18n.t('LoaderStylePushPulseDesc') || 'Interlocking dual spheres expanding and contracting in counter-phase rhythm.',
+                description:
+                    i18n.t('LoaderStylePushPulseDesc') ||
+                    'Interlocking dual spheres expanding and contracting in counter-phase rhythm.',
                 badge: i18n.t('LoaderStyleBadgePushPulse') || 'Dual Pulse'
             },
             {
                 id: 'horizontal-dots',
                 name: i18n.t('LoaderStyleHorizontalDots') || 'Fading Trio',
-                description: i18n.t('LoaderStyleHorizontalDotsDesc') || 'Horizontal linear dot triad with progressive wave pulse animations.',
+                description:
+                    i18n.t('LoaderStyleHorizontalDotsDesc') ||
+                    'Horizontal linear dot triad with progressive wave pulse animations.',
                 badge: i18n.t('LoaderStyleBadgeHorizontalDots') || 'Tri-Dot'
             },
             {
                 id: 'pulsing-grid',
                 name: i18n.t('LoaderStylePulsingGrid') || 'Morphing Grid',
-                description: i18n.t('LoaderStylePulsingGridDesc') || 'Geometric four-quadrant pinwheel that contracts, rotates, and expands.',
+                description:
+                    i18n.t('LoaderStylePulsingGridDesc') ||
+                    'Geometric four-quadrant pinwheel that contracts, rotates, and expands.',
                 badge: i18n.t('LoaderStyleBadgePulsingGrid') || 'Geometric'
             }
         ];
@@ -12012,8 +12152,8 @@ class SettingsPage extends Page {
                     <!-- Left Column: Interactive Options List -->
                     <div class="loader-style-options-column" id="modal-loader-options-list">
                         ${styles
-                .map(
-                    (s) => `
+                            .map(
+                                (s) => `
                             <button class="loader-style-option-btn ${currentStyle === s.id ? 'selected' : ''}" 
                                     data-style="${s.id}"
                                     data-name="${escapeHtml(s.name)}"
@@ -12033,8 +12173,8 @@ class SettingsPage extends Page {
                                 </span>
                             </button>
                         `
-                )
-                .join('')}
+                            )
+                            .join('')}
                     </div>
 
                     <!-- Right Column: Live Animated Preview Stage -->
@@ -12267,8 +12407,16 @@ class SettingsPage extends Page {
             'media-rows-layout-select': { key: 'pref:mediaRowsLayout', type: 'local', triggerEvent: true },
             'login-page-layout-select': { key: 'pref:loginPageLayout', type: 'local', triggerEvent: true },
             'alpha-picker-position-select': { key: 'pref:alphaPickerPosition', type: 'local', triggerEvent: true },
-            'default-library-view-mode-select': { key: 'pref:defaultLibraryViewMode', type: 'local', triggerEvent: true },
-            'default-library-columns-select': { key: 'pref:defaultLibraryGridColumns', type: 'local', triggerEvent: true },
+            'default-library-view-mode-select': {
+                key: 'pref:defaultLibraryViewMode',
+                type: 'local',
+                triggerEvent: true
+            },
+            'default-library-columns-select': {
+                key: 'pref:defaultLibraryGridColumns',
+                type: 'local',
+                triggerEvent: true
+            },
             'sidebar-layout-select': { key: 'pref:sidebarLayoutMode', type: 'local', triggerEvent: true },
             'classic-card-size-scale-select': {
                 key: (() => {
@@ -12339,7 +12487,12 @@ class SettingsPage extends Page {
             'backdrop-dimmer-select': { key: 'pref:backdropDimmer', type: 'local', triggerEvent: true },
             'vertical-scroll-mode-select': { key: 'pref:verticalScrollMode', type: 'local', triggerEvent: true },
             'horizontal-scroll-mode-select': { key: 'pref:horizontalScrollMode', type: 'local', triggerEvent: true },
-            'scroll-smoothing-duration-select': { key: 'pref:scrollSmoothingDuration', type: 'local', triggerEvent: true },
+            'scroll-smoothing-duration-select': {
+                key: 'pref:scrollSmoothingDuration',
+                type: 'local',
+                triggerEvent: true
+            },
+            // prettier-ignore
             'vertical-scroll-alignment-select': { key: 'pref:verticalScrollAlignment', type: 'local', triggerEvent: true },
 
             // Centralized mappings for TV hardware remote control color buttons
@@ -12444,8 +12597,16 @@ class SettingsPage extends Page {
             'sidebar-back-button-select': { key: 'pref:sidebarBackButton', type: 'local', triggerEvent: true },
             'sidebar-icon-shadows-select': { key: 'pref:sidebarIconShadows', type: 'local', triggerEvent: true },
             'sidebar-items-align-select': { key: 'pref:sidebarItemsAlign', type: 'local', triggerEvent: true },
-            'trending-movies-collection-select': { key: 'pref:trendingMoviesCollection', type: 'local', triggerEvent: true },
-            'trending-series-collection-select': { key: 'pref:trendingSeriesCollection', type: 'local', triggerEvent: true },
+            'trending-movies-collection-select': {
+                key: 'pref:trendingMoviesCollection',
+                type: 'local',
+                triggerEvent: true
+            },
+            'trending-series-collection-select': {
+                key: 'pref:trendingSeriesCollection',
+                type: 'local',
+                triggerEvent: true
+            },
             'default-livetv-tab-select': { key: 'pref:defaultLiveTvTab', type: 'local' }
         };
 
@@ -12455,7 +12616,7 @@ class SettingsPage extends Page {
                 let options = [];
                 try {
                     options = JSON.parse(btn.dataset.options);
-                } catch (_) { }
+                } catch (_) {}
                 const currentValue = btn.dataset.value;
                 const settingConfig = settingsMap[id];
                 const title =
@@ -12518,518 +12679,545 @@ class SettingsPage extends Page {
                     }
                 }
 
-                this._renderSelectionModal(title, options, currentValue, (newValue) => {
-                    // Update button UI
-                    const newLabel = options.find((o) => String(o.value) === String(newValue))?.label;
-                    const labelSpan = btn.querySelector('.btn-label');
-                    if (labelSpan) labelSpan.innerText = newLabel;
-                    btn.dataset.value = newValue;
+                this._renderSelectionModal(
+                    title,
+                    options,
+                    currentValue,
+                    (newValue) => {
+                        // Update button UI
+                        const newLabel = options.find((o) => String(o.value) === String(newValue))?.label;
+                        const labelSpan = btn.querySelector('.btn-label');
+                        if (labelSpan) labelSpan.innerText = newLabel;
+                        btn.dataset.value = newValue;
 
-                    if (id === 'trending-movies-collection-select') {
-                        storage.setItem('pref:trendingMoviesCollectionName', newLabel);
-                    } else if (id === 'trending-series-collection-select') {
-                        storage.setItem('pref:trendingSeriesCollectionName', newLabel);
-                    }
+                        if (id === 'trending-movies-collection-select') {
+                            storage.setItem('pref:trendingMoviesCollectionName', newLabel);
+                        } else if (id === 'trending-series-collection-select') {
+                            storage.setItem('pref:trendingSeriesCollectionName', newLabel);
+                        }
 
-                    // Save Setting based on type
-                    if (settingConfig) {
-                        if (id === 'alpha-picker-position-select') {
-                            // SPECIAL CASE: Alphabet Selector Position handled by LayoutManager
-                            layoutManager.setAlphaPickerPosition(newValue);
-                        } else if (id === 'default-library-view-mode-select') {
-                            // SPECIAL CASE: Default Library View Mode handled by LayoutManager and storage
-                            layoutManager.setDefaultLibraryViewMode(newValue);
+                        // Save Setting based on type
+                        if (settingConfig) {
+                            if (id === 'alpha-picker-position-select') {
+                                // SPECIAL CASE: Alphabet Selector Position handled by LayoutManager
+                                layoutManager.setAlphaPickerPosition(newValue);
+                            } else if (id === 'default-library-view-mode-select') {
+                                // SPECIAL CASE: Default Library View Mode handled by LayoutManager and storage
+                                layoutManager.setDefaultLibraryViewMode(newValue);
 
-                            // Dynamically update items per row dropdown options and visibility
-                            const columnsItem = this.$('#item-default-library-columns');
-                            if (columnsItem) {
-                                columnsItem.style.display = newValue === 'list' ? 'none' : '';
-                            }
-                            const colsBtn = this.$('#default-library-columns-select-btn');
-                            if (colsBtn) {
-                                const newColOptions = this._getLibraryColumnOptionsForMode(newValue);
-                                const savedForNewMode = storage.getItem(`pref:defaultLibraryGridColumns:${newValue}`);
-                                const defaultColsForMode = {
-                                    poster: '7',
-                                    'small-poster': '9',
-                                    thumb: '4',
-                                    banner: '3',
-                                    list: '1'
-                                }[newValue] || '7';
-                                const selectedCol = newColOptions.some((o) => o.value === String(savedForNewMode))
-                                    ? String(savedForNewMode)
-                                    : defaultColsForMode;
-
-                                colsBtn.dataset.options = JSON.stringify(newColOptions);
-                                colsBtn.dataset.value = selectedCol;
-                                const colLabel = colsBtn.querySelector('.btn-label');
-                                if (colLabel) {
-                                    colLabel.innerText = newColOptions.find((o) => o.value === selectedCol)?.label || selectedCol;
+                                // Dynamically update items per row dropdown options and visibility
+                                const columnsItem = this.$('#item-default-library-columns');
+                                if (columnsItem) {
+                                    columnsItem.style.display = newValue === 'list' ? 'none' : '';
                                 }
-                            }
-                            focusManager.invalidateCache('settings-content');
-                        } else if (id === 'default-library-columns-select') {
-                            // SPECIAL CASE: Save column count for the active default view mode
-                            const activeDefaultMode = layoutManager.getDefaultLibraryViewMode() || 'poster';
-                            layoutManager.setDefaultLibraryGridColumns(newValue, activeDefaultMode);
-                        } else if (id === 'badge-style-select') {
-                            // SPECIAL CASE: Badge Style handled by LayoutManager
-                            layoutManager.setBadgeStyle(newValue);
-                        } else if (id === 'button-style-select') {
-                            // SPECIAL CASE: Button Style handled by LayoutManager
-                            layoutManager.setButtonStyle(newValue);
-                        } else if (id === 'focus-border-style-select') {
-                            // SPECIAL CASE: Focus Border Style handled by LayoutManager
-                            layoutManager.setFocusBorderStyle(newValue);
-                        } else if (id === 'hover-border-style-select') {
-                            // SPECIAL CASE: Hover Border Style handled by LayoutManager
-                            layoutManager.setHoverBorderStyle(newValue);
-                        } else if (id === 'sidebar-selected-color-select') {
-                            // SPECIAL CASE: Sidebar Selected Color handled by LayoutManager
-                            layoutManager.setSidebarSelectedColor(newValue);
-                        } else if (id === 'sidebar-unselected-color-select') {
-                            // SPECIAL CASE: Sidebar Unselected Color handled by LayoutManager
-                            layoutManager.setSidebarUnselectedColor(newValue);
-                        } else if (id === 'sidebar-logo-color-select') {
-                            // SPECIAL CASE: Sidebar Logo Color handled by LayoutManager
-                            layoutManager.setSidebarLogoColor(newValue);
-                        } else if (id === 'sidebar-icon-shadows-select') {
-                            // SPECIAL CASE: Sidebar Icon Shadows handled by LayoutManager
-                            layoutManager.setSidebarIconShadows(newValue === 'shadow' || newValue === 'true');
-                        } else if (id === 'osd-button-style-select') {
-                            // SPECIAL CASE: OSD Button Style handled by LayoutManager
-                            layoutManager.setOsdButtonStyle(newValue);
-                        } else if (id === 'osd-focus-border-style-select') {
-                            // SPECIAL CASE: OSD Focus Border Style handled by LayoutManager
-                            layoutManager.setOsdFocusBorderStyle(newValue);
-                        } else if (id === 'osd-button-shape-select') {
-                            // SPECIAL CASE: OSD Button Shape handled by LayoutManager
-                            layoutManager.setOsdButtonShape(newValue);
-                        } else if (id === 'osd-unfocused-button-style-select') {
-                            // SPECIAL CASE: OSD Unfocused Button Style handled by LayoutManager
-                            layoutManager.setOsdUnfocusedButtonStyle(newValue);
-                        } else if (id === 'osd-seekbar-thumb-color-select') {
-                            // SPECIAL CASE: OSD Seek Bar Thumb Color handled by LayoutManager
-                            layoutManager.setOsdSeekBarThumbColor(newValue);
-                        } else if (id === 'osd-seekbar-progress-color-select') {
-                            // SPECIAL CASE: OSD Seek Bar Progress Color handled by LayoutManager
-                            layoutManager.setOsdSeekBarProgressColor(newValue);
-                        } else if (id === 'theme-mode-select') {
-                            layoutManager.setThemeMode(newValue);
-                            this._updateLighterBackgroundVisibility();
-                            this._updateSignatureAccentVisibility();
-                        } else if (id === 'watched-threshold-select') {
-                            PlayerSettings.set('watchedThreshold', newValue);
-                            if (newValue === 'server') {
-                                api.getServerConfiguration({ silent: true }).catch((err) => {
-                                    log.debug('Failed to background fetch server config for MaxResumePct:', err);
-                                });
-                            }
-                        } else if (id === 'ui-font-select') {
-                            // SPECIAL CASE: Font changes handled by LayoutManager
-                            layoutManager.setUiFont(newValue);
-                        } else if (id === 'jellyfin-fallback-font-select') {
-                            // SPECIAL CASE: Reload fallback font on change
-                            storage.setItem('pref:jellyfinFallbackFont', newValue);
-                            storage.flush();
-                            FontLoader.loadFont('fallback-font', true);
-                        } else if (id === 'text-scale-select') {
-                            // SPECIAL CASE: Text Scale handled by LayoutManager
-                            layoutManager.setTextScale(parseFloat(newValue));
-                        } else if (id === 'display-scale-select') {
-                            // Viewport display scaling factor handled by LayoutManager
-                            layoutManager.setDisplayScale(newValue);
-                        } else if (id === 'media-rows-layout-select') {
-                            layoutManager.setMediaRowsLayout(newValue);
-                            if (newValue === 'expanded') {
-                                storage.setItem('pref:expandedCardSizeScale', '1.2');
-                            } else if (newValue === 'modern-posters') {
-                                storage.setItem('pref:modernPostersCardSizeScale', '1.2');
-                            } else if (newValue === 'modern') {
-                                storage.setItem('pref:modernCardSizeScale', '1.2');
-                            } else if (newValue === 'expanding') {
-                                storage.setItem('pref:expandingCardSizeScale', '1');
-                            } else if (newValue === 'classic') {
-                                storage.setItem('pref:classicCardSizeScale', '1');
-                            }
-                            this._triggerHardReload();
-                        } else if (id === 'login-page-layout-select') {
-                            layoutManager.setLoginPageLayout(newValue);
-                            this._triggerHardReload();
-                        } else if (id === 'sidebar-layout-select') {
-                            // Apply new sidebar navigation layout mode and reload UI to rebuild components
-                            layoutManager.setSidebarLayout(newValue);
-                            this._triggerHardReload();
-                        } else if (id === 'card-label-style-select') {
-                            storage.setItem('pref:cardLabelStyle', newValue);
-                            document.documentElement.setAttribute('data-card-label-style', newValue);
-                            focusManager.invalidateCache('home');
-                            focusManager.invalidateCache('settings-content');
-                        } else if (id === 'card-label-align-select') {
-                            storage.setItem('pref:cardLabelAlign', newValue);
-                            document.documentElement.setAttribute('data-card-label-align', newValue);
-                            focusManager.invalidateCache('home');
-                            focusManager.invalidateCache('settings-content');
-                        } else if (id === 'card-label-scale-select') {
-                            layoutManager.setCardLabelScale(parseFloat(newValue));
-                        } else if (id === 'hero-carousel-vignette-select') {
-                            /* 
+                                const colsBtn = this.$('#default-library-columns-select-btn');
+                                if (colsBtn) {
+                                    const newColOptions = this._getLibraryColumnOptionsForMode(newValue);
+                                    const savedForNewMode = storage.getItem(
+                                        `pref:defaultLibraryGridColumns:${newValue}`
+                                    );
+                                    const defaultColsForMode =
+                                        {
+                                            poster: '7',
+                                            'small-poster': '9',
+                                            thumb: '4',
+                                            banner: '3',
+                                            list: '1'
+                                        }[newValue] || '7';
+                                    const selectedCol = newColOptions.some((o) => o.value === String(savedForNewMode))
+                                        ? String(savedForNewMode)
+                                        : defaultColsForMode;
+
+                                    colsBtn.dataset.options = JSON.stringify(newColOptions);
+                                    colsBtn.dataset.value = selectedCol;
+                                    const colLabel = colsBtn.querySelector('.btn-label');
+                                    if (colLabel) {
+                                        colLabel.innerText =
+                                            newColOptions.find((o) => o.value === selectedCol)?.label || selectedCol;
+                                    }
+                                }
+                                focusManager.invalidateCache('settings-content');
+                            } else if (id === 'default-library-columns-select') {
+                                // SPECIAL CASE: Save column count for the active default view mode
+                                const activeDefaultMode = layoutManager.getDefaultLibraryViewMode() || 'poster';
+                                layoutManager.setDefaultLibraryGridColumns(newValue, activeDefaultMode);
+                            } else if (id === 'badge-style-select') {
+                                // SPECIAL CASE: Badge Style handled by LayoutManager
+                                layoutManager.setBadgeStyle(newValue);
+                            } else if (id === 'button-style-select') {
+                                // SPECIAL CASE: Button Style handled by LayoutManager
+                                layoutManager.setButtonStyle(newValue);
+                            } else if (id === 'focus-border-style-select') {
+                                // SPECIAL CASE: Focus Border Style handled by LayoutManager
+                                layoutManager.setFocusBorderStyle(newValue);
+                            } else if (id === 'hover-border-style-select') {
+                                // SPECIAL CASE: Hover Border Style handled by LayoutManager
+                                layoutManager.setHoverBorderStyle(newValue);
+                            } else if (id === 'sidebar-selected-color-select') {
+                                // SPECIAL CASE: Sidebar Selected Color handled by LayoutManager
+                                layoutManager.setSidebarSelectedColor(newValue);
+                            } else if (id === 'sidebar-unselected-color-select') {
+                                // SPECIAL CASE: Sidebar Unselected Color handled by LayoutManager
+                                layoutManager.setSidebarUnselectedColor(newValue);
+                            } else if (id === 'sidebar-logo-color-select') {
+                                // SPECIAL CASE: Sidebar Logo Color handled by LayoutManager
+                                layoutManager.setSidebarLogoColor(newValue);
+                            } else if (id === 'sidebar-icon-shadows-select') {
+                                // SPECIAL CASE: Sidebar Icon Shadows handled by LayoutManager
+                                layoutManager.setSidebarIconShadows(newValue === 'shadow' || newValue === 'true');
+                            } else if (id === 'osd-button-style-select') {
+                                // SPECIAL CASE: OSD Button Style handled by LayoutManager
+                                layoutManager.setOsdButtonStyle(newValue);
+                            } else if (id === 'osd-focus-border-style-select') {
+                                // SPECIAL CASE: OSD Focus Border Style handled by LayoutManager
+                                layoutManager.setOsdFocusBorderStyle(newValue);
+                            } else if (id === 'osd-button-shape-select') {
+                                // SPECIAL CASE: OSD Button Shape handled by LayoutManager
+                                layoutManager.setOsdButtonShape(newValue);
+                            } else if (id === 'osd-unfocused-button-style-select') {
+                                // SPECIAL CASE: OSD Unfocused Button Style handled by LayoutManager
+                                layoutManager.setOsdUnfocusedButtonStyle(newValue);
+                            } else if (id === 'osd-seekbar-thumb-color-select') {
+                                // SPECIAL CASE: OSD Seek Bar Thumb Color handled by LayoutManager
+                                layoutManager.setOsdSeekBarThumbColor(newValue);
+                            } else if (id === 'osd-seekbar-progress-color-select') {
+                                // SPECIAL CASE: OSD Seek Bar Progress Color handled by LayoutManager
+                                layoutManager.setOsdSeekBarProgressColor(newValue);
+                            } else if (id === 'theme-mode-select') {
+                                layoutManager.setThemeMode(newValue);
+                                this._updateLighterBackgroundVisibility();
+                                this._updateSignatureAccentVisibility();
+                            } else if (id === 'watched-threshold-select') {
+                                PlayerSettings.set('watchedThreshold', newValue);
+                                if (newValue === 'server') {
+                                    api.getServerConfiguration({ silent: true }).catch((err) => {
+                                        log.debug('Failed to background fetch server config for MaxResumePct:', err);
+                                    });
+                                }
+                            } else if (id === 'ui-font-select') {
+                                // SPECIAL CASE: Font changes handled by LayoutManager
+                                layoutManager.setUiFont(newValue);
+                            } else if (id === 'jellyfin-fallback-font-select') {
+                                // SPECIAL CASE: Reload fallback font on change
+                                storage.setItem('pref:jellyfinFallbackFont', newValue);
+                                storage.flush();
+                                FontLoader.loadFont('fallback-font', true);
+                            } else if (id === 'text-scale-select') {
+                                // SPECIAL CASE: Text Scale handled by LayoutManager
+                                layoutManager.setTextScale(parseFloat(newValue));
+                            } else if (id === 'display-scale-select') {
+                                // Viewport display scaling factor handled by LayoutManager
+                                layoutManager.setDisplayScale(newValue);
+                            } else if (id === 'media-rows-layout-select') {
+                                layoutManager.setMediaRowsLayout(newValue);
+                                if (newValue === 'expanded') {
+                                    storage.setItem('pref:expandedCardSizeScale', '1.2');
+                                } else if (newValue === 'modern-posters') {
+                                    storage.setItem('pref:modernPostersCardSizeScale', '1.2');
+                                } else if (newValue === 'modern') {
+                                    storage.setItem('pref:modernCardSizeScale', '1.2');
+                                } else if (newValue === 'expanding') {
+                                    storage.setItem('pref:expandingCardSizeScale', '1');
+                                } else if (newValue === 'classic') {
+                                    storage.setItem('pref:classicCardSizeScale', '1');
+                                }
+                                this._triggerHardReload();
+                            } else if (id === 'login-page-layout-select') {
+                                layoutManager.setLoginPageLayout(newValue);
+                                this._triggerHardReload();
+                            } else if (id === 'sidebar-layout-select') {
+                                // Apply new sidebar navigation layout mode and reload UI to rebuild components
+                                layoutManager.setSidebarLayout(newValue);
+                                this._triggerHardReload();
+                            } else if (id === 'card-label-style-select') {
+                                storage.setItem('pref:cardLabelStyle', newValue);
+                                document.documentElement.setAttribute('data-card-label-style', newValue);
+                                focusManager.invalidateCache('home');
+                                focusManager.invalidateCache('settings-content');
+                            } else if (id === 'card-label-align-select') {
+                                storage.setItem('pref:cardLabelAlign', newValue);
+                                document.documentElement.setAttribute('data-card-label-align', newValue);
+                                focusManager.invalidateCache('home');
+                                focusManager.invalidateCache('settings-content');
+                            } else if (id === 'card-label-scale-select') {
+                                layoutManager.setCardLabelScale(parseFloat(newValue));
+                            } else if (id === 'hero-carousel-vignette-select') {
+                                /* 
                               Applies real-time update of the hero carousel text vignette contrast
                               and persists the selected opacity to local storage.
                             */
-                            layoutManager.setHeroVignette(newValue);
-                        } else if (id === 'sidebar-mode-select') {
-                            storage.setItem('pref:sidebarMode', newValue);
-                            document.body.classList.toggle('sidebar-mode-hidden', newValue === 'hidden');
-                            document.body.classList.toggle('sidebar-mode-collapsed', newValue === 'collapsed');
+                                layoutManager.setHeroVignette(newValue);
+                            } else if (id === 'sidebar-mode-select') {
+                                storage.setItem('pref:sidebarMode', newValue);
+                                document.body.classList.toggle('sidebar-mode-hidden', newValue === 'hidden');
+                                document.body.classList.toggle('sidebar-mode-collapsed', newValue === 'collapsed');
 
-                            if (newValue === 'collapsed') {
-                                // Enable Show Collapsed Library Icons
-                                storage.setItem('pref:showCollapsedLibraryIcons', 'true');
-                                const collIconsToggle = this.$('#toggle-show-collapsed-library-icons');
-                                if (collIconsToggle) collIconsToggle.classList.add('active');
-                                eventBus.emit('prefChanged:showCollapsedLibraryIcons', true);
+                                if (newValue === 'collapsed') {
+                                    // Enable Show Collapsed Library Icons
+                                    storage.setItem('pref:showCollapsedLibraryIcons', 'true');
+                                    const collIconsToggle = this.$('#toggle-show-collapsed-library-icons');
+                                    if (collIconsToggle) collIconsToggle.classList.add('active');
+                                    eventBus.emit('prefChanged:showCollapsedLibraryIcons', true);
 
-                                // Enable Hide Sidebar Library Header
-                                storage.setItem('pref:hideSidebarLibraryHeader', 'true');
-                                const hideHeaderToggle = this.$('#toggle-hide-sidebar-library-header');
-                                if (hideHeaderToggle) hideHeaderToggle.classList.add('active');
-                                eventBus.emit('prefChanged:hideSidebarLibraryHeader', true);
-                            }
+                                    // Enable Hide Sidebar Library Header
+                                    storage.setItem('pref:hideSidebarLibraryHeader', 'true');
+                                    const hideHeaderToggle = this.$('#toggle-hide-sidebar-library-header');
+                                    if (hideHeaderToggle) hideHeaderToggle.classList.add('active');
+                                    eventBus.emit('prefChanged:hideSidebarLibraryHeader', true);
+                                }
 
-                            // Emit event to notify Sidebar and other components immediately
-                            eventBus.emit('pref:sidebarMode', newValue);
+                                // Emit event to notify Sidebar and other components immediately
+                                eventBus.emit('pref:sidebarMode', newValue);
 
-                            focusManager.invalidateCache('sidebar');
-                            focusManager.invalidateCache('home');
-                        } else if (id === 'icon-style-select') {
-                            setIconStyle(newValue);
-                            this._triggerHardReload();
-                        } else if (id === 'icon-variant-select') {
-                            /* 
+                                focusManager.invalidateCache('sidebar');
+                                focusManager.invalidateCache('home');
+                            } else if (id === 'icon-style-select') {
+                                setIconStyle(newValue);
+                                this._triggerHardReload();
+                            } else if (id === 'icon-variant-select') {
+                                /* 
                               Saves the preferred icon rendering variant (dynamic, outlined, filled)
                               to local storage and forces a clean UI rebuild to propagate changes.
                             */
-                            storage.setItem('pref:iconVariant', newValue);
-                            this._triggerHardReload();
-                        } else if (settingConfig.type === 'local') {
-                            storage.setItem(settingConfig.key, newValue);
-
-                            // Invalidate the homepage page cache if settings that affect the home page contents change.
-                            // This ensures the next navigation to the home page has fresh content loaded with the correct row limit.
-                            const homepageLocalKeys = [
-                                'pref:homeRowsLimit',
-                                'pref:nextUpMaxDays',
-                                'pref:heroCarouselStyle',
-                                'pref:heroCarouselIndicatorStyle',
-                                'pref:heroCarouselCount',
-                                'pref:heroCarouselInterval'
-                            ];
-                            if (homepageLocalKeys.includes(settingConfig.key)) {
-                                log.info(
-                                    `Invalidating home page cache due to local setting change: ${settingConfig.key}`
-                                );
-                                state.delete('home:pageCache');
-                            }
-
-                            if (settingConfig.key === 'pref:heroCarouselIndicatorStyle') {
-                                const animToggleItem = this.$('#hero-carousel-indicator-animation-item');
-                                if (animToggleItem) {
-                                    const isCarouselEnabled = storage.getItem('pref:heroCarousel') !== 'false';
-                                    animToggleItem.style.display = isCarouselEnabled && newValue === 'progress' ? '' : 'none';
-                                }
-                                // Invalidate spatial navigation focus map to register the dynamic indicator animation toggle
-                                focusManager.invalidateCache('settings-content');
-                            }
-
-                            // Cascade visibility for BlurHash fill toggle (exclusive to immersive-performance style)
-                            if (settingConfig.key === 'pref:heroCarouselStyle') {
-                                const blurhashFillItem = this.$('#hero-carousel-blurhash-fill-item');
-                                if (blurhashFillItem) {
-                                    const isCarouselEnabled = storage.getItem('pref:heroCarousel') !== 'false';
-                                    blurhashFillItem.style.display = isCarouselEnabled && newValue === 'immersive-performance' ? '' : 'none';
-                                }
-                                // Invalidate spatial navigation focus cache so the newly revealed BlurHash toggle can be focused
-                                focusManager.invalidateCache('settings-content');
-                            }
-
-                            /* -------------------------------------------------------------
-                             * Dynamic Sub-Setting Visibility for Library Page Size
-                             * When 'unlimited' is selected, reveal the alphabet scroll mode toggle;
-                             * otherwise, hide it to maintain a clean minimal layout.
-                             * ------------------------------------------------------------- */
-                            /* -------------------------------------------------------------
-                             * Dynamic Sub-Setting Visibility & Cache Invalidation for Library Page Size
-                             * When the page size changes, clear all cached library page states
-                             * and router history snapshots so returning to any library forces
-                             * a fresh fetch with the newly selected page limit.
-                             * ------------------------------------------------------------- */
-                            if (settingConfig.key === 'pref:libraryPageSize') {
-                                log.info(`Invalidating library caches due to libraryPageSize change: ${newValue}`);
-
-                                // Invalidate all cached library state snapshots in StateManager
-                                state.clearByPrefix('library:state');
-
-                                // Clear cached page state across router history entries for library paths
-                                if (router && typeof router.clearHistoryState === 'function') {
-                                    router.clearHistoryState('/library');
-                                }
-
-                                const alphaScrollItem = this.$('#alpha-picker-scroll-mode-item');
-                                if (alphaScrollItem) {
-                                    alphaScrollItem.style.display = String(newValue) === 'unlimited' ? '' : 'none';
-                                    focusManager.invalidateCache('settings-content');
-                                }
-
-                                // Emit canonical change event on EventBus
-                                eventBus.emit('pref:libraryPageSize:changed', newValue);
-                            }
-
-                            /* -------------------------------------------------------------
-                             * Cache Invalidation for Default Library View Layout & Columns
-                             * When user adjusts global default view presentation or column density,
-                             * clear library cached snapshots and history states so uncustomized
-                             * libraries dynamically re-evaluate using the newly selected default.
-                             * ------------------------------------------------------------- */
-                            if (settingConfig.key === 'pref:defaultLibraryViewMode' ||
-                                settingConfig.key === 'pref:defaultLibraryGridColumns') {
-                                log.info(`Invalidating library caches due to default view layout change: ${settingConfig.key}=${newValue}`);
-
-                                // Invalidate all cached library state snapshots in StateManager
-                                state.clearByPrefix('library:state');
-
-                                // Clear cached page state across router history entries for library paths
-                                if (router && typeof router.clearHistoryState === 'function') {
-                                    router.clearHistoryState('/library');
-                                }
-
-                                // Emit canonical change event on EventBus
-                                eventBus.emit(settingConfig.key + ':changed', newValue);
-                            }
-
-                            if (settingConfig.key === 'pref:detailsLayout' || settingConfig.key === 'pref:seasonEpisodeDetailsLayout') {
-                                this._updateDetailsTitleStyleVisibility();
-                            }
-
-                            if (settingConfig.triggerEvent) {
-                                eventBus.emit(settingConfig.key, newValue);
-                            }
-
-                            if (
-                                settingConfig.key === 'pref:mediaRowsLayout' ||
-                                settingConfig.key === 'pref:loginPageLayout' ||
-                                settingConfig.key === 'layout_direction' ||
-                                settingConfig.key === 'app_language' ||
-                                settingConfig.key === 'pref:classicCardSizeScale' ||
-                                settingConfig.key === 'pref:modernCardSizeScale' ||
-                                settingConfig.key === 'pref:expandedCardSizeScale' ||
-                                settingConfig.key === 'pref:modernPostersCardSizeScale'
-                            ) {
+                                storage.setItem('pref:iconVariant', newValue);
                                 this._triggerHardReload();
-                            }
+                            } else if (settingConfig.type === 'local') {
+                                storage.setItem(settingConfig.key, newValue);
 
-                            if (settingConfig.key === 'pref:libraryThumbMode') {
-                                const libraryThumbContainer = this.$('#library-thumb-regenerate-container');
-                                if (libraryThumbContainer) {
-                                    libraryThumbContainer.style.display = newValue === 'static' ? '' : 'none';
-                                    focusManager.invalidateCache('settings-content');
+                                // Invalidate the homepage page cache if settings that affect the home page contents change.
+                                // This ensures the next navigation to the home page has fresh content loaded with the correct row limit.
+                                const homepageLocalKeys = [
+                                    'pref:homeRowsLimit',
+                                    'pref:nextUpMaxDays',
+                                    'pref:heroCarouselStyle',
+                                    'pref:heroCarouselIndicatorStyle',
+                                    'pref:heroCarouselCount',
+                                    'pref:heroCarouselInterval'
+                                ];
+                                if (homepageLocalKeys.includes(settingConfig.key)) {
+                                    log.info(
+                                        `Invalidating home page cache due to local setting change: ${settingConfig.key}`
+                                    );
+                                    state.delete('home:pageCache');
                                 }
 
-                                // Clear cached thumb URLs so stale images don't linger
-                                storage.clearByPrefix('libThumb:');
-                                const pageCache = state.get('home:pageCache');
-                                if (pageCache && pageCache.thumbUrls) {
-                                    pageCache.thumbUrls = {};
-                                    state.set('home:pageCache', pageCache);
-                                }
-                                CardRenderer.clearCache();
-                            }
-
-                            if (id === 'screensaver-type-select') {
-                                const dimContainer = document.getElementById('screensaver-dim-item');
-                                const hideTextContainer = document.getElementById('screensaver-hide-text-item');
-                                const musicContainer = document.getElementById('screensaver-include-music-item');
-                                const isBackdrop = newValue === 'backdrop';
-
-                                if (dimContainer) {
-                                    dimContainer.classList.toggle('hidden', !isBackdrop);
-                                }
-                                if (hideTextContainer) {
-                                    hideTextContainer.classList.toggle('hidden', !isBackdrop);
-                                }
-                                if (musicContainer) {
-                                    musicContainer.classList.toggle('hidden', !isBackdrop);
-                                }
-                                focusManager.invalidateCache('settings-content');
-                            }
-                        } else if (settingConfig.type === 'service') {
-                            imageService.setPreset(newValue);
-                        } else if (settingConfig.type === 'details-service') {
-                            imageService.setDetailsPreset(newValue);
-                        } else if (settingConfig.type === 'player') {
-                            // Numeric settings need parseFloat/parseInt conversion
-                            const floatKeys = ['webosBufferGate', 'subtitleAssPrescaleFactor'];
-                            const intKeys = [
-                                'skipForwardLength',
-                                'skipBackLength',
-                                'resumeRewindLength',
-                                'maxBitrateInternet',
-                                'webosStallRecovery',
-                                'webosSegmentLength',
-                                'tizenInitialBuffer',
-                                'tizenResumeBuffer',
-                                'tizenSegmentLength',
-                                'html5MaxBufferLength',
-                                'html5MaxMaxBufferLength',
-                                'html5SegmentLength',
-                                'playQueueEpisodeLimit'
-                            ];
-
-                            let val = newValue;
-                            if (floatKeys.includes(settingConfig.key)) {
-                                val = parseFloat(newValue);
-                            } else if (intKeys.includes(settingConfig.key)) {
-                                val = parseInt(newValue, 10);
-                            }
-                            PlayerSettings.set(settingConfig.key, val);
-
-                            // Trigger complete tab re-render when changing player backend to show the correct buffering options
-                            if (settingConfig.key === 'playerBackend') {
-                                this._switchTab('player', false, true);
-                                return; // Skip further processing, DOM is refreshed
-                            }
-
-                            // Show/hide libass-wasm-only settings based on renderer
-                            if (settingConfig.key === 'assRenderer') {
-                                const isLibass = newValue === 'libass-wasm';
-                                const animContainer = this.$('#ass-drop-animations-container');
-                                const scaleContainer = this.$('#ass-prescale-factor-container');
-                                if (animContainer) animContainer.style.display = isLibass ? '' : 'none';
-                                if (scaleContainer) scaleContainer.style.display = isLibass ? '' : 'none';
-                                focusManager.invalidateCache('settings-content');
-                            }
-
-                            // Invalidate cached device capabilities when profile-affecting settings change
-                            if (
-                                settingConfig.key === 'maxResolution' ||
-                                settingConfig.key === 'maxBitrateInternet' ||
-                                settingConfig.key === 'pgsPlaybackMode' ||
-                                settingConfig.key === 'webosSegmentLength' ||
-                                settingConfig.key === 'tizenSegmentLength' ||
-                                settingConfig.key === 'html5SegmentLength' ||
-                                settingConfig.key === 'enableHEVC' ||
-                                settingConfig.key === 'enableAV1' ||
-                                settingConfig.key === 'enableVP9' ||
-                                settingConfig.key === 'enableHDR' ||
-                                settingConfig.key === 'enableDolbyVision' ||
-                                settingConfig.key === 'enableDts' ||
-                                settingConfig.key === 'enableTrueHd' ||
-                                /* EAC3 force-state is baked into the cached caps object — must re-probe */
-                                settingConfig.key === 'enableEac3' ||
-                                /* MP2 force-state is baked into the cached caps object — must re-probe */
-                                settingConfig.key === 'enableMp2' ||
-                                /* Changing the target transcode codec requires a fresh profile build */
-                                settingConfig.key === 'transcodeAudioCodec' ||
-                                /* Force Direct Play setting alters playback profile capabilities */
-                                settingConfig.key === 'forceDirectPlay'
-                            ) {
-                                clearCapabilitiesCache();
-                            }
-
-                            // VISIBILITY TOGGLE: Show timezone offset selector only when Jellyfin Server time source is active
-                            if (id === 'time-source-select') {
-                                const tzContainer = document.getElementById('time-timezone-item');
-                                if (tzContainer) {
-                                    tzContainer.style.display = newValue === 'server' ? '' : 'none';
-                                    focusManager.invalidateCache('settings-content');
-                                }
-                            }
-
-                            // VISIBILITY TIGGLE: Hide background opacity if background is None
-                            if (id === 'subtitle-bg-select') {
-                                const opacityContainer = document.getElementById('subtitle-bg-opacity-container');
-                                if (opacityContainer) {
-                                    if (newValue === 'transparent' || newValue === 'none') {
-                                        opacityContainer.style.display = 'none';
-                                    } else {
-                                        opacityContainer.style.display = ''; // Restore to CSS (flex)
+                                if (settingConfig.key === 'pref:heroCarouselIndicatorStyle') {
+                                    const animToggleItem = this.$('#hero-carousel-indicator-animation-item');
+                                    if (animToggleItem) {
+                                        const isCarouselEnabled = storage.getItem('pref:heroCarousel') !== 'false';
+                                        animToggleItem.style.display =
+                                            isCarouselEnabled && newValue === 'progress' ? '' : 'none';
                                     }
-                                    // REFRESH FOCUS: The focusable elements changed
+                                    // Invalidate spatial navigation focus map to register the dynamic indicator animation toggle
                                     focusManager.invalidateCache('settings-content');
                                 }
-                            }
 
-                            // VISIBILITY TOGGLE: Show custom position slider if Position is Custom
-                            if (id === 'subtitle-position-select') {
-                                const customPosContainer = document.getElementById('subtitle-custom-pos-container');
-                                if (customPosContainer) {
-                                    customPosContainer.style.display = newValue === 'custom' ? '' : 'none';
+                                // Cascade visibility for BlurHash fill toggle (exclusive to immersive-performance style)
+                                if (settingConfig.key === 'pref:heroCarouselStyle') {
+                                    const blurhashFillItem = this.$('#hero-carousel-blurhash-fill-item');
+                                    if (blurhashFillItem) {
+                                        const isCarouselEnabled = storage.getItem('pref:heroCarousel') !== 'false';
+                                        blurhashFillItem.style.display =
+                                            isCarouselEnabled && newValue === 'immersive-performance' ? '' : 'none';
+                                    }
+                                    // Invalidate spatial navigation focus cache so the newly revealed BlurHash toggle can be focused
                                     focusManager.invalidateCache('settings-content');
                                 }
-                            }
 
-                            if (id === 'subtitle-size-select') {
-                                const customSizeContainer = document.getElementById('subtitle-custom-size-container');
-                                if (customSizeContainer) {
-                                    customSizeContainer.style.display = newValue === 'custom' ? '' : 'none';
+                                /* -------------------------------------------------------------
+                                 * Dynamic Sub-Setting Visibility for Library Page Size
+                                 * When 'unlimited' is selected, reveal the alphabet scroll mode toggle;
+                                 * otherwise, hide it to maintain a clean minimal layout.
+                                 * ------------------------------------------------------------- */
+                                /* -------------------------------------------------------------
+                                 * Dynamic Sub-Setting Visibility & Cache Invalidation for Library Page Size
+                                 * When the page size changes, clear all cached library page states
+                                 * and router history snapshots so returning to any library forces
+                                 * a fresh fetch with the newly selected page limit.
+                                 * ------------------------------------------------------------- */
+                                if (settingConfig.key === 'pref:libraryPageSize') {
+                                    log.info(`Invalidating library caches due to libraryPageSize change: ${newValue}`);
+
+                                    // Invalidate all cached library state snapshots in StateManager
+                                    state.clearByPrefix('library:state');
+
+                                    // Clear cached page state across router history entries for library paths
+                                    if (router && typeof router.clearHistoryState === 'function') {
+                                        router.clearHistoryState('/library');
+                                    }
+
+                                    const alphaScrollItem = this.$('#alpha-picker-scroll-mode-item');
+                                    if (alphaScrollItem) {
+                                        alphaScrollItem.style.display = String(newValue) === 'unlimited' ? '' : 'none';
+                                        focusManager.invalidateCache('settings-content');
+                                    }
+
+                                    // Emit canonical change event on EventBus
+                                    eventBus.emit('pref:libraryPageSize:changed', newValue);
+                                }
+
+                                /* -------------------------------------------------------------
+                                 * Cache Invalidation for Default Library View Layout & Columns
+                                 * When user adjusts global default view presentation or column density,
+                                 * clear library cached snapshots and history states so uncustomized
+                                 * libraries dynamically re-evaluate using the newly selected default.
+                                 * ------------------------------------------------------------- */
+                                if (
+                                    settingConfig.key === 'pref:defaultLibraryViewMode' ||
+                                    settingConfig.key === 'pref:defaultLibraryGridColumns'
+                                ) {
+                                    log.info(
+                                        `Invalidating library caches due to default view layout change: ${settingConfig.key}=${newValue}`
+                                    );
+
+                                    // Invalidate all cached library state snapshots in StateManager
+                                    state.clearByPrefix('library:state');
+
+                                    // Clear cached page state across router history entries for library paths
+                                    if (router && typeof router.clearHistoryState === 'function') {
+                                        router.clearHistoryState('/library');
+                                    }
+
+                                    // Emit canonical change event on EventBus
+                                    eventBus.emit(settingConfig.key + ':changed', newValue);
+                                }
+
+                                if (
+                                    settingConfig.key === 'pref:detailsLayout' ||
+                                    settingConfig.key === 'pref:seasonEpisodeDetailsLayout'
+                                ) {
+                                    this._updateDetailsTitleStyleVisibility();
+                                }
+
+                                if (settingConfig.triggerEvent) {
+                                    eventBus.emit(settingConfig.key, newValue);
+                                }
+
+                                if (
+                                    settingConfig.key === 'pref:mediaRowsLayout' ||
+                                    settingConfig.key === 'pref:loginPageLayout' ||
+                                    settingConfig.key === 'layout_direction' ||
+                                    settingConfig.key === 'app_language' ||
+                                    settingConfig.key === 'pref:classicCardSizeScale' ||
+                                    settingConfig.key === 'pref:modernCardSizeScale' ||
+                                    settingConfig.key === 'pref:expandedCardSizeScale' ||
+                                    settingConfig.key === 'pref:modernPostersCardSizeScale'
+                                ) {
+                                    this._triggerHardReload();
+                                }
+
+                                if (settingConfig.key === 'pref:libraryThumbMode') {
+                                    const libraryThumbContainer = this.$('#library-thumb-regenerate-container');
+                                    if (libraryThumbContainer) {
+                                        libraryThumbContainer.style.display = newValue === 'static' ? '' : 'none';
+                                        focusManager.invalidateCache('settings-content');
+                                    }
+
+                                    // Clear cached thumb URLs so stale images don't linger
+                                    storage.clearByPrefix('libThumb:');
+                                    const pageCache = state.get('home:pageCache');
+                                    if (pageCache && pageCache.thumbUrls) {
+                                        pageCache.thumbUrls = {};
+                                        state.set('home:pageCache', pageCache);
+                                    }
+                                    CardRenderer.clearCache();
+                                }
+
+                                if (id === 'screensaver-type-select') {
+                                    const dimContainer = document.getElementById('screensaver-dim-item');
+                                    const hideTextContainer = document.getElementById('screensaver-hide-text-item');
+                                    const musicContainer = document.getElementById('screensaver-include-music-item');
+                                    const isBackdrop = newValue === 'backdrop';
+
+                                    if (dimContainer) {
+                                        dimContainer.classList.toggle('hidden', !isBackdrop);
+                                    }
+                                    if (hideTextContainer) {
+                                        hideTextContainer.classList.toggle('hidden', !isBackdrop);
+                                    }
+                                    if (musicContainer) {
+                                        musicContainer.classList.toggle('hidden', !isBackdrop);
+                                    }
                                     focusManager.invalidateCache('settings-content');
                                 }
-                            }
+                            } else if (settingConfig.type === 'service') {
+                                imageService.setPreset(newValue);
+                            } else if (settingConfig.type === 'details-service') {
+                                imageService.setDetailsPreset(newValue);
+                            } else if (settingConfig.type === 'player') {
+                                // Numeric settings need parseFloat/parseInt conversion
+                                const floatKeys = ['webosBufferGate', 'subtitleAssPrescaleFactor'];
+                                const intKeys = [
+                                    'skipForwardLength',
+                                    'skipBackLength',
+                                    'resumeRewindLength',
+                                    'maxBitrateInternet',
+                                    'webosStallRecovery',
+                                    'webosSegmentLength',
+                                    'tizenInitialBuffer',
+                                    'tizenResumeBuffer',
+                                    'tizenSegmentLength',
+                                    'html5MaxBufferLength',
+                                    'html5MaxMaxBufferLength',
+                                    'html5SegmentLength',
+                                    'playQueueEpisodeLimit'
+                                ];
 
-                            if (id === 'subtitle-shadow-select') {
-                                const borderWidthContainer = document.getElementById('subtitle-border-width-container');
-                                if (borderWidthContainer) {
-                                    borderWidthContainer.style.display =
-                                        newValue === 'border' || newValue === 'uniform_border' ? '' : 'none';
+                                let val = newValue;
+                                if (floatKeys.includes(settingConfig.key)) {
+                                    val = parseFloat(newValue);
+                                } else if (intKeys.includes(settingConfig.key)) {
+                                    val = parseInt(newValue, 10);
+                                }
+                                PlayerSettings.set(settingConfig.key, val);
+
+                                // Trigger complete tab re-render when changing player backend to show the correct buffering options
+                                if (settingConfig.key === 'playerBackend') {
+                                    this._switchTab('player', false, true);
+                                    return; // Skip further processing, DOM is refreshed
                                 }
 
-                                const borderOpacityContainer = document.getElementById('subtitle-border-opacity-container');
-                                if (borderOpacityContainer) {
-                                    borderOpacityContainer.style.display =
-                                        newValue === 'border' || newValue === 'uniform_border' ? '' : 'none';
+                                // Show/hide libass-wasm-only settings based on renderer
+                                if (settingConfig.key === 'assRenderer') {
+                                    const isLibass = newValue === 'libass-wasm';
+                                    const animContainer = this.$('#ass-drop-animations-container');
+                                    const scaleContainer = this.$('#ass-prescale-factor-container');
+                                    if (animContainer) animContainer.style.display = isLibass ? '' : 'none';
+                                    if (scaleContainer) scaleContainer.style.display = isLibass ? '' : 'none';
+                                    focusManager.invalidateCache('settings-content');
                                 }
 
-                                const opacityContainer = document.getElementById('subtitle-shadow-opacity-container');
-                                if (opacityContainer) {
-                                    opacityContainer.style.display =
-                                        newValue === 'none' || newValue === 'border' ? 'none' : '';
+                                // Invalidate cached device capabilities when profile-affecting settings change
+                                if (
+                                    settingConfig.key === 'maxResolution' ||
+                                    settingConfig.key === 'maxBitrateInternet' ||
+                                    settingConfig.key === 'pgsPlaybackMode' ||
+                                    settingConfig.key === 'webosSegmentLength' ||
+                                    settingConfig.key === 'tizenSegmentLength' ||
+                                    settingConfig.key === 'html5SegmentLength' ||
+                                    settingConfig.key === 'enableHEVC' ||
+                                    settingConfig.key === 'enableAV1' ||
+                                    settingConfig.key === 'enableVP9' ||
+                                    settingConfig.key === 'enableHDR' ||
+                                    settingConfig.key === 'enableDolbyVision' ||
+                                    settingConfig.key === 'enableDts' ||
+                                    settingConfig.key === 'enableTrueHd' ||
+                                    /* EAC3 force-state is baked into the cached caps object — must re-probe */
+                                    settingConfig.key === 'enableEac3' ||
+                                    /* MP2 force-state is baked into the cached caps object — must re-probe */
+                                    settingConfig.key === 'enableMp2' ||
+                                    /* Changing the target transcode codec requires a fresh profile build */
+                                    settingConfig.key === 'transcodeAudioCodec' ||
+                                    /* Force Direct Play setting alters playback profile capabilities */
+                                    settingConfig.key === 'forceDirectPlay'
+                                ) {
+                                    clearCapabilitiesCache();
                                 }
 
-                                const blurContainer = document.getElementById('subtitle-shadow-blur-container');
-                                if (blurContainer) {
-                                    blurContainer.style.display =
-                                        newValue === 'none' || newValue === 'border' ? 'none' : '';
+                                // VISIBILITY TOGGLE: Show timezone offset selector only when Jellyfin Server time source is active
+                                if (id === 'time-source-select') {
+                                    const tzContainer = document.getElementById('time-timezone-item');
+                                    if (tzContainer) {
+                                        tzContainer.style.display = newValue === 'server' ? '' : 'none';
+                                        focusManager.invalidateCache('settings-content');
+                                    }
                                 }
-                                focusManager.invalidateCache('settings-content');
-                            }
 
-                            // FONT LOADING: Trigger download if needed (forcing reload for explicit user change)
-                            if (settingConfig.key === 'subtitleFont' || settingConfig.key === 'subtitleFontAss') {
-                                storage.flush();
-                                if (newValue) {
-                                    FontLoader.loadFont(newValue, true).then((loaded) => {
-                                        if (loaded) {
-                                            log.debug(`Font loaded: ${newValue}`);
+                                // VISIBILITY TIGGLE: Hide background opacity if background is None
+                                if (id === 'subtitle-bg-select') {
+                                    const opacityContainer = document.getElementById('subtitle-bg-opacity-container');
+                                    if (opacityContainer) {
+                                        if (newValue === 'transparent' || newValue === 'none') {
+                                            opacityContainer.style.display = 'none';
                                         } else {
-                                            log.warn(`Failed to load font: ${newValue}`);
+                                            opacityContainer.style.display = ''; // Restore to CSS (flex)
                                         }
-                                    });
+                                        // REFRESH FOCUS: The focusable elements changed
+                                        focusManager.invalidateCache('settings-content');
+                                    }
                                 }
-                            }
-                        } else if (settingConfig.type === 'debug') {
-                            storage.setItem(settingConfig.key, newValue);
-                            if (settingConfig.key === 'debug_width') {
-                                debugOverlay.setWidth(newValue);
-                            } else if (settingConfig.key === 'debug_height') {
-                                debugOverlay.setHeight(newValue);
-                            } else if (settingConfig.key === 'debug_position') {
-                                debugOverlay.setPosition(newValue);
+
+                                // VISIBILITY TOGGLE: Show custom position slider if Position is Custom
+                                if (id === 'subtitle-position-select') {
+                                    const customPosContainer = document.getElementById('subtitle-custom-pos-container');
+                                    if (customPosContainer) {
+                                        customPosContainer.style.display = newValue === 'custom' ? '' : 'none';
+                                        focusManager.invalidateCache('settings-content');
+                                    }
+                                }
+
+                                if (id === 'subtitle-size-select') {
+                                    const customSizeContainer = document.getElementById(
+                                        'subtitle-custom-size-container'
+                                    );
+                                    if (customSizeContainer) {
+                                        customSizeContainer.style.display = newValue === 'custom' ? '' : 'none';
+                                        focusManager.invalidateCache('settings-content');
+                                    }
+                                }
+
+                                if (id === 'subtitle-shadow-select') {
+                                    const borderWidthContainer = document.getElementById(
+                                        'subtitle-border-width-container'
+                                    );
+                                    if (borderWidthContainer) {
+                                        borderWidthContainer.style.display =
+                                            newValue === 'border' || newValue === 'uniform_border' ? '' : 'none';
+                                    }
+
+                                    const borderOpacityContainer = document.getElementById(
+                                        'subtitle-border-opacity-container'
+                                    );
+                                    if (borderOpacityContainer) {
+                                        borderOpacityContainer.style.display =
+                                            newValue === 'border' || newValue === 'uniform_border' ? '' : 'none';
+                                    }
+
+                                    const opacityContainer = document.getElementById(
+                                        'subtitle-shadow-opacity-container'
+                                    );
+                                    if (opacityContainer) {
+                                        opacityContainer.style.display =
+                                            newValue === 'none' || newValue === 'border' ? 'none' : '';
+                                    }
+
+                                    const blurContainer = document.getElementById('subtitle-shadow-blur-container');
+                                    if (blurContainer) {
+                                        blurContainer.style.display =
+                                            newValue === 'none' || newValue === 'border' ? 'none' : '';
+                                    }
+                                    focusManager.invalidateCache('settings-content');
+                                }
+
+                                // FONT LOADING: Trigger download if needed (forcing reload for explicit user change)
+                                if (settingConfig.key === 'subtitleFont' || settingConfig.key === 'subtitleFontAss') {
+                                    storage.flush();
+                                    if (newValue) {
+                                        FontLoader.loadFont(newValue, true).then((loaded) => {
+                                            if (loaded) {
+                                                log.debug(`Font loaded: ${newValue}`);
+                                            } else {
+                                                log.warn(`Failed to load font: ${newValue}`);
+                                            }
+                                        });
+                                    }
+                                }
+                            } else if (settingConfig.type === 'debug') {
+                                storage.setItem(settingConfig.key, newValue);
+                                if (settingConfig.key === 'debug_width') {
+                                    debugOverlay.setWidth(newValue);
+                                } else if (settingConfig.key === 'debug_height') {
+                                    debugOverlay.setHeight(newValue);
+                                } else if (settingConfig.key === 'debug_position') {
+                                    debugOverlay.setPosition(newValue);
+                                }
                             }
                         }
-                    }
 
-                    log.debug(`Setting ${id} saved: ${newValue}`);
-                }, id);
+                        log.debug(`Setting ${id} saved: ${newValue}`);
+                    },
+                    id
+                );
             });
         });
 
@@ -13249,8 +13437,8 @@ class SettingsPage extends Page {
                             value === 'Off'
                                 ? i18n.t('Off') || 'Off'
                                 : value === 'TrackGain'
-                                    ? i18n.t('LabelTrackGain') || 'Track Gain'
-                                    : i18n.t('LabelAlbumGain') || 'Album Gain';
+                                  ? i18n.t('LabelTrackGain') || 'Track Gain'
+                                  : i18n.t('LabelAlbumGain') || 'Album Gain';
                         audioNormBtn.textContent = label;
                         log.info(`Audio Normalization set to: ${value}`);
                     }
@@ -13906,7 +14094,11 @@ class SettingsPage extends Page {
             const englishName = (norm.name || '').toLowerCase();
 
             // Check if this language has already been registered under any representation
-            if (seenKeys.has(canonicalCode) || (twoLetterCode && seenKeys.has(twoLetterCode)) || (englishName && seenKeys.has(englishName))) {
+            if (
+                seenKeys.has(canonicalCode) ||
+                (twoLetterCode && seenKeys.has(twoLetterCode)) ||
+                (englishName && seenKeys.has(englishName))
+            ) {
                 return;
             }
 
@@ -13943,20 +14135,23 @@ class SettingsPage extends Page {
             // Filter all languages based on real-time search query
             const filteredLangs = searchQuery
                 ? allLangs.filter((l) => {
-                    const q = searchQuery.toLowerCase();
-                    return (l.name && l.name.toLowerCase().includes(q)) ||
-                        (l.nativeName && l.nativeName.toLowerCase().includes(q)) ||
-                        (l.code && l.code.toLowerCase().includes(q)) ||
-                        (l.twoLetter && l.twoLetter.toLowerCase().includes(q));
-                })
+                      const q = searchQuery.toLowerCase();
+                      return (
+                          (l.name && l.name.toLowerCase().includes(q)) ||
+                          (l.nativeName && l.nativeName.toLowerCase().includes(q)) ||
+                          (l.code && l.code.toLowerCase().includes(q)) ||
+                          (l.twoLetter && l.twoLetter.toLowerCase().includes(q))
+                      );
+                  })
                 : allLangs;
 
             // Generate full language rows with star toggle badges
-            const langRowsHtml = filteredLangs.map((l) => {
-                const isFav = languageManager.isFavorite(l);
-                const codeBadge = (l.twoLetter || l.code).toUpperCase();
-                const nativeStr = (l.nativeName && l.nativeName !== l.name) ? ` (${escapeHtml(l.nativeName)})` : '';
-                return `
+            const langRowsHtml = filteredLangs
+                .map((l) => {
+                    const isFav = languageManager.isFavorite(l);
+                    const codeBadge = (l.twoLetter || l.code).toUpperCase();
+                    const nativeStr = l.nativeName && l.nativeName !== l.name ? ` (${escapeHtml(l.nativeName)})` : '';
+                    return `
                     <button class="modal-option-btn fav-lang-row ${isFav ? 'selected' : ''}" data-code="${l.code}" tabindex="0">
                         <div class="fav-lang-info">
                             <span class="track-badge">${codeBadge}</span>
@@ -13965,7 +14160,8 @@ class SettingsPage extends Page {
                         <div class="fav-lang-star ${isFav ? 'active' : ''}">${isFav ? '★' : '☆'}</div>
                     </button>
                 `;
-            }).join('');
+                })
+                .join('');
 
             overlay.innerHTML = `
                 <div class="settings-modal fav-languages-modal" role="dialog" aria-modal="true">
@@ -14102,7 +14298,7 @@ class SettingsPage extends Page {
         if (countLabel) {
             countLabel.innerText = languageManager.hasFavorites()
                 ? i18n.t('LanguagesSelected', [languageManager.getFavorites().length])
-                : (i18n.t('AllLanguages') || 'All Languages');
+                : i18n.t('AllLanguages') || 'All Languages';
         }
 
         // Restore active section and focus
@@ -14334,10 +14530,11 @@ class SettingsPage extends Page {
                                 <svg viewBox="0 0 24 24"><path fill="currentColor" d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"/></svg>
                             </button>
                             <button class="btn btn-icon layout-btn-toggle" tabindex="0" ${isLocked ? 'disabled style="opacity:0.3"' : ''} aria-label="${!item.hidden || isLocked ? 'Hide' : 'Show'}">
-                                ${!item.hidden || isLocked
-                                ? '<svg viewBox="0 0 24 24"><path fill="currentColor" d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/></svg>'
-                                : '<svg viewBox="0 0 24 24"><path fill="currentColor" d="M12 7c2.76 0 5 2.24 5 5 0 .65-.13 1.26-.36 1.83l2.92 2.92c1.51-1.26 2.7-2.89 3.43-4.75-1.73-4.39-6-7.5-11-7.5-1.4 0-2.74.25-3.98.7l2.16 2.16C10.74 7.13 11.35 7 12 7zM2 4.27l2.28 2.28.46.46C3.08 8.3 1.78 10 1 12c1.73 4.39 6 7.5 11 7.5 1.55 0 3.03-.3 4.38-.84l.42.42L19.73 22 21 20.73 3.27 3 2 4.27zM7.53 9.8l1.55 1.55c-.05.21-.08.43-.08.65 0 1.66 1.34 3 3 3 .22 0 .44-.03.65-.08l1.55 1.55c-.67.33-1.41.53-2.2.53-2.76 0-5-2.24-5-5 0-.79.2-1.53.53-2.2zm4.31-.78l3.15 3.15.02-.16c0-1.66-1.34-3-3-3l-.17.01z"/></svg>'
-                            }
+                                ${
+                                    !item.hidden || isLocked
+                                        ? '<svg viewBox="0 0 24 24"><path fill="currentColor" d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/></svg>'
+                                        : '<svg viewBox="0 0 24 24"><path fill="currentColor" d="M12 7c2.76 0 5 2.24 5 5 0 .65-.13 1.26-.36 1.83l2.92 2.92c1.51-1.26 2.7-2.89 3.43-4.75-1.73-4.39-6-7.5-11-7.5-1.4 0-2.74.25-3.98.7l2.16 2.16C10.74 7.13 11.35 7 12 7zM2 4.27l2.28 2.28.46.46C3.08 8.3 1.78 10 1 12c1.73 4.39 6 7.5 11 7.5 1.55 0 3.03-.3 4.38-.84l.42.42L19.73 22 21 20.73 3.27 3 2 4.27zM7.53 9.8l1.55 1.55c-.05.21-.08.43-.08.65 0 1.66 1.34 3 3 3 .22 0 .44-.03.65-.08l1.55 1.55c-.67.33-1.41.53-2.2.53-2.76 0-5-2.24-5-5 0-.79.2-1.53.53-2.2zm4.31-.78l3.15 3.15.02-.16c0-1.66-1.34-3-3-3l-.17.01z"/></svg>'
+                                }
                             </button>
                         </div>
                     </div>`;
@@ -14514,18 +14711,14 @@ class SettingsPage extends Page {
                     await api.refreshAllLibraries();
 
                     // Display success feedback toast to the administrator
-                    toast.show(
-                        i18n.t('LibraryScanQueued') || 'Library scan queued for all libraries.',
-                        3500,
-                        { type: 'info' }
-                    );
+                    toast.show(i18n.t('LibraryScanQueued') || 'Library scan queued for all libraries.', 3500, {
+                        type: 'info'
+                    });
                 } catch (err) {
                     log.error('Failed to trigger scan of all libraries:', err);
-                    toast.show(
-                        i18n.t('LibraryScanFailed') || 'Failed to trigger library scan.',
-                        4000,
-                        { type: 'error' }
-                    );
+                    toast.show(i18n.t('LibraryScanFailed') || 'Failed to trigger library scan.', 4000, {
+                        type: 'error'
+                    });
                 } finally {
                     // Restore button state after short debounce
                     setTimeout(() => {
@@ -14550,9 +14743,8 @@ class SettingsPage extends Page {
 
             // Update header count badge with total libraries count
             if (countBadge) {
-                const countText = libraries.length === 1
-                    ? (i18n.t('Library') || 'Library')
-                    : (i18n.t('Libraries') || 'Libraries');
+                const countText =
+                    libraries.length === 1 ? i18n.t('Library') || 'Library' : i18n.t('Libraries') || 'Libraries';
                 countBadge.textContent = `${libraries.length} ${countText}`;
             }
 
@@ -14567,10 +14759,11 @@ class SettingsPage extends Page {
             }
 
             // Build HTML cards for each library
-            listContainer.innerHTML = libraries.map((lib) => {
-                const colTypeLabel = lib.CollectionType || 'library';
+            listContainer.innerHTML = libraries
+                .map((lib) => {
+                    const colTypeLabel = lib.CollectionType || 'library';
 
-                return `
+                    return `
                     <div class="setting-item library-setting-row" data-id="${lib.Id}">
                         <div class="setting-label">
                             <span class="setting-name">${escapeHtml(lib.Name)}</span>
@@ -14590,7 +14783,8 @@ class SettingsPage extends Page {
                         </div>
                     </div>
                 `;
-            }).join('');
+                })
+                .join('');
 
             // ================================================================
             // Bind Individual Library Refresh Modal Triggers
@@ -14660,18 +14854,14 @@ class SettingsPage extends Page {
                                 await api.refreshItem(libId, refreshParams);
 
                                 // Display success toast notification
-                                toast.show(
-                                    `${i18n.t('RefreshQueued') || 'Refresh queued for'} ${libName}`,
-                                    3500,
-                                    { type: 'info' }
-                                );
+                                toast.show(`${i18n.t('RefreshQueued') || 'Refresh queued for'} ${libName}`, 3500, {
+                                    type: 'info'
+                                });
                             } catch (refreshErr) {
                                 log.error(`Failed to refresh metadata for library ${libName} (${libId}):`, refreshErr);
-                                toast.show(
-                                    `${i18n.t('RefreshFailed') || 'Refresh failed for'} ${libName}`,
-                                    4000,
-                                    { type: 'error' }
-                                );
+                                toast.show(`${i18n.t('RefreshFailed') || 'Refresh failed for'} ${libName}`, 4000, {
+                                    type: 'error'
+                                });
                             }
                         }
                     );
@@ -14713,7 +14903,10 @@ class SettingsPage extends Page {
             if (trendingMoviesCol !== 'none') {
                 // If using collection name and a specific collection is selected, show its name in layout manager
                 const title =
-                    useTrendingColName && trendingMoviesCol !== 'auto' && trendingMoviesCol !== 'top-rated' && trendingMoviesName
+                    useTrendingColName &&
+                    trendingMoviesCol !== 'auto' &&
+                    trendingMoviesCol !== 'top-rated' &&
+                    trendingMoviesName
                         ? trendingMoviesName
                         : i18n.t('HeaderTrendingMovies');
                 descriptors.push({
@@ -14727,7 +14920,10 @@ class SettingsPage extends Page {
             if (trendingSeriesCol !== 'none') {
                 // If using collection name and a specific collection is selected, show its name in layout manager
                 const title =
-                    useTrendingColName && trendingSeriesCol !== 'auto' && trendingSeriesCol !== 'top-rated' && trendingSeriesName
+                    useTrendingColName &&
+                    trendingSeriesCol !== 'auto' &&
+                    trendingSeriesCol !== 'top-rated' &&
+                    trendingSeriesName
                         ? trendingSeriesName
                         : i18n.t('HeaderTrendingSeries');
                 descriptors.push({
@@ -14765,7 +14961,7 @@ class SettingsPage extends Page {
                         });
                     }
                 }
-            } catch (e) { }
+            } catch (e) {}
 
             // Reconcile with saved layout
             const layoutVars = homeLayoutManager.buildSettingsLayout(descriptors);
@@ -14797,10 +14993,11 @@ class SettingsPage extends Page {
                                     <svg viewBox="0 0 24 24"><path fill="currentColor" d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"/></svg>
                                 </button>
                                 <button class="btn btn-icon layout-btn-toggle" tabindex="0" aria-label="${item.hidden ? 'Show' : 'Hide'}">
-                                    ${item.hidden
-                                ? '<svg viewBox="0 0 24 24"><path fill="currentColor" d="M12 7c2.76 0 5 2.24 5 5 0 .65-.13 1.26-.36 1.83l2.92 2.92c1.51-1.26 2.7-2.89 3.43-4.75-1.73-4.39-6-7.5-11-7.5-1.4 0-2.74.25-3.98.7l2.16 2.16C10.74 7.13 11.35 7 12 7zM2 4.27l2.28 2.28.46.46C3.08 8.3 1.78 10 1 12c1.73 4.39 6 7.5 11 7.5 1.55 0 3.03-.3 4.38-.84l.42.42L19.73 22 21 20.73 3.27 3 2 4.27zM7.53 9.8l1.55 1.55c-.05.21-.08.43-.08.65 0 1.66 1.34 3 3 3 .22 0 .44-.03.65-.08l1.55 1.55c-.67.33-1.41.53-2.2.53-2.76 0-5-2.24-5-5 0-.79.2-1.53.53-2.2zm4.31-.78l3.15 3.15.02-.16c0-1.66-1.34-3-3-3l-.17.01z"/></svg>'
-                                : '<svg viewBox="0 0 24 24"><path fill="currentColor" d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/></svg>'
-                            }
+                                    ${
+                                        item.hidden
+                                            ? '<svg viewBox="0 0 24 24"><path fill="currentColor" d="M12 7c2.76 0 5 2.24 5 5 0 .65-.13 1.26-.36 1.83l2.92 2.92c1.51-1.26 2.7-2.89 3.43-4.75-1.73-4.39-6-7.5-11-7.5-1.4 0-2.74.25-3.98.7l2.16 2.16C10.74 7.13 11.35 7 12 7zM2 4.27l2.28 2.28.46.46C3.08 8.3 1.78 10 1 12c1.73 4.39 6 7.5 11 7.5 1.55 0 3.03-.3 4.38-.84l.42.42L19.73 22 21 20.73 3.27 3 2 4.27zM7.53 9.8l1.55 1.55c-.05.21-.08.43-.08.65 0 1.66 1.34 3 3 3 .22 0 .44-.03.65-.08l1.55 1.55c-.67.33-1.41.53-2.2.53-2.76 0-5-2.24-5-5 0-.79.2-1.53.53-2.2zm4.31-.78l3.15 3.15.02-.16c0-1.66-1.34-3-3-3l-.17.01z"/></svg>'
+                                            : '<svg viewBox="0 0 24 24"><path fill="currentColor" d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/></svg>'
+                                    }
                                 </button>
                             </div>
                         </div>

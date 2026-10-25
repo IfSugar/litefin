@@ -171,7 +171,9 @@ class LanguageManager {
             if (!c) return;
             const three = (c.ThreeLetterISOLanguageName || c.value || '').toLowerCase();
             const two = (c.TwoLetterISOLanguageName || '').toLowerCase();
-            const name = (c.DisplayName || c.label || '').replace(/[\u200E\u200F\u202A-\u202E\u2066-\u2069]/g, '').trim();
+            const name = (c.DisplayName || c.label || '')
+                .replace(/[\u200E\u200F\u202A-\u202E\u2066-\u2069]/g, '')
+                .trim();
 
             if (!three && !two && !name) return;
 
@@ -183,7 +185,8 @@ class LanguageManager {
             }
 
             // Check if existing definition already present
-            const existing = (three ? this._codeToLangMap.get(three) : null) || (two ? this._codeToLangMap.get(two) : null);
+            const existing =
+                (three ? this._codeToLangMap.get(three) : null) || (two ? this._codeToLangMap.get(two) : null);
             if (existing) {
                 if (two && !existing.twoLetter) existing.twoLetter = two;
                 if (name && !existing.name) existing.name = name;
@@ -274,7 +277,8 @@ class LanguageManager {
             if (nativeName) tokens.add(nativeName);
 
             // Lookup canonical definition to grab any alternative codes
-            const canonical = this._codeToLangMap.get(code) || this._codeToLangMap.get(twoLetter) || this._nameToLangMap.get(name);
+            const canonical =
+                this._codeToLangMap.get(code) || this._codeToLangMap.get(twoLetter) || this._nameToLangMap.get(name);
             if (canonical) {
                 if (canonical.code) tokens.add(canonical.code.toLowerCase());
                 if (canonical.twoLetter) tokens.add(canonical.twoLetter.toLowerCase());
@@ -316,7 +320,9 @@ class LanguageManager {
 
         const current = this.getFavorites();
         // Check if already present by code or twoLetter
-        const exists = current.some((f) => f.code === normalized.code || (f.twoLetter && f.twoLetter === normalized.twoLetter));
+        const exists = current.some(
+            (f) => f.code === normalized.code || (f.twoLetter && f.twoLetter === normalized.twoLetter)
+        );
 
         if (!exists) {
             current.push(normalized);
@@ -410,7 +416,8 @@ class LanguageManager {
             const baseCode = clean.split(/[-_]/)[0];
 
             // Look up directly in cache
-            const directMatch = this._codeToLangMap.get(clean) || this._codeToLangMap.get(baseCode) || this._nameToLangMap.get(clean);
+            const directMatch =
+                this._codeToLangMap.get(clean) || this._codeToLangMap.get(baseCode) || this._nameToLangMap.get(clean);
 
             if (directMatch) {
                 return {
@@ -465,7 +472,10 @@ class LanguageManager {
         if (tokens.size === 0) return false;
 
         // 0. If item is a media stream track object with Language or DisplayTitle fields
-        if (typeof item === 'object' && (item.Language !== undefined || item.DisplayTitle !== undefined || item.Title !== undefined)) {
+        if (
+            typeof item === 'object' &&
+            (item.Language !== undefined || item.DisplayTitle !== undefined || item.Title !== undefined)
+        ) {
             return this.isFavoriteTrack(item);
         }
 
@@ -575,6 +585,7 @@ class LanguageManager {
             // Check non-ASCII / non-Latin native script tokens (e.g. 'العربية', '日本語', '한국어')
             for (const token of tokens) {
                 // If token contains non-ASCII characters, safe to check inclusion
+                // eslint-disable-next-line no-control-regex
                 if (/[^\x00-\x7F]/.test(token) && cleanTitle.includes(token)) {
                     return true;
                 }
@@ -622,7 +633,7 @@ class LanguageManager {
 
         return options.filter((opt) => {
             // Determine raw value/identifier
-            const val = getValueFn ? getValueFn(opt) : (opt && opt.value !== undefined ? opt.value : opt);
+            const val = getValueFn ? getValueFn(opt) : opt && opt.value !== undefined ? opt.value : opt;
             const valStr = String(val).toLowerCase();
 
             // Always keep special fallback options

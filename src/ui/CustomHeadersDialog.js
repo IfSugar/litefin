@@ -159,14 +159,15 @@ class CustomHeadersDialog {
             `;
         }
 
-        return this._headers.map((item, index) => {
-            const keyVal = escapeHtml(item.key || '');
-            const valVal = escapeHtml(item.value || '');
-            const isEnabled = item.enabled !== false;
-            const toggleText = isEnabled ? (i18n.t('Enabled') || 'Enabled') : (i18n.t('Disabled') || 'Disabled');
-            const toggleClass = isEnabled ? 'btn-toggle-active' : 'btn-toggle-inactive';
+        return this._headers
+            .map((item, index) => {
+                const keyVal = escapeHtml(item.key || '');
+                const valVal = escapeHtml(item.value || '');
+                const isEnabled = item.enabled !== false;
+                const toggleText = isEnabled ? i18n.t('Enabled') || 'Enabled' : i18n.t('Disabled') || 'Disabled';
+                const toggleClass = isEnabled ? 'btn-toggle-active' : 'btn-toggle-inactive';
 
-            return `
+                return `
                 <div class="custom-header-row" data-index="${index}">
                     <input
                         type="text"
@@ -207,7 +208,8 @@ class CustomHeadersDialog {
                     </button>
                 </div>
             `;
-        }).join('');
+            })
+            .join('');
     }
 
     /**
@@ -379,9 +381,12 @@ class CustomHeadersDialog {
                     e.stopPropagation();
                     this._syncInputsToMemory();
                     this._headers.splice(idx, 1);
-                    const nextFocus = idx > 0
-                        ? `.custom-header-row[data-index="${idx - 1}"] .custom-header-delete`
-                        : (this._headers.length > 0 ? '.custom-header-row[data-index="0"] .custom-header-delete' : '#add-header-btn');
+                    const nextFocus =
+                        idx > 0
+                            ? `.custom-header-row[data-index="${idx - 1}"] .custom-header-delete`
+                            : this._headers.length > 0
+                              ? '.custom-header-row[data-index="0"] .custom-header-delete'
+                              : '#add-header-btn';
                     this._refreshList(nextFocus);
                 }
             };

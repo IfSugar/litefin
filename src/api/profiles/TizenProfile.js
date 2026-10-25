@@ -168,11 +168,12 @@ function _buildMinimalProfile(caps) {
     // -------------------------------------------------------------------------
     const userTransChannels = PlayerSettings.get('transcodeMaxAudioChannels');
     const userChannels = PlayerSettings.get('allowedAudioChannels');
-    const transChannels = (userTransChannels && userTransChannels > 0)
-        ? userTransChannels
-        : (userChannels && userChannels > 0)
-            ? userChannels
-            : caps.maxAudioChannels;
+    const transChannels =
+        userTransChannels && userTransChannels > 0
+            ? userTransChannels
+            : userChannels && userChannels > 0
+              ? userChannels
+              : caps.maxAudioChannels;
 
     return {
         Name: 'Litefin Tizen (Forced Transcode)',
@@ -267,8 +268,8 @@ export function buildJellyfinProfile(options = {}) {
     // audio bitstreams. Defaulting to 6 channels causes Jellyfin server's CodecProfiles condition
     // (AudioChannels <= 6) to reject DirectPlay for 7.1 tracks with AudioChannelsNotSupported,
     // forcing unnecessary server transcoding to a 5.1 AC3 compatibility track.
-    const defaultMaxChannels = (enableDts || enableTrueHd) ? 8 : caps.maxAudioChannels;
-    const maxAudioChannels = (userMaxChannels && userMaxChannels > 0) ? userMaxChannels : defaultMaxChannels;
+    const defaultMaxChannels = enableDts || enableTrueHd ? 8 : caps.maxAudioChannels;
+    const maxAudioChannels = userMaxChannels && userMaxChannels > 0 ? userMaxChannels : defaultMaxChannels;
 
     // ProfileCondition.Value is always a string in Jellyfin's schema, so we keep
     // a separate string-form for use inside CodecProfile condition objects.
@@ -372,8 +373,12 @@ export function buildJellyfinProfile(options = {}) {
     // Exclude DirectPlay profiles for any mode that forces server-side processing.
     // transcodeVideo / transcodeAudio both need a remux or transcode path from
     // the server, so they must not advertise DirectPlay capability either.
-    if (playbackMode !== 'transcode' && playbackMode !== 'remux' &&
-        playbackMode !== 'transcodeVideo' && playbackMode !== 'transcodeAudio') {
+    if (
+        playbackMode !== 'transcode' &&
+        playbackMode !== 'remux' &&
+        playbackMode !== 'transcodeVideo' &&
+        playbackMode !== 'transcodeAudio'
+    ) {
         // Standard Web formats (MP4, MKV, WebM)
         // Video DirectPlay: audioCodec string excludes FLAC by default (see enableFlacInVideo)
         directPlayProfiles.push({
@@ -509,9 +514,7 @@ export function buildJellyfinProfile(options = {}) {
     // -------------------------------------------------------------------------
     const transAudioCodecsArr = [];
     const userTransChannels = PlayerSettings.get('transcodeMaxAudioChannels');
-    const transMaxAudioChannels = (userTransChannels && userTransChannels > 0)
-        ? userTransChannels
-        : maxAudioChannels;
+    const transMaxAudioChannels = userTransChannels && userTransChannels > 0 ? userTransChannels : maxAudioChannels;
 
     const preferredTranscodeCodec = PlayerSettings.get('transcodeAudioCodec') || 'auto';
 
@@ -691,7 +694,8 @@ export function buildJellyfinProfile(options = {}) {
         // However, if the user explicitly forced EAC3 via 'enableEac3' or 'force_eac3',
         // we honor the override and allow EAC3 through anyway.
         // =====================================================================
-        const userStrictTranscode = preferredTranscodeCodec === 'prefer_ac3' ||
+        const userStrictTranscode =
+            preferredTranscodeCodec === 'prefer_ac3' ||
             preferredTranscodeCodec === 'prefer_aac' ||
             preferredTranscodeCodec === 'force_ac3' ||
             preferredTranscodeCodec === 'force_aac' ||
@@ -726,7 +730,7 @@ export function buildJellyfinProfile(options = {}) {
         // to always be re-encoded, never just copied).
         // ──────────────────────────────────────────────────────────────────────
         directAudioCodecs = videoAudioCodecString;
-        transVideoCodecs  = 'h264'; // Only h264 target — server must re-encode video
+        transVideoCodecs = 'h264'; // Only h264 target — server must re-encode video
         directVideoCodecs = 'h264';
     }
 
@@ -747,9 +751,9 @@ export function buildJellyfinProfile(options = {}) {
     const isVideoDirectStream = playbackMode === 'remux' || playbackMode === 'transcodeAudio';
     const effectiveSegmentLength = isVideoDirectStream
         ? undefined
-        : (isHtml5
-            ? PlayerSettings.get('html5SegmentLength') || 2
-            : PlayerSettings.get('tizenSegmentLength') || 6);
+        : isHtml5
+          ? PlayerSettings.get('html5SegmentLength') || 2
+          : PlayerSettings.get('tizenSegmentLength') || 6;
 
     const transAudioProfileCodecs = BaseProfile.getTranscodeAudioCodecs(transAudioCodecsArr);
 
@@ -1179,15 +1183,22 @@ export function buildJellyfinProfile(options = {}) {
     // (HLS master.m3u8). This guarantees that files needing audio transcoding or remuxing
     // get delivered as seekable HLS chunks via FFmpeg instead of an unseekable progressive stream.
     // -------------------------------------------------------------------------
-    const directStreamProfiles = (playbackMode !== 'transcode' && playbackMode !== 'remux' &&
-        playbackMode !== 'transcodeVideo' && playbackMode !== 'transcodeAudio') ? [
-        {
-            Container: 'mp4',
-            Type: 'Video',
-            VideoCodec: [directVideoCodecs, enableAV1 ? 'av1' : '', enableVP9 ? 'vp9' : ''].filter(Boolean).join(','),
-            AudioCodec: directAudioCodecs
-        }
-    ] : [];
+    const directStreamProfiles =
+        playbackMode !== 'transcode' &&
+        playbackMode !== 'remux' &&
+        playbackMode !== 'transcodeVideo' &&
+        playbackMode !== 'transcodeAudio'
+            ? [
+                  {
+                      Container: 'mp4',
+                      Type: 'Video',
+                      VideoCodec: [directVideoCodecs, enableAV1 ? 'av1' : '', enableVP9 ? 'vp9' : '']
+                          .filter(Boolean)
+                          .join(','),
+                      AudioCodec: directAudioCodecs
+                  }
+              ]
+            : [];
 
     return {
         Name: `Litefin Tizen ${caps.tizenVersion}${isHtml5 ? ' (HTML5)' : ''}${playbackMode !== 'auto' ? ` (${playbackMode})` : ''}`,

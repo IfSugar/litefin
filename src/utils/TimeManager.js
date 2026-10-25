@@ -93,7 +93,8 @@ class TimeManager {
         const ua = typeof navigator !== 'undefined' ? navigator.userAgent : '';
         const tizenObj = this._getTizenApi();
         this._isTizen = Boolean(tizenObj);
-        this._isWebOS = /Web[O0]S|NetCast|LG[ -]Browser/i.test(ua) || (typeof window !== 'undefined' && Boolean(window.webOS));
+        this._isWebOS =
+            /Web[O0]S|NetCast|LG[ -]Browser/i.test(ua) || (typeof window !== 'undefined' && Boolean(window.webOS));
 
         log.info(`Platform clock drivers detected — Tizen: ${this._isTizen}, WebOS: ${this._isWebOS}`);
 
@@ -102,18 +103,23 @@ class TimeManager {
         // --------------------------------------------------------------------
         try {
             // Record active configuration preferences
-            const activeSource = (typeof PlayerSettings !== 'undefined' && PlayerSettings.get('timeSource')) || 'browser';
+            const activeSource =
+                (typeof PlayerSettings !== 'undefined' && PlayerSettings.get('timeSource')) || 'browser';
             log.info(`Active timeSource preference: "${activeSource}"`);
 
             // Record baseline JavaScript Date engine state
             const baselineJsDate = new Date();
-            log.info(`JS runtime Date baseline: "${baselineJsDate.toString()}" (epoch: ${baselineJsDate.getTime()}, tzOffset: ${baselineJsDate.getTimezoneOffset()})`);
+            log.info(
+                `JS runtime Date baseline: "${baselineJsDate.toString()}" (epoch: ${baselineJsDate.getTime()}, tzOffset: ${baselineJsDate.getTimezoneOffset()})`
+            );
 
             // Inspect Tizen native environment if present
             if (this._isTizen) {
                 const hasTime = Boolean(tizenObj && tizenObj.time);
                 const getCurrentDateTimeType = typeof tizenObj?.time?.getCurrentDateTime;
-                log.info(`Tizen probe — tizen.time present: ${hasTime}, getCurrentDateTime type: "${getCurrentDateTimeType}"`);
+                log.info(
+                    `Tizen probe — tizen.time present: ${hasTime}, getCurrentDateTime type: "${getCurrentDateTimeType}"`
+                );
 
                 // Execute live date query safely
                 const tz = this._getTizenDateTime();
@@ -121,15 +127,18 @@ class TimeManager {
                     try {
                         const secOffset = typeof tz.secondsFromUTC === 'function' ? tz.secondsFromUTC() : null;
                         const tzName = typeof tz.getTimezone === 'function' ? tz.getTimezone() : 'unknown';
-                        log.info(`Tizen startup OS clock probe — toLocaleString: "${tz.toLocaleString()}", timezone: "${tzName}", secFromUTC: ${secOffset}, raw:`, {
-                            year: tz.getFullYear(),
-                            month: tz.getMonth(),
-                            date: tz.getDate(),
-                            hours: tz.getHours(),
-                            minutes: tz.getMinutes(),
-                            seconds: tz.getSeconds(),
-                            milliseconds: tz.getMilliseconds()
-                        });
+                        log.info(
+                            `Tizen startup OS clock probe — toLocaleString: "${tz.toLocaleString()}", timezone: "${tzName}", secFromUTC: ${secOffset}, raw:`,
+                            {
+                                year: tz.getFullYear(),
+                                month: tz.getMonth(),
+                                date: tz.getDate(),
+                                hours: tz.getHours(),
+                                minutes: tz.getMinutes(),
+                                seconds: tz.getSeconds(),
+                                milliseconds: tz.getMilliseconds()
+                            }
+                        );
                     } catch (probeErr) {
                         log.warn('Tizen startup probe formatting failed:', probeErr);
                     }
@@ -175,7 +184,9 @@ class TimeManager {
                         const tz = this._getTizenDateTime();
                         if (tz) {
                             try {
-                                log.info(`Tizen OS date on switch: toLocaleString="${tz.toLocaleString()}", timezone="${tz.getTimezone()}", raw=${tz.getFullYear()}-${tz.getMonth() + 1}-${tz.getDate()} ${tz.getHours()}:${tz.getMinutes()}:${tz.getSeconds()}`);
+                                log.info(
+                                    `Tizen OS date on switch: toLocaleString="${tz.toLocaleString()}", timezone="${tz.getTimezone()}", raw=${tz.getFullYear()}-${tz.getMonth() + 1}-${tz.getDate()} ${tz.getHours()}:${tz.getMinutes()}:${tz.getSeconds()}`
+                                );
                             } catch (e) {
                                 log.warn('Tizen OS switch probe error:', e);
                             }
@@ -355,7 +366,7 @@ class TimeManager {
 
                 log.info(
                     `Server time synchronized — offset: ${this._serverAnchor.offsetMs}ms, ` +
-                    `rtt: ${roundTrip}ms, delay: ${networkDelay.toFixed(1)}ms`
+                        `rtt: ${roundTrip}ms, delay: ${networkDelay.toFixed(1)}ms`
                 );
 
                 // Notify all live clock displays (GlobalClock, MobileNav, OSD) to immediately re-render
@@ -406,7 +417,9 @@ class TimeManager {
                             this._lastLoggedMinute = minuteKey;
                             const secOffset = typeof tz.secondsFromUTC === 'function' ? tz.secondsFromUTC() : null;
                             const tzName = typeof tz.getTimezone === 'function' ? tz.getTimezone() : 'unknown';
-                            log.info(`Tizen OS active date: "${tz.toLocaleString()}" (tz: ${tzName}, secFromUTC: ${secOffset}, year: ${tz.getFullYear()}, hours: ${tz.getHours()}:${tz.getMinutes()}:${tz.getSeconds()})`);
+                            log.info(
+                                `Tizen OS active date: "${tz.toLocaleString()}" (tz: ${tzName}, secFromUTC: ${secOffset}, year: ${tz.getFullYear()}, hours: ${tz.getHours()}:${tz.getMinutes()}:${tz.getSeconds()})`
+                            );
                         }
 
                         // Construct native JavaScript Date instance using hardware clock fields
@@ -471,7 +484,8 @@ class TimeManager {
 
                     // Retrieve user-configured timezone offset preference
                     // Value can be 'auto' or offset in minutes East of UTC as string (e.g. '120' for UTC+2, '-300' for UTC-5)
-                    const selectedTz = (typeof PlayerSettings !== 'undefined' && PlayerSettings.get('timeZoneOffset')) || 'auto';
+                    const selectedTz =
+                        (typeof PlayerSettings !== 'undefined' && PlayerSettings.get('timeZoneOffset')) || 'auto';
                     let targetOffsetEastMinutes = null;
 
                     // Parse manual UTC offset if explicitly selected
@@ -492,11 +506,15 @@ class TimeManager {
                                     // secondsFromUTC in Tizen TZDate returns seconds offset
                                     targetOffsetEastMinutes = -Math.round(tizenTz.secondsFromUTC() / 60);
                                 }
-                            } catch (_) { }
+                            } catch (_) {}
                         }
 
                         // Check if webOS reported a native timezone offset
-                        if (targetOffsetEastMinutes === null && this._webosTime && typeof this._webosTime.offsetMinutes === 'number') {
+                        if (
+                            targetOffsetEastMinutes === null &&
+                            this._webosTime &&
+                            typeof this._webosTime.offsetMinutes === 'number'
+                        ) {
                             // webOS offset is minutes East of GMT (e.g. +120 for UTC+2)
                             targetOffsetEastMinutes = this._webosTime.offsetMinutes;
                         }

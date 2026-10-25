@@ -557,9 +557,14 @@ export default class SubtitleManager {
     }
 
     /**
-     * Refresh subtitle styles (e.g. font override)
+     * Refresh subtitle styles across managed renderers (ASS, PGS bitmap, text).
      */
     async refreshStyles() {
+        // Forward restyling to active PGS canvas renderer
+        if (this.isPGSActive()) {
+            this.refreshPgsOpacity(this._isHdr);
+        }
+
         // =================================================================
         // Only push ASS style overrides when the primary track is actually
         // being rendered by the ASS canvas.  Checking for the _assRenderer
@@ -656,14 +661,6 @@ export default class SubtitleManager {
         }
     }
 
-    /**
-     * Refresh subtitle styles across managed renderers (ASS, PGS bitmap, text).
-     */
-    refreshStyles() {
-        if (this.isPGSActive()) {
-            this.refreshPgsOpacity(this._isHdr);
-        }
-    }
 
     /**
      * Resets all active subtitle cues and clears all visible screen overlays immediately.

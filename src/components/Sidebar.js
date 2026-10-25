@@ -644,7 +644,9 @@ class Sidebar extends Component {
                     tooltipEl.style.display = '';
                 } else {
                     logoHeader.removeAttribute('data-path');
-                    try { if (logoHeader.dataset) delete logoHeader.dataset.path; } catch (e) { }
+                    try {
+                        if (logoHeader.dataset) delete logoHeader.dataset.path;
+                    } catch (e) {}
                     tooltipEl.textContent = '';
                     tooltipEl.style.display = 'none';
                 }
@@ -812,7 +814,9 @@ class Sidebar extends Component {
         // Logo click handler (supports both Settings and Home target paths)
         this._bindItem(this.el.querySelector('#sidebar-logo-header'), () => {
             const logoEl = this.el.querySelector('#sidebar-logo-header');
-            const targetPath = logoEl?.getAttribute ? (logoEl.getAttribute('data-path') || logoEl.dataset?.path) : logoEl?.dataset?.path;
+            const targetPath = logoEl?.getAttribute
+                ? logoEl.getAttribute('data-path') || logoEl.dataset?.path
+                : logoEl?.dataset?.path;
             if (targetPath) {
                 if (targetPath === '/home') {
                     router.reset(targetPath);
@@ -929,7 +933,9 @@ class Sidebar extends Component {
 
                     // Left arrow (or Right in RTL) -> close popover and return focus to libraries button
                     const isRTL = document.documentElement.dir === 'rtl';
-                    const isBackDirection = isRTL ? (e.key === 'ArrowRight' || e.keyCode === 39) : (e.key === 'ArrowLeft' || e.keyCode === 37);
+                    const isBackDirection = isRTL
+                        ? e.key === 'ArrowRight' || e.keyCode === 39
+                        : e.key === 'ArrowLeft' || e.keyCode === 37;
                     if (isBackDirection) {
                         this._toggleFloatingLibraries(false);
                         e.preventDefault();
@@ -1014,7 +1020,9 @@ class Sidebar extends Component {
 
             // If not active on a library page, auto-close the libraries accordion on sidebar collapse
             const isModern = !layoutManager.isClassicSidebarLayout();
-            const isLibraryActive = this.activePath && (this.activePath.startsWith('/library/') || !!this.el.querySelector('.library-item.active'));
+            const isLibraryActive =
+                this.activePath &&
+                (this.activePath.startsWith('/library/') || !!this.el.querySelector('.library-item.active'));
             if (isModern && !isLibraryActive && this.librariesExpanded) {
                 this._toggleLibraries(false);
             }
@@ -1036,7 +1044,9 @@ class Sidebar extends Component {
         } else {
             // When expanded, if libraries accordion is open (or if currently in a library route), restore focusability
             const isModern = !layoutManager.isClassicSidebarLayout();
-            const isLibraryActive = this.activePath && (this.activePath.startsWith('/library/') || !!this.el.querySelector('.library-item.active'));
+            const isLibraryActive =
+                this.activePath &&
+                (this.activePath.startsWith('/library/') || !!this.el.querySelector('.library-item.active'));
             if (isModern && isLibraryActive && !this.librariesExpanded) {
                 this._toggleLibraries(true);
             } else if (this.librariesExpanded) {
@@ -1098,7 +1108,7 @@ class Sidebar extends Component {
                 // In modern layouts without collapsed icons, focus is gated by expansion state.
                 // When collapsed library icons are enabled (or in classic mode), library buttons
                 // are always focusable direct children.
-                const canFocus = (isModern && !showCollapsedLibIcons) ? (this.expanded && this.librariesExpanded) : true;
+                const canFocus = isModern && !showCollapsedLibIcons ? this.expanded && this.librariesExpanded : true;
                 btn.tabIndex = canFocus ? 0 : -1;
 
                 if (isModern && !showCollapsedLibIcons && !this.librariesExpanded) {
@@ -1228,7 +1238,11 @@ class Sidebar extends Component {
 
             // Guarantee sidebar-content remains anchored to top only when not overflowing
             const scrollContainer = this.el.querySelector('.sidebar-content');
-            if (scrollContainer && scrollContainer.scrollHeight <= scrollContainer.clientHeight && scrollContainer.scrollTop !== 0) {
+            if (
+                scrollContainer &&
+                scrollContainer.scrollHeight <= scrollContainer.clientHeight &&
+                scrollContainer.scrollTop !== 0
+            ) {
                 // Content fits within viewport, reset any accidental offset
                 scrollContainer.scrollTop = 0;
             }
@@ -1246,9 +1260,12 @@ class Sidebar extends Component {
             const libRect = libBtn.getBoundingClientRect();
             const parentEl = subLibs.offsetParent || this.el;
             const parentRect = parentEl.getBoundingClientRect();
-            const topOffset = (libRect && parentRect && libRect.top > 0)
-                ? (libRect.top - parentRect.top)
-                : (typeof libBtn.offsetTop === 'number' ? libBtn.offsetTop : 150);
+            const topOffset =
+                libRect && parentRect && libRect.top > 0
+                    ? libRect.top - parentRect.top
+                    : typeof libBtn.offsetTop === 'number'
+                      ? libBtn.offsetTop
+                      : 150;
 
             // Keep popover safely within the TV screen viewport bounds.
             // On Android the document is scaled with CSS zoom (root.style.zoom),
@@ -1290,7 +1307,8 @@ class Sidebar extends Component {
                 focusManager.focusElement(activeLib);
             }
         } else {
-            const wasFocusInside = subLibs.contains(document.activeElement) || Boolean(subLibs.querySelector('.focused'));
+            const wasFocusInside =
+                subLibs.contains(document.activeElement) || Boolean(subLibs.querySelector('.focused'));
 
             subLibs.setAttribute('hidden', '');
             subLibs.style.display = 'none';
@@ -1453,7 +1471,7 @@ class Sidebar extends Component {
      * ============================================================================
      * Evaluates active transparency, tinting, and color override preferences
      * stored in local configuration for both collapsed and expanded states.
-     * 
+     *
      * Special Rule: When on the Settings page, if the collapsed sidebar is set
      * to 'transparent', it is overridden to solid theme background for visual
      * consistency and surface alignment with the settings split-view sidebar.
@@ -1466,12 +1484,13 @@ class Sidebar extends Component {
         const sidebarMode = storage.getItem('pref:sidebarMode') || 'shown';
         const isHiddenMode = Boolean(
             sidebarMode === 'hidden' ||
-            (sidebarMode === 'mixed' && (
-                this.activePath === '/details' ||
-                this.activePath?.startsWith('/details') ||
-                (typeof window !== 'undefined' && window.location.hash.startsWith('#/details'))
-            )) ||
-            (typeof document !== 'undefined' && document.body && document.body.classList.contains('sidebar-mode-hidden'))
+            (sidebarMode === 'mixed' &&
+                (this.activePath === '/details' ||
+                    this.activePath?.startsWith('/details') ||
+                    (typeof window !== 'undefined' && window.location.hash.startsWith('#/details')))) ||
+            (typeof document !== 'undefined' &&
+                document.body &&
+                document.body.classList.contains('sidebar-mode-hidden'))
         );
 
         // Retrieve configured background preferences from local storage
@@ -1517,9 +1536,7 @@ class Sidebar extends Component {
             shouldAlign = !hasOverflow;
         }
 
-        const prevCenter = this.el.classList.contains('align-center');
-        const prevBottom = this.el.classList.contains('align-bottom');
-
+        // Toggle alignment classes based on container overflow constraints
         this.el.classList.toggle('align-center', alignPref === 'center' && shouldAlign);
         this.el.classList.toggle('align-bottom', alignPref === 'bottom' && shouldAlign);
 
@@ -1722,7 +1739,7 @@ class Sidebar extends Component {
          * Avoid using querySelectorAll with ':scope > ...' selector because the ':scope'
          * pseudo-class was introduced in Chrome 27. On Chromium 26 (webOS 1.x/2.x),
          * it throws a DOMException 12 (SyntaxError).
-         * 
+         *
          * Instead, we query all sidebar items and section headers across the sidebar container
          * (.sidebar-content, #sidebar-sub-libraries, and #sidebar-footer) without using ':scope'.
          */

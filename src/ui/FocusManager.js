@@ -499,7 +499,9 @@ class FocusManager {
         // Self-healing isTrapped() auto-purges orphaned traps if container is gone or modal closed.
         // ====================================================================
         if (name !== '__trap__' && this.isTrapped()) {
-            log.warn(`setActiveSection: Blocked attempt to change section to "${name}" while focus is trapped in modal`);
+            log.warn(
+                `setActiveSection: Blocked attempt to change section to "${name}" while focus is trapped in modal`
+            );
             return;
         }
 
@@ -665,7 +667,11 @@ class FocusManager {
         }
 
         // If nothing focused, element is detached, or element is outside container, focus first available
-        if (!this._focusedElement || !document.contains(this._focusedElement) || !config.container.contains(this._focusedElement)) {
+        if (
+            !this._focusedElement ||
+            !document.contains(this._focusedElement) ||
+            !config.container.contains(this._focusedElement)
+        ) {
             this.focusElement(focusables[0]);
             return;
         }
@@ -772,7 +778,7 @@ class FocusManager {
         // 2. If we found a target, move to it
         if (nextElement) {
             // ----------------------------------------------------------------
-            // ADAPTIVE INTERACTION PHYSICS 
+            // ADAPTIVE INTERACTION PHYSICS
             // ----------------------------------------------------------------
             // Normal browsing and deliberate fast taps (<5 items) stay silky smooth,
             // tracking focus transitions with continuous ease-out deceleration.
@@ -1074,7 +1080,8 @@ class FocusManager {
             return;
         }
 
-        let focusables = this._getFocusables(sectionName);
+        // Query current focusable DOM elements registered within the active section
+        const focusables = this._getFocusables(sectionName);
         const memory = this._focusMemory.get(sectionName);
 
         if (!focusables.length) {
@@ -1267,7 +1274,10 @@ class FocusManager {
         // If active section is not '__trap__' AND active focus is outside the trap container,
         // the application has already navigated or switched away from the trap.
         // Keeping the trap alive would lock navigation permanently. Auto-purge it.
-        if (this._activeSection !== '__trap__' && (!this._focusedElement || !trapConfig.container.contains(this._focusedElement))) {
+        if (
+            this._activeSection !== '__trap__' &&
+            (!this._focusedElement || !trapConfig.container.contains(this._focusedElement))
+        ) {
             log.warn('isTrapped: Purging orphaned focus trap because active focus has left the trap container');
             this._trapStack = [];
             this._sections.delete('__trap__');
@@ -1311,7 +1321,9 @@ class FocusManager {
         const trapFocusables = this._getFocusables('__trap__', true);
         if (trapFocusables.length > 0 && (!this._focusedElement || !container.contains(this._focusedElement))) {
             const defaultEl = options.defaultFocusSelector
-                ? trapFocusables.find((el) => typeof el.matches === 'function' && el.matches(options.defaultFocusSelector))
+                ? trapFocusables.find(
+                      (el) => typeof el.matches === 'function' && el.matches(options.defaultFocusSelector)
+                  )
                 : null;
             this.focusElement(defaultEl || trapFocusables[0]);
         }

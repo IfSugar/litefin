@@ -57,13 +57,13 @@ const DEFAULT_THEME_COLOR = '#6b6ede';
  * manually customized the theme color themselves.
  */
 const DEFAULT_MODE_COLORS = {
-    [THEME_MODES.EMBER]: '#e8853c',     // burnt amber — candlelit flame
-    [THEME_MODES.SUNSET]: '#ff7a54',    // sunset coral — low sun bloom
-    [THEME_MODES.FROST]: '#3d9be9',     // glacial blue — icy daylight
-    [THEME_MODES.PAPER]: '#8a5a33',     // sepia ink — old print
-    [THEME_MODES.NOCTURNE]: '#d8b25c',  // projector tungsten — booth keylight
-    [THEME_MODES.ABYSS]: '#35d0cc',     // bioluminescent teal — deep-sea lure
-    [THEME_MODES.CYBERPUNK]: '#ff2d78'  // neon hot magenta — night-city sign
+    [THEME_MODES.EMBER]: '#e8853c', // burnt amber — candlelit flame
+    [THEME_MODES.SUNSET]: '#ff7a54', // sunset coral — low sun bloom
+    [THEME_MODES.FROST]: '#3d9be9', // glacial blue — icy daylight
+    [THEME_MODES.PAPER]: '#8a5a33', // sepia ink — old print
+    [THEME_MODES.NOCTURNE]: '#d8b25c', // projector tungsten — booth keylight
+    [THEME_MODES.ABYSS]: '#35d0cc', // bioluminescent teal — deep-sea lure
+    [THEME_MODES.CYBERPUNK]: '#ff2d78' // neon hot magenta — night-city sign
 };
 
 class LayoutManager {
@@ -220,7 +220,6 @@ class LayoutManager {
          */
         this._displayScale = storage.getItem('pref:displayScale') || 'auto';
     }
-
 
     /**
      * Initialize layout manager
@@ -511,7 +510,10 @@ class LayoutManager {
         // Both 'modern' (expanding), 'expanded' (static widescreen), and 'modern-posters' media rows utilize
         // dark translucent card backgrounds and bottom overlay labels, requiring the dark badge style.
         if (this._badgeStyle === 'auto') {
-            const resolvedStyle = (layout === 'modern' || layout === 'expanded' || layout === 'modern-posters' || layout === 'expanding') ? 'dark' : 'tinted';
+            const resolvedStyle =
+                layout === 'modern' || layout === 'expanded' || layout === 'modern-posters' || layout === 'expanding'
+                    ? 'dark'
+                    : 'tinted';
             document.documentElement.setAttribute('data-badge-style', resolvedStyle);
         }
         CardRenderer.clearCache();
@@ -761,7 +763,11 @@ class LayoutManager {
      * @returns {boolean} True if sidebar layout is collapsed/floating mode.
      */
     isModernCollapsedSidebarLayout() {
-        return this._sidebarLayout === 'modern-collapsed' || this._sidebarLayout === 'floating-buttons' || this._sidebarLayout === 'floating-island';
+        return (
+            this._sidebarLayout === 'modern-collapsed' ||
+            this._sidebarLayout === 'floating-buttons' ||
+            this._sidebarLayout === 'floating-island'
+        );
     }
 
     /**
@@ -1588,7 +1594,7 @@ class LayoutManager {
         const isNativeTv = platformInfo.isTv;
 
         // Resolve user display scale multiplier from settings ('auto' => 1.0, '0.8' => 0.8, etc.)
-        const userMultiplier = this._displayScale === 'auto' ? 1.0 : (parseFloat(this._displayScale) || 1.0);
+        const userMultiplier = this._displayScale === 'auto' ? 1.0 : parseFloat(this._displayScale) || 1.0;
 
         if (isNativeTv) {
             // Television panels run natively at 1:1 scale unless user sets manual factor
@@ -2200,7 +2206,9 @@ class LayoutManager {
             'push-pulse',
             'horizontal-dots',
             'pulsing-grid'
-        ].includes(style) ? style : 'dots';
+        ].includes(style)
+            ? style
+            : 'dots';
         this._loaderStyle = validStyle;
 
         // Stamp active loader style attribute onto root element for scoped CSS targeting
@@ -2443,11 +2451,11 @@ class LayoutManager {
      */
     _applyHeroVignetteVariables() {
         /*
-         * Default alpha values for level 70 
+         * Default alpha values for level 70
          * Produces a clean ~0.72 start alpha and 0.40 mid-curve.
          */
         let startAlpha = 0.72;
-        let midAlpha = 0.40;
+        let midAlpha = 0.4;
         let endAlpha = 0.0;
 
         /*
@@ -2477,13 +2485,13 @@ class LayoutManager {
                     midAlpha = 0.52;
                 } else if (parsed >= 70) {
                     startAlpha = 0.72;
-                    midAlpha = 0.40;
+                    midAlpha = 0.4;
                 } else {
                     /*
                      * Proportional linear scaling for lower ranges (10% - 60%)
                      */
-                    startAlpha = Math.min(Math.max(parsed / 100, 0), 0.70);
-                    midAlpha = parseFloat((startAlpha * 0.50).toFixed(3));
+                    startAlpha = Math.min(Math.max(parsed / 100, 0), 0.7);
+                    midAlpha = parseFloat((startAlpha * 0.5).toFixed(3));
                 }
                 endAlpha = 0.0;
             }

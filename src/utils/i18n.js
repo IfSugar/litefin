@@ -135,9 +135,7 @@ class I18nManager {
 
             // Sanity check — empty dict means url was wrong; this would cause all keys to show raw
             if (keyCount === 0) {
-                log.warn(
-                    `WARNING: Loaded 0 keys! The locale file at "${url}" may be empty or the URL is wrong.`
-                );
+                log.warn(`WARNING: Loaded 0 keys! The locale file at "${url}" may be empty or the URL is wrong.`);
             }
         } catch (error) {
             log.error(`Init failed, falling back to empty dict`, {

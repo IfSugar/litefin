@@ -174,7 +174,7 @@ class SeerrDetailsPage extends Page {
     }
 
     async onInit() {
-        const mediaType = (this.params.mediaType === 'tv' || this.params.mediaType === 'series') ? 'tv' : 'movie';
+        const mediaType = this.params.mediaType === 'tv' || this.params.mediaType === 'series' ? 'tv' : 'movie';
         this._mediaType = mediaType;
         const tmdbId = parseInt(this.params.tmdbId, 10);
 
@@ -196,18 +196,23 @@ class SeerrDetailsPage extends Page {
         // Defaults to false so non-admins are safe if the fetch fails.
         // --------------------------------------------------------------------
         this._isSeerrAdmin = false;
-        seerr.getUsers().then((users) => {
-            if (!Array.isArray(users)) return;
-            const currentJfId = (api.userId || '').replace(/-/g, '').toLowerCase();
-            const me = users.find((u) => {
-                const uJfId = (u.jellyfinUserId || '').replace(/-/g, '').toLowerCase();
-                return currentJfId && uJfId && uJfId === currentJfId;
+        seerr
+            .getUsers()
+            .then((users) => {
+                if (!Array.isArray(users)) return;
+                const currentJfId = (api.userId || '').replace(/-/g, '').toLowerCase();
+                const me = users.find((u) => {
+                    const uJfId = (u.jellyfinUserId || '').replace(/-/g, '').toLowerCase();
+                    return currentJfId && uJfId && uJfId === currentJfId;
+                });
+                // Bits: 2 = ADMIN, 8192 = MANAGE_REQUESTS
+                this._isSeerrAdmin = !!((me?.permissions || 0) & (2 | 8192));
+                // Re-evaluate cancel button visibility now that admin status is known
+                this._updateRequestButton();
+            })
+            .catch(() => {
+                /* silently default to non-admin */
             });
-            // Bits: 2 = ADMIN, 8192 = MANAGE_REQUESTS
-            this._isSeerrAdmin = !!((me?.permissions || 0) & (2 | 8192));
-            // Re-evaluate cancel button visibility now that admin status is known
-            this._updateRequestButton();
-        }).catch(() => { /* silently default to non-admin */ });
 
         this.setLoading(true);
         try {
@@ -242,10 +247,14 @@ class SeerrDetailsPage extends Page {
             this._bindActions();
             this._setupTooltipListener();
             this._registerFocus();
-            if (this._item._seerrStatus === SEERR_STATUS.AVAILABLE || this._item._seerrStatus === SEERR_STATUS.PARTIALLY_AVAILABLE) {
+            if (
+                this._item._seerrStatus === SEERR_STATUS.AVAILABLE ||
+                this._item._seerrStatus === SEERR_STATUS.PARTIALLY_AVAILABLE
+            ) {
                 void this._checkJellyfinMediaAvailability(mediaType, tmdbId);
             }
-            seerr.getRatingsCombined(mediaType, tmdbId)
+            seerr
+                .getRatingsCombined(mediaType, tmdbId)
                 .then((ratings) => this._renderRatings(ratings))
                 .catch((err) => log.warn('Ratings fetch failed', err));
 
@@ -314,12 +323,18 @@ class SeerrDetailsPage extends Page {
             item.CommunityRating
                 ? `<span class="meta-item seerr-rating-item seerr-tmdb-rating">${detailsIcons.tmdbRating} ${item.CommunityRating.toFixed(1)}</span>`
                 : ''
-        ].filter(Boolean).join('');
+        ]
+            .filter(Boolean)
+            .join('');
 
-        const seasonsCount = item.NumberOfSeasons || (Array.isArray(item.Seasons) ? item.Seasons.length : null) || (Array.isArray(item.seasons) ? item.seasons.length : null);
-        const seasonsLabel = (item.Type === 'Series' || this._mediaType === 'tv' || seasonsCount) && seasonsCount
-            ? `${seasonsCount} ${seasonsCount === 1 ? (i18n.t('Season') || 'Season') : (i18n.t('HeaderSeasons') || 'Seasons')}`
-            : '';
+        const seasonsCount =
+            item.NumberOfSeasons ||
+            (Array.isArray(item.Seasons) ? item.Seasons.length : null) ||
+            (Array.isArray(item.seasons) ? item.seasons.length : null);
+        const seasonsLabel =
+            (item.Type === 'Series' || this._mediaType === 'tv' || seasonsCount) && seasonsCount
+                ? `${seasonsCount} ${seasonsCount === 1 ? i18n.t('Season') || 'Season' : i18n.t('HeaderSeasons') || 'Seasons'}`
+                : '';
 
         const secondaryMeta = [
             statusKey
@@ -328,19 +343,17 @@ class SeerrDetailsPage extends Page {
             seasonsLabel
                 ? `<span class="meta-item seerr-meta-card seerr-seasons-badge">${escapeHtml(seasonsLabel)}</span>`
                 : '',
-            item.MediaStatus
-                ? `<span class="meta-item seerr-meta-card">${escapeHtml(item.MediaStatus)}</span>`
-                : '',
-            item.ReleaseDate
-                ? `<span class="meta-item seerr-meta-card">${escapeHtml(item.ReleaseDate)}</span>`
-                : '',
+            item.MediaStatus ? `<span class="meta-item seerr-meta-card">${escapeHtml(item.MediaStatus)}</span>` : '',
+            item.ReleaseDate ? `<span class="meta-item seerr-meta-card">${escapeHtml(item.ReleaseDate)}</span>` : '',
             item.Budget
                 ? `<span class="meta-item seerr-meta-card">Budget: ${formatCompactCurrency(item.Budget)}</span>`
                 : '',
             item.Revenue
                 ? `<span class="meta-item seerr-meta-card">Revenue: ${formatCompactCurrency(item.Revenue)}</span>`
                 : ''
-        ].filter(Boolean).join('');
+        ]
+            .filter(Boolean)
+            .join('');
 
         this.$('#hero-info').innerHTML = `
             <h1 class="details-title" style="max-width: 100%;">${escapeHtml(i18n.ensureBiDi(item.Name))}</h1>
@@ -389,29 +402,40 @@ class SeerrDetailsPage extends Page {
                 const name = chip.dataset.name;
                 const id = chip.dataset.id;
                 const type = chip.dataset.type;
-                const mediaType = this._mediaType || this._item?._mediaType || (this.params.mediaType === 'tv' ? 'tv' : 'movie');
+                const mediaType =
+                    this._mediaType || this._item?._mediaType || (this.params.mediaType === 'tv' ? 'tv' : 'movie');
 
                 log.info(`Selected Seerr metadata chip: type=${type}, name=${name}, id=${id}, mediaType=${mediaType}`);
 
                 if (type === 'tags' || type === 'tag' || type === 'keywords') {
                     if (id) {
-                        router.navigate(`/library/seerr?seerrType=keyword&mediaType=${mediaType}&keywordId=${id}&name=${encodeURIComponent(name)}`);
+                        router.navigate(
+                            `/library/seerr?seerrType=keyword&mediaType=${mediaType}&keywordId=${id}&name=${encodeURIComponent(name)}`
+                        );
                     }
                 } else if (type === 'genres' || type === 'genre') {
                     if (id) {
-                        router.navigate(`/library/seerr?seerrType=genre&mediaType=${mediaType}&genreId=${id}&name=${encodeURIComponent(name)}`);
+                        router.navigate(
+                            `/library/seerr?seerrType=genre&mediaType=${mediaType}&genreId=${id}&name=${encodeURIComponent(name)}`
+                        );
                     }
                 } else if (type === 'studios' || type === 'studio') {
                     if (id) {
                         if (mediaType === 'tv') {
-                            router.navigate(`/library/seerr?seerrType=network&networkId=${id}&name=${encodeURIComponent(name)}`);
+                            router.navigate(
+                                `/library/seerr?seerrType=network&networkId=${id}&name=${encodeURIComponent(name)}`
+                            );
                         } else {
-                            router.navigate(`/library/seerr?seerrType=studio&studioId=${id}&name=${encodeURIComponent(name)}`);
+                            router.navigate(
+                                `/library/seerr?seerrType=studio&studioId=${id}&name=${encodeURIComponent(name)}`
+                            );
                         }
                     }
                 } else if (type === 'networks' || type === 'network') {
                     if (id) {
-                        router.navigate(`/library/seerr?seerrType=network&networkId=${id}&name=${encodeURIComponent(name)}`);
+                        router.navigate(
+                            `/library/seerr?seerrType=network&networkId=${id}&name=${encodeURIComponent(name)}`
+                        );
                     }
                 } else if (
                     type === 'productionteam' ||
@@ -435,7 +459,7 @@ class SeerrDetailsPage extends Page {
                             [];
 
                         const found = rawCrew.find((m) => {
-                            const memberName = typeof m === 'string' ? m : (m && (m.Name || m.name));
+                            const memberName = typeof m === 'string' ? m : m && (m.Name || m.name);
                             return memberName && memberName.trim().toLowerCase() === (name || '').trim().toLowerCase();
                         });
 
@@ -445,7 +469,9 @@ class SeerrDetailsPage extends Page {
                     }
 
                     if (personId) {
-                        log.info(`Navigating to Seerr person details page for crew member: personId=${personId}, name=${name}`);
+                        log.info(
+                            `Navigating to Seerr person details page for crew member: personId=${personId}, name=${name}`
+                        );
                         router.navigate(`/seerr/person/${personId}`);
                     }
                 }
@@ -524,7 +550,8 @@ class SeerrDetailsPage extends Page {
                     const match = searchRes.find((item) => {
                         const tmdbVal = item.ProviderIds?.Tmdb || item.ProviderIds?.tmdb;
                         const tmdbMatch = tmdbVal && String(tmdbVal) === String(tmdbId);
-                        const yearMatch = !this._item.ProductionYear || item.ProductionYear === this._item.ProductionYear;
+                        const yearMatch =
+                            !this._item.ProductionYear || item.ProductionYear === this._item.ProductionYear;
                         return tmdbMatch || yearMatch;
                     });
                     if (match) jfId = match.Id;
@@ -564,7 +591,8 @@ class SeerrDetailsPage extends Page {
     _updateTrailerButton() {
         const trailerBtn = this.$('.seerr-trailer-btn');
         if (!trailerBtn) return;
-        const hasTrailers = this._item && Array.isArray(this._item.RemoteTrailers) && this._item.RemoteTrailers.length > 0;
+        const hasTrailers =
+            this._item && Array.isArray(this._item.RemoteTrailers) && this._item.RemoteTrailers.length > 0;
         trailerBtn.classList.toggle('hidden', !hasTrailers);
         trailerBtn.tabIndex = hasTrailers ? 0 : -1;
     }
@@ -773,7 +801,9 @@ class SeerrDetailsPage extends Page {
             let item = !isNaN(virtualIndex) ? virtualRow.items[virtualIndex] : null;
             if (!item) {
                 const cardId = card.getAttribute('data-id') || card.dataset.id;
-                item = virtualRow.items.find((i) => String(i.Id) === String(cardId) || String(i._tmdbId) === String(cardId));
+                item = virtualRow.items.find(
+                    (i) => String(i.Id) === String(cardId) || String(i._tmdbId) === String(cardId)
+                );
             }
             if (onClick) {
                 onClick(card, item);
@@ -838,7 +868,13 @@ class SeerrDetailsPage extends Page {
                 renderCard: (person) => CardRenderer.createCardHtml(person, { type: 'person' }),
                 focusSectionName: 'seerr-details-people',
                 onClick: (card, person) => {
-                    const target = person || this._item.Cast.find((p) => String(p.Id) === String(card.getAttribute('data-id') || card.dataset.id || card.dataset.itemId));
+                    const target =
+                        person ||
+                        this._item.Cast.find(
+                            (p) =>
+                                String(p.Id) ===
+                                String(card.getAttribute('data-id') || card.dataset.id || card.dataset.itemId)
+                        );
                     if (target && target.Id) {
                         const stateKey = `seerr:lastFocusedItem:${this._item._tmdbId}`;
                         if (storage.getItem('pref:disableFocusRestore') !== 'true') {
@@ -854,7 +890,11 @@ class SeerrDetailsPage extends Page {
         }
 
         // 1.5. Collection items (after cast row)
-        const collectionObj = this._item?.collection || (this._item?.belongsToCollection ? { id: this._item.belongsToCollection.id, name: this._item.belongsToCollection.name } : null);
+        const collectionObj =
+            this._item?.collection ||
+            (this._item?.belongsToCollection
+                ? { id: this._item.belongsToCollection.id, name: this._item.belongsToCollection.name }
+                : null);
         const collectionId = collectionObj?.id || (typeof collectionObj === 'number' ? collectionObj : null);
         if (collectionId) {
             try {
@@ -872,7 +912,11 @@ class SeerrDetailsPage extends Page {
                         renderCard: (item) => CardRenderer.createCardHtml(item, { type: 'poster' }),
                         focusSectionName: 'seerr-details-collection',
                         onClick: (card, item) => {
-                            const target = item || colData.items.find((i) => String(i.Id) === String(card.getAttribute('data-id') || card.dataset.id));
+                            const target =
+                                item ||
+                                colData.items.find(
+                                    (i) => String(i.Id) === String(card.getAttribute('data-id') || card.dataset.id)
+                                );
                             if (target && target._tmdbId) {
                                 const stateKey = `seerr:lastFocusedItem:${this._item._tmdbId}`;
                                 if (storage.getItem('pref:disableFocusRestore') !== 'true') {
@@ -892,7 +936,8 @@ class SeerrDetailsPage extends Page {
         }
 
         // 2. Recommendations
-        let recommendedItems = (this._item && Array.isArray(this._item.Recommendations)) ? this._item.Recommendations : [];
+        let recommendedItems =
+            this._item && Array.isArray(this._item.Recommendations) ? this._item.Recommendations : [];
         if (!recommendedItems.length) {
             try {
                 recommendedItems = await seerr.recommendations(mediaType, tmdbId);
@@ -909,7 +954,11 @@ class SeerrDetailsPage extends Page {
                 renderCard: (item) => CardRenderer.createCardHtml(item, { type: 'poster' }),
                 focusSectionName: 'seerr-details-recommendations',
                 onClick: (card, item) => {
-                    const target = item || recommendedItems.find((i) => String(i.Id) === String(card.getAttribute('data-id') || card.dataset.id));
+                    const target =
+                        item ||
+                        recommendedItems.find(
+                            (i) => String(i.Id) === String(card.getAttribute('data-id') || card.dataset.id)
+                        );
                     if (target && target._tmdbId) {
                         const stateKey = `seerr:lastFocusedItem:${this._item._tmdbId}`;
                         if (storage.getItem('pref:disableFocusRestore') !== 'true') {
@@ -925,7 +974,7 @@ class SeerrDetailsPage extends Page {
         }
 
         // 3. Similar items
-        let similarItems = (this._item && Array.isArray(this._item.Similar)) ? this._item.Similar : [];
+        let similarItems = this._item && Array.isArray(this._item.Similar) ? this._item.Similar : [];
         if (!similarItems.length) {
             try {
                 similarItems = await seerr.similar(mediaType, tmdbId);
@@ -942,7 +991,11 @@ class SeerrDetailsPage extends Page {
                 renderCard: (item) => CardRenderer.createCardHtml(item, { type: 'poster' }),
                 focusSectionName: 'seerr-details-similar',
                 onClick: (card, item) => {
-                    const target = item || similarItems.find((i) => String(i.Id) === String(card.getAttribute('data-id') || card.dataset.id));
+                    const target =
+                        item ||
+                        similarItems.find(
+                            (i) => String(i.Id) === String(card.getAttribute('data-id') || card.dataset.id)
+                        );
                     if (target && target._tmdbId) {
                         const stateKey = `seerr:lastFocusedItem:${this._item._tmdbId}`;
                         if (storage.getItem('pref:disableFocusRestore') !== 'true') {
@@ -1000,7 +1053,12 @@ class SeerrDetailsPage extends Page {
         const hasCancelAction = cancelBtn && !cancelBtn.classList.contains('hidden');
         const trailerBtn = this.$('.seerr-trailer-btn');
         const hasTrailerAction = trailerBtn && !trailerBtn.classList.contains('hidden');
-        const hasAction = hasPlayAction || hasRequestAction || hasCancelAction || !!this.$('.seerr-watchlist-btn') || hasTrailerAction;
+        const hasAction =
+            hasPlayAction ||
+            hasRequestAction ||
+            hasCancelAction ||
+            !!this.$('.seerr-watchlist-btn') ||
+            hasTrailerAction;
 
         const hasOverviewAction = !this.$('.see-more-btn')?.classList.contains('hidden');
         const hasRichMeta = !this.$('#rich-meta-container')?.classList.contains('hidden');
@@ -1078,7 +1136,7 @@ class SeerrDetailsPage extends Page {
             updateSection('details-rich-meta', this.$('#rich-meta-container'), {
                 orientation: 'vertical',
                 selector: '#rich-meta',
-                leaveUp: hasOverviewAction ? 'seerr-details-overview' : (hasAction ? 'seerr-details-actions' : null),
+                leaveUp: hasOverviewAction ? 'seerr-details-overview' : hasAction ? 'seerr-details-actions' : null,
                 leaveDown: getDownFromRichMeta(),
                 leaveLeft: 'sidebar',
                 enterTo: 'first'
@@ -1088,7 +1146,13 @@ class SeerrDetailsPage extends Page {
         if (hasPeople) {
             updateSection('seerr-details-people', this.$('#seerr-people-section'), {
                 orientation: 'horizontal',
-                leaveUp: hasRichMeta ? 'details-rich-meta' : (hasOverviewAction ? 'seerr-details-overview' : (hasAction ? 'seerr-details-actions' : null)),
+                leaveUp: hasRichMeta
+                    ? 'details-rich-meta'
+                    : hasOverviewAction
+                      ? 'seerr-details-overview'
+                      : hasAction
+                        ? 'seerr-details-actions'
+                        : null,
                 leaveDown: getDownFromPeople(),
                 leaveLeft: 'sidebar'
             });
@@ -1097,8 +1161,16 @@ class SeerrDetailsPage extends Page {
         if (hasCollection) {
             updateSection('seerr-details-collection', this.$('#seerr-collection-section'), {
                 orientation: 'horizontal',
-                leaveUp: hasPeople ? 'seerr-details-people' : (hasRichMeta ? 'details-rich-meta' : (hasOverviewAction ? 'seerr-details-overview' : (hasAction ? 'seerr-details-actions' : null))),
-                leaveDown: hasRecs ? 'seerr-details-recommendations' : (hasSimilar ? 'seerr-details-similar' : null),
+                leaveUp: hasPeople
+                    ? 'seerr-details-people'
+                    : hasRichMeta
+                      ? 'details-rich-meta'
+                      : hasOverviewAction
+                        ? 'seerr-details-overview'
+                        : hasAction
+                          ? 'seerr-details-actions'
+                          : null,
+                leaveDown: hasRecs ? 'seerr-details-recommendations' : hasSimilar ? 'seerr-details-similar' : null,
                 leaveLeft: 'sidebar'
             });
         }
@@ -1106,7 +1178,17 @@ class SeerrDetailsPage extends Page {
         if (hasRecs) {
             updateSection('seerr-details-recommendations', this.$('#seerr-recommendations-section'), {
                 orientation: 'horizontal',
-                leaveUp: hasCollection ? 'seerr-details-collection' : (hasPeople ? 'seerr-details-people' : (hasRichMeta ? 'details-rich-meta' : (hasOverviewAction ? 'seerr-details-overview' : (hasAction ? 'seerr-details-actions' : null)))),
+                leaveUp: hasCollection
+                    ? 'seerr-details-collection'
+                    : hasPeople
+                      ? 'seerr-details-people'
+                      : hasRichMeta
+                        ? 'details-rich-meta'
+                        : hasOverviewAction
+                          ? 'seerr-details-overview'
+                          : hasAction
+                            ? 'seerr-details-actions'
+                            : null,
                 leaveDown: hasSimilar ? 'seerr-details-similar' : null,
                 leaveLeft: 'sidebar'
             });
@@ -1115,7 +1197,19 @@ class SeerrDetailsPage extends Page {
         if (hasSimilar) {
             updateSection('seerr-details-similar', this.$('#seerr-similar-section'), {
                 orientation: 'horizontal',
-                leaveUp: hasRecs ? 'seerr-details-recommendations' : (hasCollection ? 'seerr-details-collection' : (hasPeople ? 'seerr-details-people' : (hasRichMeta ? 'details-rich-meta' : (hasOverviewAction ? 'seerr-details-overview' : (hasAction ? 'seerr-details-actions' : null))))),
+                leaveUp: hasRecs
+                    ? 'seerr-details-recommendations'
+                    : hasCollection
+                      ? 'seerr-details-collection'
+                      : hasPeople
+                        ? 'seerr-details-people'
+                        : hasRichMeta
+                          ? 'details-rich-meta'
+                          : hasOverviewAction
+                            ? 'seerr-details-overview'
+                            : hasAction
+                              ? 'seerr-details-actions'
+                              : null,
                 leaveLeft: 'sidebar'
             });
         }
@@ -1225,7 +1319,7 @@ class SeerrDetailsPage extends Page {
                 }
 
                 if (text) {
-                    const btnCenterX = targetEl.offsetLeft + (targetEl.offsetWidth / 2);
+                    const btnCenterX = targetEl.offsetLeft + targetEl.offsetWidth / 2;
                     const btnBottomY = targetEl.offsetTop + targetEl.offsetHeight;
 
                     tooltipBar.style.left = `${btnCenterX}px`;
@@ -1271,9 +1365,10 @@ class SeerrDetailsPage extends Page {
         const updateInitial = () => {
             if (typeof this._onFocusChangedForTooltip !== 'function') return;
             const actionsContainer = this.$('#actions');
-            const targetEl = (document.activeElement && actionsContainer && actionsContainer.contains(document.activeElement))
-                ? document.activeElement
-                : this.$('#actions .btn-action:not(.hidden)');
+            const targetEl =
+                document.activeElement && actionsContainer && actionsContainer.contains(document.activeElement)
+                    ? document.activeElement
+                    : this.$('#actions .btn-action:not(.hidden)');
             if (targetEl) {
                 this._onFocusChangedForTooltip?.(targetEl);
             }
@@ -1357,7 +1452,6 @@ class SeerrDetailsPage extends Page {
     }
 
     destroy() {
-
         if (this._tooltipTimers) {
             this._tooltipTimers.forEach((t) => clearTimeout(t));
             this._tooltipTimers = null;

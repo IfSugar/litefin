@@ -33,10 +33,10 @@ const log = logger.create('GamepadManager');
 // ============================================================================
 
 // Minimum analog stick displacement before recognizing directional navigation
-const ANALOG_DEADZONE = 0.40;
+const ANALOG_DEADZONE = 0.4;
 
 // Analog trigger threshold for recognizing LT / RT as button activations
-const TRIGGER_THRESHOLD = 0.50;
+const TRIGGER_THRESHOLD = 0.5;
 
 // Milliseconds before a held directional stick/pad begins auto-repeating
 const REPEAT_INITIAL_DELAY_MS = 380;
@@ -49,26 +49,26 @@ const REPEAT_INTERVAL_MS = 110;
 // ============================================================================
 const GP_BUTTONS = {
     // Face button cluster
-    A: 0,              // Bottom (Xbox A, PS Cross, Nintendo B)
-    B: 1,              // Right (Xbox B, PS Circle, Nintendo A)
-    X: 2,              // Left (Xbox X, PS Square, Nintendo Y)
-    Y: 3,              // Top (Xbox Y, PS Triangle, Nintendo X)
+    A: 0, // Bottom (Xbox A, PS Cross, Nintendo B)
+    B: 1, // Right (Xbox B, PS Circle, Nintendo A)
+    X: 2, // Left (Xbox X, PS Square, Nintendo Y)
+    Y: 3, // Top (Xbox Y, PS Triangle, Nintendo X)
 
     // Shoulder bumpers
-    LB: 4,             // Left bumper / L1
-    RB: 5,             // Right bumper / R1
+    LB: 4, // Left bumper / L1
+    RB: 5, // Right bumper / R1
 
     // Triggers
-    LT: 6,             // Left trigger / L2
-    RT: 7,             // Right trigger / R2
+    LT: 6, // Left trigger / L2
+    RT: 7, // Right trigger / R2
 
     // System navigation
-    SELECT: 8,         // Back / View / Share
-    START: 9,          // Start / Options / Menu
+    SELECT: 8, // Back / View / Share
+    START: 9, // Start / Options / Menu
 
     // Stick clicks
-    L3: 10,            // Left stick press
-    R3: 11,            // Right stick press
+    L3: 10, // Left stick press
+    R3: 11, // Right stick press
 
     // Directional pad buttons
     DPAD_UP: 12,
@@ -77,7 +77,7 @@ const GP_BUTTONS = {
     DPAD_RIGHT: 15,
 
     // Guide / Home
-    GUIDE: 16          // Xbox Guide / PS Button / Home
+    GUIDE: 16 // Xbox Guide / PS Button / Home
 };
 
 class GamepadManager {
@@ -96,8 +96,8 @@ class GamepadManager {
 
         // Directional repeat tracker for D-Pad and Left Analog Stick
         this._directionState = {
-            activeDir: null,       // 'up' | 'down' | 'left' | 'right' | null
-            nextRepeatTime: 0      // Timestamp in ms for next repeat event
+            activeDir: null, // 'up' | 'down' | 'left' | 'right' | null
+            nextRepeatTime: 0 // Timestamp in ms for next repeat event
         };
 
         // Callbacks supplied by the host adapter (DesktopAdapter or WebAdapter)
@@ -617,7 +617,12 @@ class GamepadManager {
         }
 
         // Nintendo Switch Pro & Joy-Cons
-        if (lower.includes('switch') || lower.includes('joy-con') || lower.includes('nintendo') || lower.includes('057e')) {
+        if (
+            lower.includes('switch') ||
+            lower.includes('joy-con') ||
+            lower.includes('nintendo') ||
+            lower.includes('057e')
+        ) {
             return 'Nintendo Controller';
         }
 

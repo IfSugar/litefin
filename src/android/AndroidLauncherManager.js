@@ -500,7 +500,7 @@ class AndroidLauncherManager {
             if (showName) titleParts.push(showName);
             if (epName) titleParts.push(epName);
 
-            const title = titleParts.length > 0 ? titleParts.join(' - ') : (epName || showName || 'Episode');
+            const title = titleParts.length > 0 ? titleParts.join(' - ') : epName || showName || 'Episode';
 
             // Retrieve synopsis overview of the episode to display in description row
             const description = item.Overview || item.ProgramInfo?.Overview || '';
@@ -524,7 +524,8 @@ class AndroidLauncherManager {
 
         if (item.Type === 'Movie') {
             // Retrieve movie overview or release year fallback
-            const description = item.Overview || item.ProgramInfo?.Overview || (item.ProductionYear ? String(item.ProductionYear) : '');
+            const description =
+                item.Overview || item.ProgramInfo?.Overview || (item.ProductionYear ? String(item.ProductionYear) : '');
 
             return {
                 id: item.Id,
@@ -584,7 +585,7 @@ class AndroidLauncherManager {
             imgType = 'Backdrop';
             imgTag = src.ParentBackdropImageTags[0];
             itemId = src.ParentBackdropItemId;
-        // Portrait fallbacks
+            // Portrait fallbacks
         } else if (src.ImageTags?.Primary) {
             imgType = 'Primary';
             imgTag = src.ImageTags.Primary;

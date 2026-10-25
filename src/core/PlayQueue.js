@@ -965,7 +965,9 @@ class PlayQueue {
                         this._queue.unshift(...prevItems);
                         this._seriesWindowStartIndex = prevStartIndex;
                         this._currentIndex += prevItems.length;
-                        log.info(`[PlayQueue] Prepended ${prevItems.length} episodes. Queue size: ${this._queue.length}`);
+                        log.info(
+                            `[PlayQueue] Prepended ${prevItems.length} episodes. Queue size: ${this._queue.length}`
+                        );
                         eventBus.emit('playqueue:updated', {
                             queue: this._queue,
                             currentIndex: this._currentIndex,
@@ -1026,9 +1028,10 @@ class PlayQueue {
                 ParentId: parentId,
                 Recursive: true,
                 IncludeItemTypes: 'Audio',
-                SortBy: (this._contextType === 'music' || currentItem.Type === 'Audio')
-                    ? 'ParentIndexNumber,IndexNumber,SortName'
-                    : sortBy,
+                SortBy:
+                    this._contextType === 'music' || currentItem.Type === 'Audio'
+                        ? 'ParentIndexNumber,IndexNumber,SortName'
+                        : sortBy,
                 SortOrder: 'Ascending',
                 Limit: 100,
                 Fields: 'RunTimeTicks'

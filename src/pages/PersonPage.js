@@ -175,8 +175,7 @@ class PersonPage extends Page {
             }
 
             const hasFocusTarget =
-                this._pendingNavState ||
-                (storage.getItem('pref:disableFocusRestore') !== 'true' && savedFocusObj);
+                this._pendingNavState || (storage.getItem('pref:disableFocusRestore') !== 'true' && savedFocusObj);
 
             // ────────────────────────────────────────────────────────────
             // 4. Load works in visual order
@@ -522,14 +521,14 @@ class PersonPage extends Page {
                 try {
                     const born = new Date(p.PremiereDate).getFullYear();
                     parts.push(i18n.t('BirthDateValue', [born]));
-                } catch (e) { }
+                } catch (e) {}
             }
 
             if (p.EndDate) {
                 try {
                     const died = new Date(p.EndDate).getFullYear();
                     parts.push(i18n.t('DeathDateValue', [died]));
-                } catch (e) { }
+                } catch (e) {}
             }
 
             if (p.ProductionLocations && p.ProductionLocations.length > 0) {
@@ -917,7 +916,8 @@ class PersonPage extends Page {
 
         // Clear only the DOM nodes that belong to appearances
         // (remove everything then re-append episodes node if it exists)
-        const episodesEl = episodesGrid?.el || worksContainer.querySelector('.person-episodes-grid')?.closest('.media-row-section');
+        const episodesEl =
+            episodesGrid?.el || worksContainer.querySelector('.person-episodes-grid')?.closest('.media-row-section');
         worksContainer.innerHTML = '';
         if (episodesEl && episodesEl.parentNode !== worksContainer) {
             // Re-attach episodes after clearing (it was detached by innerHTML reset)
@@ -1237,14 +1237,17 @@ class PersonPage extends Page {
 
             const actionsContainer = this.$('#person-fav-actions');
             if (actionsContainer && actionsContainer.contains(targetEl)) {
-                let text = targetEl.getAttribute('data-tooltip') || targetEl.getAttribute('aria-label') || targetEl.getAttribute('title');
+                let text =
+                    targetEl.getAttribute('data-tooltip') ||
+                    targetEl.getAttribute('aria-label') ||
+                    targetEl.getAttribute('title');
                 if (!text) {
                     const span = targetEl.querySelector('span[data-i18n], span');
                     if (span) text = span.textContent?.trim();
                 }
 
                 if (text) {
-                    const btnCenterX = targetEl.offsetLeft + (targetEl.offsetWidth / 2);
+                    const btnCenterX = targetEl.offsetLeft + targetEl.offsetWidth / 2;
                     const btnBottomY = targetEl.offsetTop + targetEl.offsetHeight;
 
                     bar.style.left = `${btnCenterX}px`;
@@ -1293,9 +1296,10 @@ class PersonPage extends Page {
             if (typeof this._onFocusChangedForTooltip !== 'function') return;
             const actionsContainer = this.$('#person-fav-actions');
             const favBtn = this._favBtn?.el || this.$('.favorite-btn');
-            const targetEl = (document.activeElement && actionsContainer && actionsContainer.contains(document.activeElement))
-                ? document.activeElement
-                : favBtn;
+            const targetEl =
+                document.activeElement && actionsContainer && actionsContainer.contains(document.activeElement)
+                    ? document.activeElement
+                    : favBtn;
             if (targetEl) {
                 this._onFocusChangedForTooltip?.(targetEl);
             }

@@ -46,10 +46,6 @@ function getBaseVerticalDuration() {
     return isDesktop ? 130 : 180;
 }
 
-// Default animation duration (ms) for vertical smooth scrolling.
-// Dynamically evaluates user preference (instant, current, smooth, slower) and active platform.
-const SCROLL_DURATION_VERTICAL = () => getBaseVerticalDuration();
-
 // Animation duration (ms) for horizontal card-centering scrolls
 const SCROLL_DURATION_HORIZONTAL = 120;
 
@@ -90,10 +86,6 @@ const GENERIC_SCROLL_MARGIN = 100;
 // Height multiplier threshold: if a row is taller than viewport * this value,
 // row-based alignment is disabled to prevent jarring jumps.
 const TALL_ROW_MULTIPLIER = 2.0;
-
-// Fraction of viewport height: elements shorter than this are centered,
-// elements taller are bottom-aligned. (Increased to 0.9 so large grid cards center properly)
-const SMALL_ELEMENT_FRACTION = 0.9;
 
 // Fraction of viewport height: if a single scroll delta exceeds this fraction,
 // snap instantly instead of animating. Hero carousel ↔ row transitions on
@@ -316,8 +308,6 @@ class ScrollController {
     prewarmOffsetCache(elements, relativeTo) {
         if (!elements || !relativeTo) return;
 
-        let warmedCount = 0;
-
         // Walk every element's offsetParent chain and store the cumulative top.
         // All reads are batched in this single call, so the browser only needs
         // one layout pass to satisfy all the offsetTop queries.
@@ -350,7 +340,6 @@ class ScrollController {
             // containers will exit early and must NOT be cached (stale values).
             if (current === relativeTo) {
                 this._offsetCache.set(el, { container: relativeTo, value: top });
-                warmedCount++;
             }
         }
     }
@@ -455,7 +444,14 @@ class ScrollController {
          * Snaps content immediately without animation if verticalScrollMode,
          * horizontalScrollMode, or scrollSmoothingDuration is configured to 'instant'.
          * ==================================================================== */
-        let durationToUse = duration !== null ? (typeof duration === 'function' ? duration() : duration) : (isVertical ? this.getVerticalScrollDuration() : SCROLL_DURATION_HORIZONTAL);
+        let durationToUse =
+            duration !== null
+                ? typeof duration === 'function'
+                    ? duration()
+                    : duration
+                : isVertical
+                  ? this.getVerticalScrollDuration()
+                  : SCROLL_DURATION_HORIZONTAL;
         if (scrollMode === 'instant' || durationPref === 'instant') {
             durationToUse = 0;
         }
@@ -509,7 +505,10 @@ class ScrollController {
             if (distance > 550) {
                 const minFloor = Math.round(durationToUse * 1.25);
                 const maxCap = Math.round(durationToUse * 1.75);
-                durationToUse = Math.min(maxCap, Math.max(minFloor, Math.round(durationToUse * (1 + (distance - 550) / 400))));
+                durationToUse = Math.min(
+                    maxCap,
+                    Math.max(minFloor, Math.round(durationToUse * (1 + (distance - 550) / 400)))
+                );
             }
         }
 
@@ -684,8 +683,8 @@ class ScrollController {
             const eased = state.isLargeScroll
                 ? easeSmoothStep(progress)
                 : progress < EASE_BLEND
-                    ? easeOutQuad(progress)
-                    : blendAt + blendRemaining * easeOutQuad((progress - EASE_BLEND) / blendDuration);
+                  ? easeOutQuad(progress)
+                  : blendAt + blendRemaining * easeOutQuad((progress - EASE_BLEND) / blendDuration);
 
             // Interpolate between start and target
             const distance = state.target - state.startScroll;
@@ -813,8 +812,8 @@ class ScrollController {
         const subLibs = element.closest('#sidebar-sub-libraries');
         if (subLibs) {
             // Check if #sidebar-sub-libraries is actively overflowing with auto/scroll styles
-            const hasPopoverScroll = subLibs.scrollHeight > subLibs.clientHeight &&
-                window.getComputedStyle(subLibs).overflowY !== 'visible';
+            const hasPopoverScroll =
+                subLibs.scrollHeight > subLibs.clientHeight && window.getComputedStyle(subLibs).overflowY !== 'visible';
             return hasPopoverScroll ? subLibs : null;
         }
 
@@ -911,7 +910,11 @@ class ScrollController {
                 const snapEnabled = storage.getItem('pref:snapLargeScrolls') === 'true';
                 const forceInstant = snapEnabled && scrollDelta > viewHeight * LARGE_SCROLL_SNAP_FRACTION;
 
-                this.smoothScrollTo(pageContent, 0, options.instantScroll || forceInstant ? 0 : this.getVerticalScrollDuration());
+                this.smoothScrollTo(
+                    pageContent,
+                    0,
+                    options.instantScroll || forceInstant ? 0 : this.getVerticalScrollDuration()
+                );
             }
             return;
         }
@@ -993,7 +996,9 @@ class ScrollController {
         // calculate target scroll according to the configured vertical alignment preference
         // (bottom by default, middle/centered, or top).
         // ----------------------------------------------------------------
-        const isVerticalListCard = element.closest('.episode-row-card, .episode-row, .episode-list-container') || element.classList.contains('episode-row-card');
+        const isVerticalListCard =
+            element.closest('.episode-row-card, .episode-row, .episode-list-container') ||
+            element.classList.contains('episode-row-card');
         if (isVerticalListCard && pageContent) {
             const cardEl = element.closest('.episode-row-card') || element;
             const cardTop = getCumulativeOffsetTop(cardEl, pageContent);
@@ -1006,7 +1011,7 @@ class ScrollController {
             let targetScroll;
             if (alignment === 'middle') {
                 // Center the focused episode card within the viewport
-                targetScroll = cardTop - (viewHeight / 2) + (cardHeight / 2);
+                targetScroll = cardTop - viewHeight / 2 + cardHeight / 2;
             } else if (alignment === 'bottom') {
                 // Bottom-align with comfortable headroom from the viewport bottom edge
                 targetScroll = cardTop + cardHeight - viewHeight + 100;
@@ -1024,8 +1029,8 @@ class ScrollController {
                 this._nativeScrollActive && this._nativeTargetScroll !== null
                     ? this._nativeTargetScroll
                     : this._verticalScrollState
-                        ? this._verticalScrollState.target
-                        : currentScroll;
+                      ? this._verticalScrollState.target
+                      : currentScroll;
 
             if (Math.abs(targetScroll - activeTarget) > 5) {
                 this.smoothScrollTo(
@@ -1061,7 +1066,11 @@ class ScrollController {
                 const snapEnabled = storage.getItem('pref:snapLargeScrolls') === 'true';
                 const forceInstant = snapEnabled && scrollDelta > viewHeight * LARGE_SCROLL_SNAP_FRACTION;
 
-                this.smoothScrollTo(pageContent, 0, options.instantScroll || forceInstant ? 0 : this.getVerticalScrollDuration());
+                this.smoothScrollTo(
+                    pageContent,
+                    0,
+                    options.instantScroll || forceInstant ? 0 : this.getVerticalScrollDuration()
+                );
                 // Disable further row-based alignment logic and generic vertical scroll
                 useRowScroll = false;
                 activePageContent = null;
@@ -1116,7 +1125,11 @@ class ScrollController {
                 // smoothly glide back to the top to reveal the hero and metadata table together
                 const snapEnabled = storage.getItem('pref:snapLargeScrolls') === 'true';
                 const forceInstant = snapEnabled && scrollDelta > viewHeight * LARGE_SCROLL_SNAP_FRACTION;
-                this.smoothScrollTo(pageContent, 0, options.instantScroll || forceInstant ? 0 : this.getVerticalScrollDuration());
+                this.smoothScrollTo(
+                    pageContent,
+                    0,
+                    options.instantScroll || forceInstant ? 0 : this.getVerticalScrollDuration()
+                );
             }
 
             // Grounding complete — bypass row-based and generic scroll-into-view
@@ -1150,14 +1163,15 @@ class ScrollController {
             let targetScroll;
             if (alignment === 'middle') {
                 // Middle alignment: center the entire .media-row vertically
-                targetScroll = rowTop - (viewHeight / 2) + (rowHeight / 2);
+                targetScroll = rowTop - viewHeight / 2 + rowHeight / 2;
             } else if (alignment === 'bottom') {
                 // Bottom alignment: place row bottom cleanly near the viewport bottom.
                 // Tuned to 18px offset to hit the ideal balance between keeping the succeeding row's
                 // title strictly off-screen while giving card subtitles comfortable breathing room.
-                const offsetBottom = typeof config.scrollOffsetBottom === 'number'
-                    ? config.scrollOffsetBottom
-                    : DEFAULT_SCROLL_OFFSET_BOTTOM;
+                const offsetBottom =
+                    typeof config.scrollOffsetBottom === 'number'
+                        ? config.scrollOffsetBottom
+                        : DEFAULT_SCROLL_OFFSET_BOTTOM;
                 targetScroll = rowTop + rowHeight - viewHeight + offsetBottom;
             } else {
                 // Top alignment: row top sits at configured offset from viewport top
@@ -1215,8 +1229,8 @@ class ScrollController {
                 this._nativeScrollActive && this._nativeTargetScroll !== null
                     ? this._nativeTargetScroll
                     : this._verticalScrollState
-                        ? this._verticalScrollState.target
-                        : currentScroll;
+                      ? this._verticalScrollState.target
+                      : currentScroll;
 
             const scrollDelta = Math.abs(targetScroll - activeTarget);
             if (scrollDelta > SCROLL_ALIGN_THRESHOLD) {
@@ -1263,9 +1277,10 @@ class ScrollController {
                         const fallbackAlignment = this.getVerticalScrollAlignment();
                         let targetScroll;
                         if (fallbackAlignment === 'bottom') {
-                            const offsetBottom = typeof config?.scrollOffsetBottom === 'number'
-                                ? config.scrollOffsetBottom
-                                : DEFAULT_SCROLL_OFFSET_BOTTOM;
+                            const offsetBottom =
+                                typeof config?.scrollOffsetBottom === 'number'
+                                    ? config.scrollOffsetBottom
+                                    : DEFAULT_SCROLL_OFFSET_BOTTOM;
                             targetScroll = rowBottom - viewHeight + offsetBottom;
                         } else if (fallbackAlignment === 'top') {
                             targetScroll = rowTop - DEFAULT_SCROLL_OFFSET_TOP;
@@ -1348,7 +1363,8 @@ class ScrollController {
                         // -------------------------------------------------------------
                         const horizontalMode = this.getHorizontalScrollMode();
                         const durationPref = storage.getItem('pref:scrollSmoothingDuration') || 'current';
-                        const isInstant = options.instantScroll || horizontalMode === 'instant' || durationPref === 'instant';
+                        const isInstant =
+                            options.instantScroll || horizontalMode === 'instant' || durationPref === 'instant';
 
                         if (horizontalMode === 'native') {
                             // =========================================================
@@ -1362,12 +1378,7 @@ class ScrollController {
                             if (isInstant) {
                                 rowItems.scrollLeft = signedLeft;
                             } else {
-                                this.smoothScrollTo(
-                                    rowItems,
-                                    signedLeft,
-                                    SCROLL_DURATION_HORIZONTAL,
-                                    'horizontal'
-                                );
+                                this.smoothScrollTo(rowItems, signedLeft, SCROLL_DURATION_HORIZONTAL, 'horizontal');
                             }
                         } else if (isInstant) {
                             // =========================================================
@@ -1440,7 +1451,8 @@ class ScrollController {
                     const finalScrollLeft = Math.max(0, targetScroll);
                     const horizontalMode = this.getHorizontalScrollMode();
                     const durationPref = storage.getItem('pref:scrollSmoothingDuration') || 'current';
-                    const isInstant = options.instantScroll || horizontalMode === 'instant' || durationPref === 'instant';
+                    const isInstant =
+                        options.instantScroll || horizontalMode === 'instant' || durationPref === 'instant';
 
                     this.smoothScrollTo(
                         rowItems,
@@ -1474,8 +1486,8 @@ class ScrollController {
                     this._nativeScrollActive && this._nativeTargetScroll !== null
                         ? this._nativeTargetScroll
                         : this._verticalScrollState
-                            ? this._verticalScrollState.target
-                            : currentScroll;
+                          ? this._verticalScrollState.target
+                          : currentScroll;
 
                 // ============================================================
                 // PERF: CACHE ELEMENT HEIGHT PER SECTION
@@ -1507,17 +1519,18 @@ class ScrollController {
                 // For the floating sub-libraries popover, 12px padding keeps items
                 // within the popup window bounds. Generic containers use 100px.
                 // -------------------------------------------------------------
-                const isSidebar = activePageContent.classList.contains('sidebar-content') ||
+                const isSidebar =
+                    activePageContent.classList.contains('sidebar-content') ||
                     activePageContent.classList.contains('filter-sidebar');
                 const isSubLibs = activePageContent.id === 'sidebar-sub-libraries';
-                const topMargin = isSidebar ? 24 : (isSubLibs ? 12 : GENERIC_SCROLL_MARGIN);
-                let bottomMargin = isSidebar ? 32 : (isSubLibs ? 12 : GENERIC_SCROLL_MARGIN);
+                const topMargin = isSidebar ? 24 : isSubLibs ? 12 : GENERIC_SCROLL_MARGIN;
+                let bottomMargin = isSidebar ? 32 : isSubLibs ? 12 : GENERIC_SCROLL_MARGIN;
 
                 let finalScrollTop = activeTarget;
 
                 // Apply custom scroll offset from section config
                 const customOffset = config?.scrollOffsetTop || 0;
-                let effectiveTopMargin = (isSidebar || isSubLibs) ? topMargin : Math.max(topMargin, customOffset);
+                let effectiveTopMargin = isSidebar || isSubLibs ? topMargin : Math.max(topMargin, customOffset);
 
                 // PREVENT JITTER: If the element and its margins don't completely fit in the viewport
                 // together, the top and bottom edge guards will fight each other on every horizontal move.
