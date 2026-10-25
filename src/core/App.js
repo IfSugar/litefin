@@ -244,6 +244,8 @@ class DetailsPage extends Page {
         super(options);
         // Active instance of RealDetailsPage once instantiated
         this._realInstance = null;
+        // Lifecycle flag to cancel mounting if destroyed before chunk loading resolves
+        this._isDestroyed = false;
 
         // Synchronously initialize instance if chunk was prewarmed in the background
         if (CachedDetailsClass) {
@@ -278,13 +280,22 @@ class DetailsPage extends Page {
         // Dynamically load details chunk if user navigated before background prewarm finished
         if (!this._realInstance) {
             const RealClass = await loadDetailsPageModule();
+            // Abort if route changed or page was destroyed while chunk was downloading
+            if (this._isDestroyed) {
+                return;
+            }
             this._realInstance = new RealClass(this.options);
             if (this._routePattern) {
-                this._realInstance._routePattern = this._routePattern;
+                this._routePattern = this._routePattern;
             }
             if (this._realInstance.ready) {
                 this._realInstance.ready.then(() => this.markReady());
             }
+        }
+
+        // Circuit breaker: do not proceed to initialize if destroyed mid-flight
+        if (this._isDestroyed) {
+            return;
         }
 
         // Restore back navigation flags so real instance consumes them in Page.init()
@@ -294,6 +305,15 @@ class DetailsPage extends Page {
         }
 
         const res = await this._realInstance.init(params);
+
+        // If destroyed while realInstance was initializing, clean it up immediately
+        if (this._isDestroyed) {
+            if (this._realInstance && typeof this._realInstance.destroy === 'function') {
+                this._realInstance.destroy();
+            }
+            return res;
+        }
+
         if (this._realInstance.title) {
             this.title = this._realInstance.title;
             document.title = `${this.title} - Litefin`;
@@ -330,6 +350,7 @@ class DetailsPage extends Page {
     }
 
     destroy() {
+        this._isDestroyed = true;
         if (this._realInstance && typeof this._realInstance.destroy === 'function') {
             this._realInstance.destroy();
         }
@@ -346,6 +367,8 @@ class LibraryPage extends Page {
         super(options);
         // Active instance of RealLibraryPage once instantiated
         this._realInstance = null;
+        // Lifecycle flag to cancel mounting if destroyed before chunk loading resolves
+        this._isDestroyed = false;
 
         // Synchronously initialize instance if chunk was prewarmed in the background
         if (CachedLibraryClass) {
@@ -380,6 +403,10 @@ class LibraryPage extends Page {
         // Dynamically load library chunk if user navigated before background prewarm finished
         if (!this._realInstance) {
             const RealClass = await loadLibraryPageModule();
+            // Abort if route changed or page was destroyed while chunk was downloading
+            if (this._isDestroyed) {
+                return;
+            }
             this._realInstance = new RealClass(this.options);
             if (this._routePattern) {
                 this._realInstance._routePattern = this._routePattern;
@@ -389,6 +416,11 @@ class LibraryPage extends Page {
             }
         }
 
+        // Circuit breaker: do not proceed to initialize if destroyed mid-flight
+        if (this._isDestroyed) {
+            return;
+        }
+
         // Restore back navigation flags so real instance consumes them in Page.init()
         if (isBack && !router._isBackNavigation) {
             router._isBackNavigation = true;
@@ -396,6 +428,15 @@ class LibraryPage extends Page {
         }
 
         const res = await this._realInstance.init(params);
+
+        // If destroyed while realInstance was initializing, clean it up immediately
+        if (this._isDestroyed) {
+            if (this._realInstance && typeof this._realInstance.destroy === 'function') {
+                this._realInstance.destroy();
+            }
+            return res;
+        }
+
         if (this._realInstance.title) {
             this.title = this._realInstance.title;
             document.title = `${this.title} - Litefin`;
@@ -432,6 +473,7 @@ class LibraryPage extends Page {
     }
 
     destroy() {
+        this._isDestroyed = true;
         if (this._realInstance && typeof this._realInstance.destroy === 'function') {
             this._realInstance.destroy();
         }
@@ -450,6 +492,8 @@ class PlayerPage extends Page {
         // Active instance of RealPlayerPage once instantiated
         this._realInstance = null;
         this.el = null;
+        // Lifecycle flag to cancel mounting if destroyed before chunk loading resolves
+        this._isDestroyed = false;
 
         // Synchronously initialize instance if chunk was prewarmed in the background
         if (CachedPlayerClass) {
@@ -473,6 +517,10 @@ class PlayerPage extends Page {
         // Dynamically load player chunk if user launched playback before background prewarm finished
         if (!this._realInstance) {
             const PlayerClass = await loadPlayerModule();
+            // Abort if route changed or playback was canceled while chunk was downloading
+            if (this._isDestroyed) {
+                return;
+            }
             this._realInstance = new PlayerClass(this.options);
             this.el = this._realInstance.el;
             if (this._routePattern) {
@@ -483,10 +531,26 @@ class PlayerPage extends Page {
             }
         }
 
-        return this._realInstance.init(params);
+        // Circuit breaker: do not proceed to initialize if destroyed mid-flight
+        if (this._isDestroyed) {
+            return;
+        }
+
+        const res = await this._realInstance.init(params);
+
+        // If destroyed while realInstance was initializing, clean it up immediately
+        if (this._isDestroyed) {
+            if (this._realInstance && typeof this._realInstance.destroy === 'function') {
+                this._realInstance.destroy();
+            }
+            return res;
+        }
+
+        return res;
     }
 
     destroy() {
+        this._isDestroyed = true;
         if (this._realInstance && typeof this._realInstance.destroy === 'function') {
             this._realInstance.destroy();
         }
@@ -600,6 +664,8 @@ class AsyncPageProxy extends Page {
         this._realInstance = null;
         this._proxyEl = null;
         this._chunk = chunk;
+        // Lifecycle flag to cancel mounting if destroyed before chunk loading resolves
+        this._isDestroyed = false;
 
         // Synchronously initialize instance if chunk was prewarmed in the background
         if (chunk && chunk.cached) {
@@ -634,6 +700,10 @@ class AsyncPageProxy extends Page {
         // Dynamically load the page chunk if user navigated before background prewarm finished
         if (!this._realInstance && this._chunk) {
             const RealClass = await this._chunk.load();
+            // Abort if route changed or page was destroyed while chunk was downloading
+            if (this._isDestroyed) {
+                return;
+            }
             this._realInstance = new RealClass(this.options);
             this._proxyEl = this._realInstance.el;
             if (this._routePattern) {
@@ -644,6 +714,11 @@ class AsyncPageProxy extends Page {
             }
         }
 
+        // Circuit breaker: do not proceed to initialize if destroyed mid-flight
+        if (this._isDestroyed) {
+            return;
+        }
+
         // Restore back navigation flags so real instance consumes them in Page.init()
         if (isBack && !router._isBackNavigation) {
             router._isBackNavigation = true;
@@ -651,6 +726,15 @@ class AsyncPageProxy extends Page {
         }
 
         const res = await this._realInstance.init(params);
+
+        // If destroyed while realInstance was initializing, clean it up immediately
+        if (this._isDestroyed) {
+            if (this._realInstance && typeof this._realInstance.destroy === 'function') {
+                this._realInstance.destroy();
+            }
+            return res;
+        }
+
         if (this._realInstance && this._realInstance.title) {
             this.title = this._realInstance.title;
             document.title = `${this.title} - Litefin`;
@@ -687,6 +771,7 @@ class AsyncPageProxy extends Page {
     }
 
     destroy() {
+        this._isDestroyed = true;
         if (this._realInstance && typeof this._realInstance.destroy === 'function') {
             this._realInstance.destroy();
         }

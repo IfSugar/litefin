@@ -254,6 +254,24 @@ class Router {
         const fullPath = this.getCurrentPath();
         const [path, queryString] = fullPath.split('?');
 
+        // ====================================================================
+        // Redundant Hash Change Filter
+        // ====================================================================
+        // If a page instance is already active and the browser emits a duplicate
+        // hashchange event for the exact same path that is already being rendered,
+        // ignore the event. This prevents duplicate page instantiation and DOM
+        // split-screen issues during cold boot when native deep links set location.hash
+        // before router.init(), triggering a trailing hashchange on the next tick.
+        // ====================================================================
+        if (
+            this._currentPage &&
+            this._lastNavigatePath !== fullPath &&
+            state.get('router:currentPath') === fullPath
+        ) {
+            log.info(`Ignoring redundant hashchange for current path "${path}"`);
+            return;
+        }
+
         // Clear expected navigation tracking (used to detect unexpected hash changes)
         this._lastNavigatePath = null;
 
