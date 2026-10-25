@@ -12,6 +12,7 @@ import { eventBus } from '../core/EventBus.js';
 import BlurHashDecoder from './BlurHashDecoder.js';
 import { storage } from './StorageService.js';
 import { escapeHtml } from './Utils.js';
+import { customHeaders } from './CustomHeaders.js';
 
 const log = logger.create('LazyLoader');
 
@@ -348,12 +349,56 @@ class LazyLoader {
             };
 
             img.crossOrigin = 'anonymous';
-            img.src = img.dataset.src;
+            this._assignImageSource(img, img.dataset.src);
         });
 
         if (this.observer) {
             this.observer.unobserve(row);
         }
+    }
+
+    /**
+     * Assigns the final image source to an image element.
+     * When custom reverse proxy headers are active, resolves the URL via
+     * CustomHeadersManager (which fetches the image with headers and converts
+     * to a local in-memory blob URL), falling back gracefully on failure.
+     *
+     * @param {HTMLImageElement} img - Image element to update
+     * @param {string} targetSrc - Jellyfin image URL from dataset
+     * @private
+     */
+    _assignImageSource(img, targetSrc) {
+        // Fast path: if no custom headers configured, assign src directly
+        if (!customHeaders?.hasCustomHeaders?.()) {
+            img.src = targetSrc;
+            return;
+        }
+
+        // Check if Blob URL is already in cache for zero-latency synchronous hit
+        const cached = customHeaders.getCachedBlobUrl(targetSrc);
+        if (cached) {
+            img.src = cached;
+            return;
+        }
+
+        // Mark as lazy loading so in-flight state is preserved
+        img.setAttribute('data-lazy-loading', '');
+
+        // Asynchronously fetch with custom headers and convert to Blob URL
+        customHeaders
+            .resolveImageUrl(targetSrc)
+            .then((resolvedUrl) => {
+                // Ensure image element is still in DOM and pending load
+                if (img.isConnected && img.hasAttribute('data-lazy-loading')) {
+                    img.src = resolvedUrl;
+                }
+            })
+            .catch(() => {
+                // Fallback to original URL so browser error handler can render initials
+                if (img.isConnected) {
+                    img.src = targetSrc;
+                }
+            });
     }
 
     _loadImage(img) {
@@ -394,7 +439,7 @@ class LazyLoader {
         };
 
         img.crossOrigin = 'anonymous';
-        img.src = img.dataset.src;
+        this._assignImageSource(img, img.dataset.src);
 
         if (this.observer) {
             this.observer.unobserve(img);

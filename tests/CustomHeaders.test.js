@@ -197,3 +197,88 @@ test('CustomHeaders: media streaming and playback URLs receive custom headers', 
     assert.strictEqual(subtitleHeaders['CF-Access-Client-Id'], 'client-id-xyz.access');
     assert.strictEqual(subtitleHeaders['CF-Access-Client-Secret'], 'secret-hash-789');
 });
+
+test('CustomHeaders: authenticated image resolution, caching, and cleanup', async () => {
+    // -------------------------------------------------------------------------
+    // Setup test server with Cloudflare Access headers
+    // -------------------------------------------------------------------------
+    const serverUrl = 'https://ma.eatingheads.com';
+    const credentials = [
+        { key: 'CF-Access-Client-Id', value: 'client-id-123', enabled: true },
+        { key: 'CF-Access-Client-Secret', value: 'secret-key-456', enabled: true }
+    ];
+
+    // Configure headers for this server
+    customHeaders.setServerHeaders(serverUrl, credentials);
+    customHeaders.setActiveServer(serverUrl);
+
+    // Verify hasCustomHeaders returns true for protected server
+    assert.strictEqual(customHeaders.hasCustomHeaders(serverUrl), true);
+    assert.strictEqual(customHeaders.hasCustomHeaders('https://other-unprotected.local'), false);
+
+    // -------------------------------------------------------------------------
+    // 1. Unprotected / third-party URLs must return unchanged without fetch
+    // -------------------------------------------------------------------------
+    const thirdPartyUrl = 'https://image.tmdb.org/t/p/w500/poster.jpg';
+    const resolvedThirdParty = await customHeaders.resolveImageUrl(thirdPartyUrl);
+    assert.strictEqual(resolvedThirdParty, thirdPartyUrl);
+
+    // Data URLs must also pass through untouched
+    const dataUrl = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+    const resolvedDataUrl = await customHeaders.resolveImageUrl(dataUrl);
+    assert.strictEqual(resolvedDataUrl, dataUrl);
+
+    // -------------------------------------------------------------------------
+    // 2. Protected server artwork URL should fetch with headers and return Blob URL
+    // -------------------------------------------------------------------------
+    const imageUrl = 'https://ma.eatingheads.com/Items/ea295f86/Images/Primary?maxWidth=400';
+
+    // Mock global fetch and URL.createObjectURL if needed in test environment
+    const originalFetch = global.fetch;
+    const originalCreateObjectURL = URL.createObjectURL;
+    let fetchCalledWithHeaders = false;
+
+    try {
+        global.fetch = async (reqUrl, init) => {
+            if (reqUrl === imageUrl) {
+                // Verify custom headers were attached to fetch request
+                if (init?.headers?.['CF-Access-Client-Id'] === 'client-id-123' &&
+                    init?.headers?.['CF-Access-Client-Secret'] === 'secret-key-456') {
+                    fetchCalledWithHeaders = true;
+                }
+                return {
+                    ok: true,
+                    status: 200,
+                    blob: async () => new Blob(['fake-image-bytes'], { type: 'image/jpeg' })
+                };
+            }
+            return { ok: false, status: 404 };
+        };
+
+        if (typeof URL.createObjectURL !== 'function') {
+            URL.createObjectURL = (blob) => `blob:https://ma.eatingheads.com/mock-blob-${Date.now()}`;
+        }
+
+        // Execute image resolution
+        const blobUrl = await customHeaders.resolveImageUrl(imageUrl, serverUrl);
+
+        // Verify request received headers and returned blob URL
+        assert.strictEqual(fetchCalledWithHeaders, true);
+        assert.strictEqual(blobUrl.startsWith('blob:'), true);
+
+        // Verify synchronous cache returns the same blob URL
+        const cachedUrl = customHeaders.getCachedBlobUrl(imageUrl);
+        assert.strictEqual(cachedUrl, blobUrl);
+
+        // ---------------------------------------------------------------------
+        // 3. Cache Purge & Cleanup
+        // ---------------------------------------------------------------------
+        customHeaders.clearBlobCache();
+        assert.strictEqual(customHeaders.getCachedBlobUrl(imageUrl), null);
+    } finally {
+        // Restore globals
+        global.fetch = originalFetch;
+        URL.createObjectURL = originalCreateObjectURL;
+        customHeaders.clearCache();
+    }
+});

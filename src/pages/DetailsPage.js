@@ -32,6 +32,7 @@ import DescriptionModal from '../components/DescriptionModal.js';
 import { RichMetadataTable } from '../components/RichMetadataTable.js';
 
 import BackdropManager from '../utils/BackdropManager.js';
+import { customHeaders } from '../utils/CustomHeaders.js';
 import { PlayerSettings } from '../utils/PlayerSettings.js';
 import { resolveBestAudioStream, resolveSubtitleStream, isForcedStream, getEffectiveSubtitleMode } from '../player/core/JellyfinPlayer.js';
 import { MediaHelper } from '../player/core/MediaHelper.js';
@@ -1481,22 +1482,48 @@ class DetailsPage extends Page {
                     .catch((err) => log.error('Failed to decode poster blurhash', err));
             }
 
-            const img = new Image();
-            img.onload = () => {
-                img.classList.add('loaded');
-                // Fade out and remove canvas when image loads
-                if (posterCanvas) {
-                    posterCanvas.style.opacity = '0';
-                    setTimeout(() => {
-                        if (posterCanvas && posterCanvas.parentNode) {
-                            posterCanvas.parentNode.removeChild(posterCanvas);
-                        }
-                    }, 250);
-                }
+            /*
+             * ================================================================
+             * Primary Poster Artwork Presentation
+             * ================================================================
+             * Instantiates the primary poster image element. When custom headers
+             * are active (e.g. Cloudflare Access), resolves via CustomHeadersManager
+             * to fetch the authenticated blob URL so native WebViews display it.
+             * ================================================================
+             */
+            const applyPoster = (effectivePosterUrl) => {
+                const img = new Image();
+                img.onload = () => {
+                    img.classList.add('loaded');
+                    // Fade out and remove canvas when image loads
+                    if (posterCanvas) {
+                        posterCanvas.style.opacity = '0';
+                        setTimeout(() => {
+                            if (posterCanvas && posterCanvas.parentNode) {
+                                posterCanvas.parentNode.removeChild(posterCanvas);
+                            }
+                        }, 250);
+                    }
+                };
+                img.src = effectivePosterUrl;
+                img.alt = item.Name;
+                posterContainer.appendChild(img);
             };
-            img.src = posterUrl;
-            img.alt = item.Name;
-            posterContainer.appendChild(img);
+
+            // Check if reverse proxy headers are active for the Jellyfin server
+            if (customHeaders?.hasCustomHeaders?.()) {
+                const cached = customHeaders.getCachedBlobUrl(posterUrl);
+                if (cached) {
+                    applyPoster(cached);
+                } else {
+                    customHeaders
+                        .resolveImageUrl(posterUrl)
+                        .then((resolvedUrl) => applyPoster(resolvedUrl))
+                        .catch(() => applyPoster(posterUrl));
+                }
+            } else {
+                applyPoster(posterUrl);
+            }
         } else {
             // No primary image, show gradient fallback
             const isLandscape = posterType === 'landscape';

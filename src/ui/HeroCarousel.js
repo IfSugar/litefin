@@ -20,6 +20,7 @@ import { platformInfo } from '../utils/PlatformInfo.js';
 import { detailsIcons } from '../utils/Icons.js';
 import { escapeHtml } from '../utils/Utils.js';
 import { getMdbProviderInfo } from '../plugins/installed/mdblist-ratings/ratingsFormatter.js';
+import { customHeaders } from '../utils/CustomHeaders.js';
 
 const log = logger.create('HeroCarousel');
 
@@ -227,8 +228,12 @@ class HeroCarousel {
         // 1820px backdrop at once, starving the main thread during page load.
         // We set background-image exclusively for the active slide (index 0).
         // Inactive slides store the URL in data-backdrop and load just-in-time.
+        // When reverse proxy headers are active, check the cached Blob URL first.
         // ---------------------------------------------------------------------
-        const backdropStyle = isActive ? ` style="background-image: url('${backdropUrl}')"` : '';
+        const initialBackdrop = customHeaders?.hasCustomHeaders?.()
+            ? (customHeaders.getCachedBlobUrl(backdropUrl) || null)
+            : backdropUrl;
+        const backdropStyle = isActive && initialBackdrop ? ` style="background-image: url('${initialBackdrop}')"` : '';
 
         return `
             <div class="hero-item ${isActive ? 'active' : ''}" data-index="${index}"${!isActive ? ' style="visibility:hidden"' : ''}>
@@ -685,6 +690,11 @@ class HeroCarousel {
             this._intersectionObserver.observe(this._container);
         }
 
+        // If custom reverse proxy headers are configured, trigger slide 0 preload to fetch authenticated blob
+        if (customHeaders?.hasCustomHeaders?.()) {
+            this._preloadSlide(0);
+        }
+
         // ---------------------------------------------------------------------
         // Deferred Single-Slide Preload Window
         // ---------------------------------------------------------------------
@@ -905,28 +915,48 @@ class HeroCarousel {
         const backdrop = item.querySelector('.hero-backdrop');
         if (backdrop && backdrop.dataset.backdrop && !backdrop.style.backgroundImage) {
             const url = backdrop.dataset.backdrop;
-            const img = new Image();
-            img.onload = () => {
-                if (backdrop.dataset.backdrop === url) {
-                    backdrop.style.backgroundImage = `url('${url}')`;
-                    // Fade out blurhash canvas if present
-                    const canvas = item.querySelector('.hero-blurhash-canvas');
-                    if (canvas) {
-                        canvas.style.opacity = '0';
-                        setTimeout(() => {
-                            if (canvas && canvas.parentNode) canvas.parentNode.removeChild(canvas);
-                        }, 500);
+
+            /*
+             * Applies the loaded backdrop image to the hero element.
+             * Fades out and discards the BlurHash canvas once the graphic settles.
+             */
+            const applyBackdrop = (effectiveUrl) => {
+                const img = new Image();
+                img.onload = () => {
+                    if (backdrop.dataset.backdrop === url) {
+                        backdrop.style.backgroundImage = `url('${effectiveUrl}')`;
+                        // Fade out blurhash canvas if present
+                        const canvas = item.querySelector('.hero-blurhash-canvas');
+                        if (canvas) {
+                            canvas.style.opacity = '0';
+                            setTimeout(() => {
+                                if (canvas && canvas.parentNode) canvas.parentNode.removeChild(canvas);
+                            }, 500);
+                        }
                     }
-                }
+                };
+                img.src = effectiveUrl;
             };
-            img.src = url;
+
+            // Resolve via customHeaders if reverse proxy credentials are required
+            if (customHeaders?.hasCustomHeaders?.()) {
+                const cached = customHeaders.getCachedBlobUrl(url);
+                if (cached) {
+                    applyBackdrop(cached);
+                } else {
+                    customHeaders
+                        .resolveImageUrl(url)
+                        .then(applyBackdrop)
+                        .catch(() => applyBackdrop(url));
+                }
+            } else {
+                applyBackdrop(url);
+            }
         }
 
         // Load logo image if deferred
         const logo = item.querySelector('.hero-logo');
         if (logo && logo.dataset.src && !logo.src) {
-            logo.src = logo.dataset.src;
-
             // Recalculate natural aspect ratio container height once deferred logo loads
             const adjustLogoHeight = () => {
                 const container = logo.closest('.hero-logo-container');
@@ -943,10 +973,32 @@ class HeroCarousel {
                 }
             };
 
-            if (logo.complete) {
-                adjustLogoHeight();
+            /*
+             * Applies the resolved logo source URL and adjusts container height.
+             * Binds onload handler if image is still decoding asynchronously.
+             */
+            const applyLogo = (effectiveUrl) => {
+                logo.src = effectiveUrl;
+                if (logo.complete) {
+                    adjustLogoHeight();
+                } else {
+                    logo.onload = adjustLogoHeight;
+                }
+            };
+
+            // Resolve via customHeaders if reverse proxy credentials are required
+            if (customHeaders?.hasCustomHeaders?.()) {
+                const cached = customHeaders.getCachedBlobUrl(logo.dataset.src);
+                if (cached) {
+                    applyLogo(cached);
+                } else {
+                    customHeaders
+                        .resolveImageUrl(logo.dataset.src)
+                        .then(applyLogo)
+                        .catch(() => applyLogo(logo.dataset.src));
+                }
             } else {
-                logo.onload = adjustLogoHeight;
+                applyLogo(logo.dataset.src);
             }
         }
     }

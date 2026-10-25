@@ -2702,6 +2702,8 @@ export class ApiClient {
 
             // Connection opened
             this._webSocket.onopen = () => {
+                // Reset reconnect attempt counter upon successful handshake
+                this._wsReconnectAttempts = 0;
                 log.info('WebSocket connected - user is now online');
                 eventBus.emit('websocket:connected');
 
@@ -2726,16 +2728,48 @@ export class ApiClient {
                 this._stopWebSocketKeepalive();
                 eventBus.emit('websocket:disconnected');
 
-                // Attempt to reconnect if we still have credentials and the app is visible
+                /*
+                 * ============================================================
+                 * Progressive WebSocket Exponential Reconnect Backoff
+                 * ============================================================
+                 * Prevents connection thrashing, CPU churn, and log spam on TV
+                 * devices when upstream reverse proxies (e.g. Cloudflare Zero Trust)
+                 * reject the W3C WebSocket handshake (HTTP 403 Forbidden).
+                 *
+                 * Backs off from 5s up to 60s max. Emits actionable diagnostic log
+                 * on persistent failure pointing user to bypass reverse proxy rules.
+                 * ============================================================
+                 */
                 if (this._serverUrl && this._accessToken && !document.hidden) {
-                    log.info('Scheduling WebSocket reconnect in 5 seconds...');
+                    // Increment consecutive reconnect failures
+                    this._wsReconnectAttempts = (this._wsReconnectAttempts || 0) + 1;
+
+                    // Calculate exponential delay (5s, 7.5s, 11s, 17s, 25s, 38s, up to 60s max)
+                    const baseDelay = 5000;
+                    const exponentialFactor = Math.pow(1.5, Math.min(this._wsReconnectAttempts - 1, 6));
+                    const delayMs = Math.min(60000, Math.round(baseDelay * exponentialFactor));
+                    const delaySec = Math.round(delayMs / 1000);
+
+                    // Throttle reconnect scheduling logs after the first few failures
+                    if (this._wsReconnectAttempts <= 3 || this._wsReconnectAttempts % 5 === 0) {
+                        log.info(`Scheduling WebSocket reconnect in ${delaySec} seconds (attempt ${this._wsReconnectAttempts})...`);
+                    }
+
+                    // Diagnostic guidance on persistent disconnection
+                    if (this._wsReconnectAttempts === 5) {
+                        log.warn('[ApiClient] WebSocket handshake continuously failing. If using a reverse proxy or Cloudflare Access, ensure path /socket (or /embywebsocket) has a Bypass policy configured.');
+                    }
+
+                    // Schedule next reconnect attempt
                     if (this._reconnectTimer) clearTimeout(this._reconnectTimer);
                     this._reconnectTimer = setTimeout(() => {
                         if (!this.isWebSocketConnected) {
-                            log.info('Attempting to reconnect WebSocket...');
+                            if (this._wsReconnectAttempts <= 3 || this._wsReconnectAttempts % 5 === 0) {
+                                log.info('Attempting to reconnect WebSocket...');
+                            }
                             this.openWebSocket();
                         }
-                    }, 5000);
+                    }, delayMs);
                 }
             };
 
@@ -2755,6 +2789,13 @@ export class ApiClient {
      */
     closeWebSocket() {
         this._stopWebSocketKeepalive();
+
+        // Reset reconnect attempts and clear any pending timer
+        this._wsReconnectAttempts = 0;
+        if (this._reconnectTimer) {
+            clearTimeout(this._reconnectTimer);
+            this._reconnectTimer = null;
+        }
 
         if (this._webSocket) {
             log.info('Closing WebSocket connection');

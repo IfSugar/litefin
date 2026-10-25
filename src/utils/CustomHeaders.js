@@ -74,6 +74,26 @@ class CustomHeadersManager {
          * Currently active server URL to fast-path lookups during normal app flow.
          */
         this._activeServerUrl = null;
+
+        /**
+         * In-memory cache of resolved Blob URLs for reverse proxy authenticated images.
+         * Maps raw Jellyfin image URL to { blobUrl, timestamp }.
+         * Enables standard <img> tags and CSS backgrounds to display images protected
+         * by Cloudflare Access, Authentik, or Authelia without raw Chromium header limitations.
+         */
+        this._blobCache = new Map();
+
+        /**
+         * In-flight image fetch promises to prevent redundant duplicate network requests
+         * when multiple cards or components request the identical poster concurrently.
+         */
+        this._inFlightImages = new Map();
+
+        /**
+         * Maximum number of concurrent Blob URLs retained in memory simultaneously.
+         * Sized to comfortably cache active library pages without TV heap pressure.
+         */
+        this._maxBlobCacheSize = 250;
     }
 
     /**
@@ -163,6 +183,7 @@ class CustomHeadersManager {
 
         // Invalidate in-memory cache for this server address
         this._cache.delete(normalized);
+        this.clearBlobCache();
         log.info(`Updated custom headers for ${normalized} (${sanitized.length} entries)`);
     }
 
@@ -326,10 +347,169 @@ class CustomHeadersManager {
     }
 
     /**
-     * Clears all in-memory caches.
+     * Checks if custom reverse proxy headers are configured and active for a server.
+     * Fast-path check so image components can avoid asynchronous resolution when
+     * operating on standard local networks without custom authentication headers.
+     *
+     * @param {string} [serverUrl] - Optional server address to inspect
+     * @returns {boolean} True if at least one custom header is defined and active
+     */
+    hasCustomHeaders(serverUrl) {
+        // Resolve headers against specific server or fall back to globally active server
+        const headers = serverUrl
+            ? this.getNormalizedHeaders(serverUrl)
+            : this.getActiveHeaders();
+
+        // Check if header dictionary contains any valid key-value pairs
+        return Boolean(headers && Object.keys(headers).length > 0);
+    }
+
+    /**
+     * Synchronously returns a previously resolved and cached Blob URL if available.
+     * Provides zero-overhead, frame-accurate rendering for cards and pages revisited
+     * within the same browsing session.
+     *
+     * @param {string} url - Target media image URL
+     * @returns {string|null} Cached Blob URL or null if not yet resolved
+     */
+    getCachedBlobUrl(url) {
+        // Guard against falsy URL inputs
+        if (!url || typeof url !== 'string') return null;
+
+        // Retrieve existing blob URL wrapper from memory cache
+        const entry = this._blobCache.get(url);
+        return entry?.blobUrl || null;
+    }
+
+    /**
+     * =========================================================================
+     * Authenticated Image URL Resolver
+     * =========================================================================
+     * Standard HTML5 <img> tags and CSS url('...') directives cannot attach
+     * custom HTTP headers in browser WebViews. When operating behind Zero Trust
+     * proxies (Cloudflare Access, Authentik, etc.), requests for artwork receive
+     * 403 Forbidden or HTML login pages.
+     *
+     * This method intercepts artwork requests for protected servers, performs
+     * a CORS-compliant fetch() with the required service token headers, and
+     * converts the resulting binary payload into an in-memory blob: URL.
+     *
+     * For URLs not matching the protected server, or when no custom headers are
+     * configured, the original URL is returned synchronously without overhead.
+     * =========================================================================
+     *
+     * @param {string} url - Target artwork or backdrop image URL
+     * @param {string} [serverUrl] - Optional server URL override
+     * @returns {Promise<string>} Blob URL or original image URL
+     */
+    async resolveImageUrl(url, serverUrl) {
+        // Fast-path exit for invalid or empty image paths
+        if (!url || typeof url !== 'string') return url;
+
+        // Fast-path exit for local data URIs, SVGs, or already resolved blob URLs
+        if (url.startsWith('data:') || url.startsWith('blob:')) {
+            return url;
+        }
+
+        // Determine destination server address
+        const targetServer = serverUrl || this._activeServerUrl;
+
+        // Verify if destination belongs to the server and requires reverse proxy headers
+        const headers = this.getHeadersForUrl(url, targetServer);
+        if (!headers || Object.keys(headers).length === 0) {
+            return url;
+        }
+
+        // 1. Check in-memory blob cache for immediate synchronous hit
+        const cached = this._blobCache.get(url);
+        if (cached && cached.blobUrl) {
+            return cached.blobUrl;
+        }
+
+        // 2. Deduplicate in-flight fetch requests for the exact same image
+        if (this._inFlightImages.has(url)) {
+            return await this._inFlightImages.get(url);
+        }
+
+        // 3. Initiate authenticated fetch with custom headers
+        const fetchPromise = (async () => {
+            try {
+                // Execute fetch with custom headers
+                const response = await fetch(url, {
+                    headers,
+                    mode: 'cors'
+                });
+
+                // Check for successful HTTP status
+                if (!response.ok) {
+                    log.warn(`Authenticated image fetch failed (HTTP ${response.status}) for ${url}`);
+                    return url;
+                }
+
+                // Convert response stream to binary blob
+                const blob = await response.blob();
+
+                // Allocate native browser Object URL for the blob
+                const blobUrl = URL.createObjectURL(blob);
+
+                // Enforce bounded LRU cache limit to prevent memory leak on TV devices
+                if (this._blobCache.size >= this._maxBlobCacheSize) {
+                    const oldestKey = this._blobCache.keys().next().value;
+                    const oldest = this._blobCache.get(oldestKey);
+
+                    // Revoke old blob URL to release native memory back to the OS
+                    if (oldest?.blobUrl) {
+                        try {
+                            URL.revokeObjectURL(oldest.blobUrl);
+                        } catch (_) {}
+                    }
+                    this._blobCache.delete(oldestKey);
+                }
+
+                // Store in cache with current timestamp for eviction tracking
+                this._blobCache.set(url, { blobUrl, timestamp: Date.now() });
+                return blobUrl;
+            } catch (err) {
+                // Non-fatal warning if network fails — fall back to original URL
+                log.warn(`Failed to fetch authenticated image: ${err?.message || err}`);
+                return url;
+            } finally {
+                // Clear active in-flight tracking once network promise settles
+                this._inFlightImages.delete(url);
+            }
+        })();
+
+        // Track in-flight operation and await result
+        this._inFlightImages.set(url, fetchPromise);
+        return await fetchPromise;
+    }
+
+    /**
+     * Revokes all allocated in-memory Blob URLs and purges image caches.
+     * Prevents memory leaks upon server switching, logout, or session termination.
+     */
+    clearBlobCache() {
+        // Iterate through all cached blob entries and revoke native handles
+        for (const entry of this._blobCache.values()) {
+            if (entry?.blobUrl) {
+                try {
+                    URL.revokeObjectURL(entry.blobUrl);
+                } catch (_) {}
+            }
+        }
+
+        // Flush tracking maps
+        this._blobCache.clear();
+        this._inFlightImages.clear();
+        log.debug('CustomHeaders blob URL cache purged');
+    }
+
+    /**
+     * Clears all in-memory caches including headers and allocated image blobs.
      */
     clearCache() {
         this._cache.clear();
+        this.clearBlobCache();
     }
 }
 
