@@ -66,6 +66,12 @@ const ROW_CUTOFF_BUFFER = 40;
 // remain strictly off-screen above the viewport.
 const DEFAULT_SCROLL_OFFSET_TOP = 40;
 
+// Default bottom offset (px) when aligning a row to the bottom of the viewport.
+// Tuned to 8px to ensure the active row's bottom boundary and card subtitles
+// sit comfortably within the TV viewport safe area while ensuring the succeeding
+// row's title remains strictly off-screen below the viewport.
+const DEFAULT_SCROLL_OFFSET_BOTTOM = 8;
+
 // Threshold (px) — if the row's top is already within this distance of
 // the ideal scroll position, skip scrolling. Prevents micro-jitter when
 // navigating horizontally within the same row, but keep it small so
@@ -202,6 +208,36 @@ class ScrollController {
             return 'native';
         }
         return 'gpu';
+    }
+
+    /**
+     * ========================================================================
+     * VERTICAL SCROLL FOCUS ALIGNMENT CONFIGURATION
+     * ========================================================================
+     * Resolves the target alignment mode when focusing rows or vertical list items.
+     * Supported options:
+     *   - 'bottom' (Default): Aligns focused rows toward the lower viewport boundary.
+     *     This drastically minimizes scroll frequency, as rows already within view
+     *     require zero scroll adjustments, eliminating unnecessary repaints and
+     *     GPU compositor thrashing on Smart TV hardware.
+     *   - 'middle': Centers the active row or item in the middle of the viewport.
+     *   - 'top': Sticks the active row near the top of the viewport with top padding.
+     *
+     * @returns {'bottom'|'middle'|'top'} Active vertical scroll alignment mode
+     * ========================================================================
+     */
+    getVerticalScrollAlignment() {
+        // Read explicit user preference from persistent local storage
+        const stored = storage.getItem('pref:verticalScrollAlignment');
+
+        // Validate and normalize supported alignment keywords
+        if (stored === 'top' || stored === 'middle' || stored === 'center' || stored === 'bottom') {
+            return stored === 'center' ? 'middle' : stored;
+        }
+
+        // 'bottom' is the default behavior: it preserves viewport stability and
+        // eliminates repetitive layout scrolling when navigating adjacent rows.
+        return 'bottom';
     }
 
     /**
@@ -817,9 +853,9 @@ class ScrollController {
      * Scroll an element into view with intelligent positioning.
      *
      * Handles multiple scroll strategies:
-     *   - Row-based vertical: ALWAYS aligns the parent .media-row to the
-     *     top with a configurable offset (default 50px), guarded by a
-     *     threshold to prevent jitter on horizontal nav within the same row.
+     *   - Row-based vertical: Aligns the parent .media-row based on user preference
+     *     (bottom by default to minimize scroll frequency, middle/centered, or top),
+     *     guarded by a threshold to prevent jitter on horizontal nav within the same row.
      *   - Hero section: Always scrolls to absolute 0.
      *   - Horizontal: Centers the element within its .row-items container.
      *   - Generic vertical: Simple scroll-into-view with margins for
@@ -953,16 +989,33 @@ class ScrollController {
         // VERTICAL EPISODE LIST FAST PATH
         // ----------------------------------------------------------------
         // For vertical episode list items (e.g. season episodes list & Next Up list),
-        // scroll the page container on EVERY focus change so each focused episode card
-        // is comfortably aligned in the viewport (at 180px top offset).
+        // calculate target scroll according to the configured vertical alignment preference
+        // (bottom by default, middle/centered, or top).
         // ----------------------------------------------------------------
         const isVerticalListCard = element.closest('.episode-row-card, .episode-row, .episode-list-container') || element.classList.contains('episode-row-card');
         if (isVerticalListCard && pageContent) {
             const cardEl = element.closest('.episode-row-card') || element;
             const cardTop = getCumulativeOffsetTop(cardEl, pageContent);
+            const cardHeight = cardEl.offsetHeight || 100;
+            const viewHeight = pageContent.clientHeight;
             const currentScroll = this.getVerticalScroll(pageContent);
+            const alignment = this.getVerticalScrollAlignment();
 
-            const targetScroll = Math.max(0, cardTop - 180);
+            // Calculate ideal vertical target based on selected alignment mode
+            let targetScroll;
+            if (alignment === 'middle') {
+                // Center the focused episode card within the viewport
+                targetScroll = cardTop - (viewHeight / 2) + (cardHeight / 2);
+            } else if (alignment === 'bottom') {
+                // Bottom-align with comfortable headroom from the viewport bottom edge
+                targetScroll = cardTop + cardHeight - viewHeight + 100;
+            } else {
+                // Classic top-aligned positioning with 180px top offset
+                targetScroll = cardTop - 180;
+            }
+
+            // Guard against negative scroll offsets
+            targetScroll = Math.max(0, targetScroll);
 
             // Active in-flight target awareness: compare against destination target
             // so mid-flight keypresses targeting the same alignment don't re-trigger
@@ -1071,11 +1124,13 @@ class ScrollController {
         }
 
         // ----------------------------------------------------------------
-        // Row-based vertical scrolling — ALWAYS ALIGN TO TOP
-        // On every focus change, we target the ideal top-aligned position
-        // for the parent .media-row. This produces many small, smooth
-        // scrolls instead of rare, jarring large jumps — critical for
-        // performance on slow Tizen hardware.
+        // Row-based vertical scrolling — ALIGN ACCORDING TO USER PREFERENCE
+        // Targets the configured scroll alignment position for the parent .media-row:
+        //   - 'bottom' (Default): Aligns row bottom to the viewport bottom with padding.
+        //     Substantially reduces total scroll actions since rows already in view
+        //     stay perfectly stationary without viewport jumping.
+        //   - 'middle': Vertically centers the row in the viewport.
+        //   - 'top': Classic Litefin behavior aligning the row near the top.
         //
         // A threshold (SCROLL_ALIGN_THRESHOLD) prevents micro-jitter when
         // navigating horizontally within the same row or between tightly
@@ -1084,16 +1139,32 @@ class ScrollController {
         if (useRowScroll && row) {
             // Batch all DOM reads first (Samsung Tizen optimization)
             const rowTop = getCumulativeOffsetTop(row, pageContent);
+            const rowHeight = row.offsetHeight || 0;
             const padding = config.scrollOffsetTop || DEFAULT_SCROLL_OFFSET_TOP;
             const viewHeight = pageContent.clientHeight;
             const currentScroll = this.getVerticalScroll(pageContent);
+            const alignment = this.getVerticalScrollAlignment();
 
-            // Ideal target: row top sits at the configured offset from viewport top
-            let targetScroll = rowTop - padding;
+            // Compute ideal target scroll position based on alignment preference
+            let targetScroll;
+            if (alignment === 'middle') {
+                // Middle alignment: center the entire .media-row vertically
+                targetScroll = rowTop - (viewHeight / 2) + (rowHeight / 2);
+            } else if (alignment === 'bottom') {
+                // Bottom alignment: place row bottom cleanly near the viewport bottom.
+                // .row-items already has built-in 38px bottom padding for card subtitles,
+                // while .media-row has a 28px bottom margin. Aligning with a tuned offset
+                // guarantees the succeeding row title remains strictly off-screen below viewport.
+                const offsetBottom = config.scrollOffsetBottom || DEFAULT_SCROLL_OFFSET_BOTTOM;
+                targetScroll = rowTop + rowHeight - viewHeight - offsetBottom;
+            } else {
+                // Top alignment: row top sits at configured offset from viewport top
+                targetScroll = rowTop - padding;
+            }
 
             // Safety check: ensure the specific focused element is actually visible
             // at the computed scroll position. Handles tall-row edge cases where the
-            // focused item might be below the visible area at the row-aligned position.
+            // focused item might be below or above the visible area at the row-aligned position.
             //
             // OPTIMIZATION: Skip this check for VirtualCardRow items (detected via
             // data-virtual-index). Cards managed by VirtualCardRow are ALWAYS within
@@ -1109,11 +1180,15 @@ class ScrollController {
                 const elBottom = elTop + element.offsetHeight;
 
                 if (elBottom > targetScroll + viewHeight) {
-                    // Element too far down — bottom-align instead
+                    // Element cut off at the bottom — adjust target scroll to keep it in view
                     targetScroll = elBottom - viewHeight + ROW_CUTOFF_BUFFER;
+                } else if (elTop < targetScroll + padding) {
+                    // Element cut off at the top — adjust target scroll to keep it in view
+                    targetScroll = elTop - padding;
                 }
             }
 
+            // Never allow scrolling above the top boundary
             targetScroll = Math.max(0, targetScroll);
 
             // Only scroll if the delta exceeds the alignment threshold.
@@ -1182,8 +1257,18 @@ class ScrollController {
                         rowTop < currentScroll + HORIZONTAL_ROW_VISIBILITY_BUFFER ||
                         rowBottom > viewBottom - HORIZONTAL_ROW_VISIBILITY_BUFFER
                     ) {
-                        // Center the row vertically
-                        const targetScroll = rowTop - viewHeight / 2 + rowHeight / 2;
+                        // Align the row vertically according to user alignment preference
+                        const fallbackAlignment = this.getVerticalScrollAlignment();
+                        let targetScroll;
+                        if (fallbackAlignment === 'bottom') {
+                            const offsetBottom = config?.scrollOffsetBottom || DEFAULT_SCROLL_OFFSET_BOTTOM;
+                            targetScroll = rowBottom - viewHeight - offsetBottom;
+                        } else if (fallbackAlignment === 'top') {
+                            targetScroll = rowTop - DEFAULT_SCROLL_OFFSET_TOP;
+                        } else {
+                            targetScroll = rowTop - viewHeight / 2 + rowHeight / 2;
+                        }
+
                         this.smoothScrollTo(
                             pageContent,
                             Math.max(0, targetScroll),

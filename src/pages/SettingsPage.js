@@ -6119,6 +6119,33 @@ class SettingsPage extends Page {
         )}
                     </div>
                 </div>
+
+                <!-- =============================================================
+                     VERTICAL SCROLL FOCUS ALIGNMENT CONFIGURATION
+                     =============================================================
+                     Controls where focused media rows align on screen when scrolled:
+                     - Bottom (Default): Keeps rows visible longer and drastically
+                       reduces scroll frequency, preventing unnecessary viewport repaints.
+                     - Middle: Centers focused rows vertically in the viewport.
+                     - Top: Classic Litefin alignment with top headroom.
+                     ============================================================= -->
+                <div class="setting-item">
+                    <div class="setting-label">
+                        <span class="setting-name" data-i18n="VerticalScrollAlignment">${i18n.t('VerticalScrollAlignment') || 'Scroll Focus Alignment'}</span>
+                        <span class="setting-description" data-i18n="VerticalScrollAlignmentDescription">${i18n.t('VerticalScrollAlignmentDescription') || 'Choose where focused rows align on screen (Bottom, Middle, or Top). Bottom reduces scroll frequency significantly.'}</span>
+                    </div>
+                    <div class="setting-control">
+                        ${this._renderDropdown(
+            'vertical-scroll-alignment-select',
+            [
+                { value: 'bottom', label: i18n.t('ScrollAlignmentBottom') || 'Bottom (Default - Minimal Scrolling)' },
+                { value: 'middle', label: i18n.t('ScrollAlignmentMiddle') || 'Middle (Centered)' },
+                { value: 'top', label: i18n.t('ScrollAlignmentTop') || 'Top (Classic Litefin)' }
+            ],
+            storage.getItem('pref:verticalScrollAlignment') || 'bottom'
+        )}
+                    </div>
+                </div>
                 
                 <div class="setting-item">
                     <div class="setting-label">
@@ -12313,6 +12340,7 @@ class SettingsPage extends Page {
             'vertical-scroll-mode-select': { key: 'pref:verticalScrollMode', type: 'local', triggerEvent: true },
             'horizontal-scroll-mode-select': { key: 'pref:horizontalScrollMode', type: 'local', triggerEvent: true },
             'scroll-smoothing-duration-select': { key: 'pref:scrollSmoothingDuration', type: 'local', triggerEvent: true },
+            'vertical-scroll-alignment-select': { key: 'pref:verticalScrollAlignment', type: 'local', triggerEvent: true },
 
             // Centralized mappings for TV hardware remote control color buttons
             'remote-red-select': { key: 'pref:remoteRedAction', type: 'local', triggerEvent: true },
