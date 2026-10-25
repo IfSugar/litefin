@@ -153,15 +153,39 @@ function loadPlayerModule() {
 // prewarmed right after boot: fetching it while the home page is still
 // rendering steals CPU and memory from the first paint on TV hardware.
 // Instead it loads when there is a real playback signal:
-//   1. Immediately when the user enters a /details route (strongest predictor
-//      of playback on media-first apps like this one), and
+//   1. 600ms after the user enters a /details route (strongest predictor of
+//      playback on media-first apps like this one). The grace delay lets
+//      DetailsPage finish its own metadata fetch + backdrop/button render
+//      first - on a 1.0GHz sticker engine, parsing 1.8MB of player JS in the
+//      same tick as the route render shows up as a visible paint stall - and
+//      then loads while the user is reading title/synopsis instead, and
 //   2. After a long inactivity window otherwise - schedulePlayerPrewarm() is
 //      re-armed by every remote/keyboard interaction (focus moves, OK,
 //      back presses, route changes), so background chunk reads never compete
 //      with active navigation.
 // ============================================================================
 const PLAYER_PREWARM_IDLE_MS = 12000;
+const DETAILS_PREWARM_DELAY_MS = 600;
 let playerPrewarmTimer = null;
+let detailsPrewarmTimer = null;
+
+/**
+ * Arms the delayed details-entry prewarm window. Debounced per route entry;
+ * if playback starts within the window, prewarmPlayerChunk() runs the
+ * loading itself (a single import() promise serves both paths).
+ */
+function scheduleDetailsPrewarm() {
+    if (playerPrewarmPromise) {
+        return;
+    }
+    if (detailsPrewarmTimer) {
+        clearTimeout(detailsPrewarmTimer);
+    }
+    detailsPrewarmTimer = setTimeout(() => {
+        detailsPrewarmTimer = null;
+        prewarmPlayerChunk('details entry');
+    }, DETAILS_PREWARM_DELAY_MS);
+}
 
 /**
  * Starts (or restarts) the idle timer for background player chunk loading.
@@ -194,6 +218,10 @@ function prewarmPlayerChunk(reason) {
     if (playerPrewarmTimer) {
         clearTimeout(playerPrewarmTimer);
         playerPrewarmTimer = null;
+    }
+    if (detailsPrewarmTimer) {
+        clearTimeout(detailsPrewarmTimer);
+        detailsPrewarmTimer = null;
     }
     log.info(`Prewarming PlayerPage chunk in background (${reason})...`);
     loadPlayerModule()
@@ -1149,11 +1177,12 @@ class App {
             }
 
             // One-time activity wiring for the lazy player prewarm. Every
-            // interaction resets the idle timer; entering a details view is
-            // playback-likely enough to fetch the chunk immediately.
+            // interaction resets the idle timer; a details entry is
+            // playback-likely enough to fetch the chunk, after a 600ms grace
+            // period that lets DetailsPage render and paint first.
             eventBus.on('router:navigate', (event) => {
                 if (event && typeof event.path === 'string' && event.path.startsWith('/details')) {
-                    prewarmPlayerChunk('details entry');
+                    scheduleDetailsPrewarm();
                     return;
                 }
                 schedulePlayerPrewarm();
