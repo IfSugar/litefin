@@ -485,6 +485,24 @@ class LayoutManager {
     setMediaRowsLayout(layout, save = true) {
         this._mediaRowsLayout = layout;
         document.documentElement.setAttribute('data-layout-media-rows', layout);
+        /*
+         * Stamp the coarse disjoint "family" attributes used by CSS variant
+         * guards (identical specificity to the variant guards they replace):
+         *   family  = {modern, expanded, modern-posters, expanding} (non-classic)
+         *   cards   = {modern, modern-posters}
+         *   wide    = {expanded, expanding}
+         *   posters = {modern-posters, expanding}
+         * Removed outside the respective family so no rule can over-match.
+         */
+        const rootEl = document.documentElement;
+        rootEl.setAttribute('data-media-rows-family', layout === 'classic' ? 'classic' : 'modern');
+        const stampIf = (cond, attr) => {
+            if (cond) rootEl.setAttribute(attr, 'modern');
+            else rootEl.removeAttribute(attr);
+        };
+        stampIf(layout === 'modern' || layout === 'modern-posters', 'data-media-rows-cards');
+        stampIf(layout === 'expanded' || layout === 'expanding', 'data-media-rows-wide');
+        stampIf(layout === 'modern-posters' || layout === 'expanding', 'data-media-rows-posters');
         state.set('app:layout', layout, true);
         if (save) {
             storage.setItem('pref:mediaRowsLayout', layout);
@@ -695,6 +713,29 @@ class LayoutManager {
 
         // Stamp root element attribute for pure CSS layout branching
         document.documentElement.setAttribute('data-layout-sidebar', layout);
+
+        /*
+         * Stamp the coarse disjoint "family" attributes used by CSS variant
+         * guards. These duplicate an entire variant UNION in one short selector
+         * (html[data-sidebar-family="modern"] == the union of the
+         * modern / modern-collapsed / floating-buttons / floating-island
+         * guards) with identical specificity. Classic keeps outputting
+         * 'classic' so partial guards such as ^="modern" stay unambiguous.
+         * 'expandable' = {modern, modern-collapsed}, 'floating' = the two
+         * floating modes; absent (removed) outside the family.
+         */
+        const rootEl = document.documentElement;
+        rootEl.setAttribute('data-sidebar-family', layout === 'classic' ? 'classic' : 'modern');
+        if (layout === 'modern' || layout === 'modern-collapsed') {
+            rootEl.setAttribute('data-sidebar-expandable', 'modern');
+        } else {
+            rootEl.removeAttribute('data-sidebar-expandable');
+        }
+        if (layout === 'floating-buttons' || layout === 'floating-island') {
+            rootEl.setAttribute('data-sidebar-floating', 'modern');
+        } else {
+            rootEl.removeAttribute('data-sidebar-floating');
+        }
 
         // Persist preference to storage if enabled
         if (save) {

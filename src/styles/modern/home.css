@@ -1,10 +1,7 @@
 /* =========================================================================
    Modern, Expanded & Expanding Home Layout
    ========================================================================= */
-html[data-layout-media-rows="modern"] .home-rows,
-html[data-layout-media-rows="expanded"] .home-rows,
-html[data-layout-media-rows="modern-posters"] .home-rows,
-html[data-layout-media-rows="expanding"] .home-rows {
+html[data-media-rows-family="modern"] .home-rows {
     padding-top: 18px;
     padding-bottom: var(--row-padding-bottom, 30px);
 }
@@ -17,10 +14,7 @@ html[data-layout-media-rows="expanding"] .home-rows {
  */
 html[data-layout-media-rows="classic"] .row-items,
 html:not([data-layout-media-rows]) .row-items,
-html[data-layout-media-rows="modern"] .row-items,
-html[data-layout-media-rows="modern-posters"] .row-items,
-html[data-layout-media-rows="expanded"] .row-items,
-html[data-layout-media-rows="expanding"] .row-items {
+html[data-media-rows-family="modern"] .row-items {
     padding-top: 24px;
     padding-bottom: calc(38px * var(--card-title-font-scale, 1));
 }
@@ -29,10 +23,7 @@ html[data-layout-media-rows="expanding"] .row-items {
    Row Headers (Modern, Expanded, Modern Posters & Expanding)
    ========================================================================= */
 
-html[data-layout-media-rows="modern"] .row-title,
-html[data-layout-media-rows="expanded"] .row-title,
-html[data-layout-media-rows="modern-posters"] .row-title,
-html[data-layout-media-rows="expanding"] .row-title {
+html[data-media-rows-family="modern"] .row-title {
     font-size: 2.4rem;
     font-weight: 800;
     margin-bottom: 14px;
@@ -46,10 +37,7 @@ html[data-layout-media-rows="expanding"] .row-title {
 }
 
 /* Focus hint for the row title when a card in it is focused */
-html[data-layout-media-rows="modern"] .media-row:focus-within .row-title,
-html[data-layout-media-rows="expanded"] .media-row:focus-within .row-title,
-html[data-layout-media-rows="modern-posters"] .media-row:focus-within .row-title,
-html[data-layout-media-rows="expanding"] .media-row:focus-within .row-title {
+html[data-media-rows-family="modern"] .media-row:focus-within .row-title {
     transform: translateX(4px);
     color: #fff;
 }
@@ -74,8 +62,7 @@ html[data-layout-media-rows="expanded"] .media-card:not(.grid-card):not(.episode
     transition: transform 0.2s cubic-bezier(0.2, 0, 0, 1);
 }
 
-html[data-layout-media-rows="modern"] .media-card:not(.grid-card):not(.episode-row-card):not(.episode-card),
-html[data-layout-media-rows="modern-posters"] .media-card:not(.grid-card):not(.episode-row-card):not(.episode-card) {
+html[data-media-rows-cards="modern"] .media-card:not(.grid-card):not(.episode-row-card):not(.episode-card) {
     width: var(--card-width, 212px);
     margin-right: var(--card-margin, 26px);
     margin-left: 0;
@@ -83,8 +70,7 @@ html[data-layout-media-rows="modern-posters"] .media-card:not(.grid-card):not(.e
     transition: transform 0.2s cubic-bezier(0.2, 0, 0, 1);
 }
 
-html[data-layout-media-rows="modern"] .media-card.landscape:not(.grid-card):not(.episode-row-card):not(.episode-card),
-html[data-layout-media-rows="modern-posters"] .media-card.landscape:not(.grid-card):not(.episode-row-card):not(.episode-card) {
+html[data-media-rows-cards="modern"] .media-card.landscape:not(.grid-card):not(.episode-row-card):not(.episode-card) {
     width: var(--card-landscape-width, var(--card-expanded-width, 396px));
 }
 
@@ -133,8 +119,7 @@ html[data-layout-media-rows="expanded"] .media-card:not(.grid-card):not(.episode
     overflow: hidden;
 }
 
-html[data-layout-media-rows="modern"] .media-card:not(.grid-card):not(.episode-row-card):not(.episode-card) .card-image,
-html[data-layout-media-rows="modern-posters"] .media-card:not(.grid-card):not(.episode-row-card):not(.episode-card) .card-image {
+html[data-media-rows-cards="modern"] .media-card:not(.grid-card):not(.episode-row-card):not(.episode-card) .card-image {
     width: 100%;
     height: var(--card-height, 318px) !important;
     padding-bottom: 0 !important;
@@ -147,13 +132,11 @@ html[data-layout-media-rows="modern-posters"] .media-card:not(.grid-card):not(.e
     overflow: hidden;
 }
 
-html[data-layout-media-rows="modern"] .media-card.landscape:not(.grid-card):not(.episode-row-card):not(.episode-card) .card-image,
-html[data-layout-media-rows="modern-posters"] .media-card.landscape:not(.grid-card):not(.episode-row-card):not(.episode-card) .card-image {
+html[data-media-rows-cards="modern"] .media-card.landscape:not(.grid-card):not(.episode-row-card):not(.episode-card) .card-image {
     height: var(--card-landscape-height, 222.75px) !important;
 }
 
-html[data-layout-media-rows="modern"] .media-card.square:not(.grid-card):not(.episode-row-card):not(.episode-card) .card-image,
-html[data-layout-media-rows="modern-posters"] .media-card.square:not(.grid-card):not(.episode-row-card):not(.episode-card) .card-image {
+html[data-media-rows-cards="modern"] .media-card.square:not(.grid-card):not(.episode-row-card):not(.episode-card) .card-image {
     height: var(--card-square-height, var(--card-square-width, 223px)) !important;
 }
 
@@ -417,18 +400,9 @@ html[data-layout-media-rows="expanding"] .media-card:not(.grid-card):not(.episod
 }
 
 /* Live TV Channel Card Contain Override for Expanding & Expanded Layouts */
-html[data-layout-media-rows="expanding"] .media-card[data-type="TvChannel"] .card-image img,
-html[data-layout-media-rows="expanding"] .media-card[data-item-type="TvChannel"] .card-image img,
-html[data-layout-media-rows="expanding"] .media-card.tv-channel-card .card-image img,
-html[data-layout-media-rows="modern"] .media-card[data-type="TvChannel"] .card-image img,
-html[data-layout-media-rows="modern"] .media-card[data-item-type="TvChannel"] .card-image img,
-html[data-layout-media-rows="modern"] .media-card.tv-channel-card .card-image img,
-html[data-layout-media-rows="expanded"] .media-card[data-type="TvChannel"] .card-image img,
-html[data-layout-media-rows="expanded"] .media-card[data-item-type="TvChannel"] .card-image img,
-html[data-layout-media-rows="expanded"] .media-card.tv-channel-card .card-image img,
-html[data-layout-media-rows="modern-posters"] .media-card[data-type="TvChannel"] .card-image img,
-html[data-layout-media-rows="modern-posters"] .media-card[data-item-type="TvChannel"] .card-image img,
-html[data-layout-media-rows="modern-posters"] .media-card.tv-channel-card .card-image img {
+html[data-media-rows-family="modern"] .media-card[data-type="TvChannel"] .card-image img,
+html[data-media-rows-family="modern"] .media-card[data-item-type="TvChannel"] .card-image img,
+html[data-media-rows-family="modern"] .media-card.tv-channel-card .card-image img {
     object-fit: contain !important;
     padding: 24px !important;
     box-sizing: border-box !important;
@@ -720,10 +694,7 @@ html[data-layout-media-rows="modern"] .media-card[data-item-type="CollectionFold
    Progress Bar (Floating Style - Modern, Expanded & Modern Posters)
    ========================================================================= */
 
-html[data-layout-media-rows="modern"] .card-progress-container,
-html[data-layout-media-rows="expanded"] .card-progress-container,
-html[data-layout-media-rows="modern-posters"] .card-progress-container,
-html[data-layout-media-rows="expanding"] .card-progress-container {
+html[data-media-rows-family="modern"] .card-progress-container {
     bottom: 20px;
     left: 20px;
     right: 20px;
@@ -734,30 +705,20 @@ html[data-layout-media-rows="expanding"] .card-progress-container {
 }
 
 html[data-layout-media-rows="expanded"] .card-progress-container,
-html[data-layout-media-rows="expanding"] .media-card.landscape .card-progress-container,
-html[data-layout-media-rows="modern-posters"] .media-card.landscape .card-progress-container {
+html[data-media-rows-posters="modern"] .media-card.landscape .card-progress-container {
     left: 32px;
     right: 32px;
 }
 
-html[data-layout-media-rows="modern"] progress.card-progress,
-html[data-layout-media-rows="expanded"] progress.card-progress,
-html[data-layout-media-rows="modern-posters"] progress.card-progress,
-html[data-layout-media-rows="expanding"] progress.card-progress {
+html[data-media-rows-family="modern"] progress.card-progress {
     height: 100%;
 }
 
-html[data-layout-media-rows="modern"] progress.card-progress::-webkit-progress-bar,
-html[data-layout-media-rows="expanded"] progress.card-progress::-webkit-progress-bar,
-html[data-layout-media-rows="modern-posters"] progress.card-progress::-webkit-progress-bar,
-html[data-layout-media-rows="expanding"] progress.card-progress::-webkit-progress-bar {
+html[data-media-rows-family="modern"] progress.card-progress::-webkit-progress-bar {
     background: transparent;
 }
 
-html[data-layout-media-rows="modern"] progress.card-progress::-webkit-progress-value,
-html[data-layout-media-rows="expanded"] progress.card-progress::-webkit-progress-value,
-html[data-layout-media-rows="modern-posters"] progress.card-progress::-webkit-progress-value,
-html[data-layout-media-rows="expanding"] progress.card-progress::-webkit-progress-value {
+html[data-media-rows-family="modern"] progress.card-progress::-webkit-progress-value {
     background-color: var(--jf-accent);
     border-radius: 10px;
     /* Spring-like transition for progress updates */
@@ -769,22 +730,13 @@ html[data-layout-media-rows="expanding"] progress.card-progress::-webkit-progres
    Badges & Indicators (Modern, Expanded, Modern Posters & Expanding)
    ========================================================================= */
 
-html[data-layout-media-rows="modern"] .count-badge,
-html[data-layout-media-rows="modern"] .episode-badge,
-html[data-layout-media-rows="modern"] .quality-badge,
 html[data-layout-media-rows="modern"] .game-card-badge,
-html[data-layout-media-rows="expanded"] .count-badge,
-html[data-layout-media-rows="expanded"] .episode-badge,
-html[data-layout-media-rows="expanded"] .quality-badge,
 html[data-layout-media-rows="expanded"] .game-card-badge,
-html[data-layout-media-rows="modern-posters"] .count-badge,
-html[data-layout-media-rows="modern-posters"] .episode-badge,
-html[data-layout-media-rows="modern-posters"] .quality-badge,
 html[data-layout-media-rows="modern-posters"] .game-card-badge,
-html[data-layout-media-rows="expanding"] .count-badge,
-html[data-layout-media-rows="expanding"] .episode-badge,
-html[data-layout-media-rows="expanding"] .quality-badge,
-html[data-layout-media-rows="expanding"] .game-card-badge {
+html[data-layout-media-rows="expanding"] .game-card-badge,
+html[data-media-rows-family="modern"] .count-badge,
+html[data-media-rows-family="modern"] .episode-badge,
+html[data-media-rows-family="modern"] .quality-badge {
     position: absolute;
     top: 22px;
     z-index: 8;
@@ -794,22 +746,13 @@ html[data-layout-media-rows="expanding"] .game-card-badge {
 }
 
 /* Bottom badges: Watched (right), Versions (left), Favorite (left) */
-html[data-layout-media-rows="modern"] .played-badge,
-html[data-layout-media-rows="modern"] .version-badge,
-html[data-layout-media-rows="modern"] .media-source-count-badge,
 html[data-layout-media-rows="modern"] .favorite-badge,
-html[data-layout-media-rows="expanded"] .played-badge,
-html[data-layout-media-rows="expanded"] .version-badge,
-html[data-layout-media-rows="expanded"] .media-source-count-badge,
 html[data-layout-media-rows="expanded"] .favorite-badge,
-html[data-layout-media-rows="modern-posters"] .played-badge,
-html[data-layout-media-rows="modern-posters"] .version-badge,
-html[data-layout-media-rows="modern-posters"] .media-source-count-badge,
 html[data-layout-media-rows="modern-posters"] .favorite-badge,
-html[data-layout-media-rows="expanding"] .played-badge,
-html[data-layout-media-rows="expanding"] .version-badge,
-html[data-layout-media-rows="expanding"] .media-source-count-badge,
-html[data-layout-media-rows="expanding"] .favorite-badge {
+html[data-layout-media-rows="expanding"] .favorite-badge,
+html[data-media-rows-family="modern"] .played-badge,
+html[data-media-rows-family="modern"] .version-badge,
+html[data-media-rows-family="modern"] .media-source-count-badge {
     position: absolute;
     bottom: 22px;
     z-index: 8;
@@ -822,9 +765,6 @@ html[data-layout-media-rows="expanding"] .favorite-badge {
     transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-html[data-layout-media-rows="modern"] .media-card:focus .count-badge,
-html[data-layout-media-rows="modern"] .media-card:focus .played-badge,
-html[data-layout-media-rows="modern"] .media-card:focus .episode-badge,
 html[data-layout-media-rows="modern"] .media-card:focus .quality-badge,
 html[data-layout-media-rows="modern"] .media-card:focus .game-card-badge,
 html[data-layout-media-rows="modern"] .media-card:focus .version-badge,
@@ -845,9 +785,6 @@ html[data-layout-media-rows="modern"] .media-card:hover .quality-badge,
 html[data-layout-media-rows="modern"] .media-card:hover .version-badge,
 html[data-layout-media-rows="modern"] .media-card:hover .media-source-count-badge,
 html[data-layout-media-rows="modern"] .media-card:hover .favorite-badge,
-html[data-layout-media-rows="expanded"] .media-card:focus .count-badge,
-html[data-layout-media-rows="expanded"] .media-card:focus .played-badge,
-html[data-layout-media-rows="expanded"] .media-card:focus .episode-badge,
 html[data-layout-media-rows="expanded"] .media-card:focus .quality-badge,
 html[data-layout-media-rows="expanded"] .media-card:focus .game-card-badge,
 html[data-layout-media-rows="expanded"] .media-card:focus .version-badge,
@@ -868,9 +805,6 @@ html[data-layout-media-rows="expanded"] .media-card:hover .quality-badge,
 html[data-layout-media-rows="expanded"] .media-card:hover .version-badge,
 html[data-layout-media-rows="expanded"] .media-card:hover .media-source-count-badge,
 html[data-layout-media-rows="expanded"] .media-card:hover .favorite-badge,
-html[data-layout-media-rows="modern-posters"] .media-card:focus .count-badge,
-html[data-layout-media-rows="modern-posters"] .media-card:focus .played-badge,
-html[data-layout-media-rows="modern-posters"] .media-card:focus .episode-badge,
 html[data-layout-media-rows="modern-posters"] .media-card:focus .quality-badge,
 html[data-layout-media-rows="modern-posters"] .media-card:focus .game-card-badge,
 html[data-layout-media-rows="modern-posters"] .media-card:focus .version-badge,
@@ -891,9 +825,6 @@ html[data-layout-media-rows="modern-posters"] .media-card:hover .quality-badge,
 html[data-layout-media-rows="modern-posters"] .media-card:hover .version-badge,
 html[data-layout-media-rows="modern-posters"] .media-card:hover .media-source-count-badge,
 html[data-layout-media-rows="modern-posters"] .media-card:hover .favorite-badge,
-html[data-layout-media-rows="expanding"] .media-card:focus .count-badge,
-html[data-layout-media-rows="expanding"] .media-card:focus .played-badge,
-html[data-layout-media-rows="expanding"] .media-card:focus .episode-badge,
 html[data-layout-media-rows="expanding"] .media-card:focus .quality-badge,
 html[data-layout-media-rows="expanding"] .media-card:focus .game-card-badge,
 html[data-layout-media-rows="expanding"] .media-card:focus .version-badge,
@@ -913,15 +844,15 @@ html[data-layout-media-rows="expanding"] .media-card:hover .episode-badge,
 html[data-layout-media-rows="expanding"] .media-card:hover .quality-badge,
 html[data-layout-media-rows="expanding"] .media-card:hover .version-badge,
 html[data-layout-media-rows="expanding"] .media-card:hover .media-source-count-badge,
-html[data-layout-media-rows="expanding"] .media-card:hover .favorite-badge {
+html[data-layout-media-rows="expanding"] .media-card:hover .favorite-badge,
+html[data-media-rows-family="modern"] .media-card:focus .count-badge,
+html[data-media-rows-family="modern"] .media-card:focus .played-badge,
+html[data-media-rows-family="modern"] .media-card:focus .episode-badge {
     transform: scale(1.05);
 }
 
 /* Top Right: Unplayed count */
-html[data-layout-media-rows="modern"] .count-badge,
-html[data-layout-media-rows="expanded"] .count-badge,
-html[data-layout-media-rows="modern-posters"] .count-badge,
-html[data-layout-media-rows="expanding"] .count-badge {
+html[data-media-rows-family="modern"] .count-badge {
     top: 22px;
     right: 22px;
     width: 44px;
@@ -933,10 +864,7 @@ html[data-layout-media-rows="expanding"] .count-badge {
 }
 
 /* Bottom Right: Watched indicator */
-html[data-layout-media-rows="modern"] .played-badge,
-html[data-layout-media-rows="expanded"] .played-badge,
-html[data-layout-media-rows="modern-posters"] .played-badge,
-html[data-layout-media-rows="expanding"] .played-badge {
+html[data-media-rows-family="modern"] .played-badge {
     bottom: 22px;
     right: 22px;
     top: auto;
@@ -950,14 +878,8 @@ html[data-layout-media-rows="expanding"] .played-badge {
 }
 
 /* Bottom Left: Versions count */
-html[data-layout-media-rows="modern"] .version-badge,
-html[data-layout-media-rows="modern"] .media-source-count-badge,
-html[data-layout-media-rows="expanded"] .version-badge,
-html[data-layout-media-rows="expanded"] .media-source-count-badge,
-html[data-layout-media-rows="modern-posters"] .version-badge,
-html[data-layout-media-rows="modern-posters"] .media-source-count-badge,
-html[data-layout-media-rows="expanding"] .version-badge,
-html[data-layout-media-rows="expanding"] .media-source-count-badge {
+html[data-media-rows-family="modern"] .version-badge,
+html[data-media-rows-family="modern"] .media-source-count-badge {
     bottom: 22px;
     left: 22px;
     top: auto;
@@ -974,10 +896,7 @@ html[data-layout-media-rows="expanding"] .media-source-count-badge {
 }
 
 /* Bottom Left: Favorite badge */
-html[data-layout-media-rows="modern"] .favorite-badge,
-html[data-layout-media-rows="expanded"] .favorite-badge,
-html[data-layout-media-rows="modern-posters"] .favorite-badge,
-html[data-layout-media-rows="expanding"] .favorite-badge {
+html[data-media-rows-family="modern"] .favorite-badge {
     bottom: 22px;
     left: 22px;
     top: auto;
@@ -992,14 +911,8 @@ html[data-layout-media-rows="expanding"] .favorite-badge {
 }
 
 /* Sibling Offset: Shift Favorite badge when Version Count badge is present at bottom left */
-html[data-layout-media-rows="modern"] .version-badge ~ .favorite-badge,
-html[data-layout-media-rows="modern"] .media-source-count-badge ~ .favorite-badge,
-html[data-layout-media-rows="expanded"] .version-badge ~ .favorite-badge,
-html[data-layout-media-rows="expanded"] .media-source-count-badge ~ .favorite-badge,
-html[data-layout-media-rows="modern-posters"] .version-badge ~ .favorite-badge,
-html[data-layout-media-rows="modern-posters"] .media-source-count-badge ~ .favorite-badge,
-html[data-layout-media-rows="expanding"] .version-badge ~ .favorite-badge,
-html[data-layout-media-rows="expanding"] .media-source-count-badge ~ .favorite-badge {
+html[data-media-rows-family="modern"] .version-badge ~ .favorite-badge,
+html[data-media-rows-family="modern"] .media-source-count-badge ~ .favorite-badge {
     left: 74px;
 }
 
@@ -1010,38 +923,29 @@ html[data-layout-media-rows="expanding"] .media-source-count-badge ~ .favorite-b
    elevate all bottom badges (Watched, Version Count, Favorite) to bottom: 38px.
    This provides a clean 10px breathing gap above the progress track.
    ========================================================================= */
-html[data-layout-media-rows="modern"] .card-progress-container ~ .played-badge,
-html[data-layout-media-rows="modern"] .card-progress-container ~ .version-badge,
-html[data-layout-media-rows="modern"] .card-progress-container ~ .media-source-count-badge,
 html[data-layout-media-rows="modern"] .card-progress-container ~ .favorite-badge,
 html[data-layout-media-rows="modern"] .media-card.has-progress .played-badge,
 html[data-layout-media-rows="modern"] .media-card.has-progress .version-badge,
 html[data-layout-media-rows="modern"] .media-card.has-progress .media-source-count-badge,
 html[data-layout-media-rows="modern"] .media-card.has-progress .favorite-badge,
-html[data-layout-media-rows="expanded"] .card-progress-container ~ .played-badge,
-html[data-layout-media-rows="expanded"] .card-progress-container ~ .version-badge,
-html[data-layout-media-rows="expanded"] .card-progress-container ~ .media-source-count-badge,
 html[data-layout-media-rows="expanded"] .card-progress-container ~ .favorite-badge,
 html[data-layout-media-rows="expanded"] .media-card.has-progress .played-badge,
 html[data-layout-media-rows="expanded"] .media-card.has-progress .version-badge,
 html[data-layout-media-rows="expanded"] .media-card.has-progress .media-source-count-badge,
 html[data-layout-media-rows="expanded"] .media-card.has-progress .favorite-badge,
-html[data-layout-media-rows="modern-posters"] .card-progress-container ~ .played-badge,
-html[data-layout-media-rows="modern-posters"] .card-progress-container ~ .version-badge,
-html[data-layout-media-rows="modern-posters"] .card-progress-container ~ .media-source-count-badge,
 html[data-layout-media-rows="modern-posters"] .card-progress-container ~ .favorite-badge,
 html[data-layout-media-rows="modern-posters"] .media-card.has-progress .played-badge,
 html[data-layout-media-rows="modern-posters"] .media-card.has-progress .version-badge,
 html[data-layout-media-rows="modern-posters"] .media-card.has-progress .media-source-count-badge,
 html[data-layout-media-rows="modern-posters"] .media-card.has-progress .favorite-badge,
-html[data-layout-media-rows="expanding"] .card-progress-container ~ .played-badge,
-html[data-layout-media-rows="expanding"] .card-progress-container ~ .version-badge,
-html[data-layout-media-rows="expanding"] .card-progress-container ~ .media-source-count-badge,
 html[data-layout-media-rows="expanding"] .card-progress-container ~ .favorite-badge,
 html[data-layout-media-rows="expanding"] .media-card.has-progress .played-badge,
 html[data-layout-media-rows="expanding"] .media-card.has-progress .version-badge,
 html[data-layout-media-rows="expanding"] .media-card.has-progress .media-source-count-badge,
-html[data-layout-media-rows="expanding"] .media-card.has-progress .favorite-badge {
+html[data-layout-media-rows="expanding"] .media-card.has-progress .favorite-badge,
+html[data-media-rows-family="modern"] .card-progress-container ~ .played-badge,
+html[data-media-rows-family="modern"] .card-progress-container ~ .version-badge,
+html[data-media-rows-family="modern"] .card-progress-container ~ .media-source-count-badge {
     bottom: 38px;
 }
 
@@ -1199,10 +1103,7 @@ html[data-disable-card-scaling="true"][data-layout-media-rows="expanding"] .medi
 }
 
 /* Top Left: SxxExx */
-html[data-layout-media-rows="modern"] .episode-badge,
-html[data-layout-media-rows="expanded"] .episode-badge,
-html[data-layout-media-rows="modern-posters"] .episode-badge,
-html[data-layout-media-rows="expanding"] .episode-badge {
+html[data-media-rows-family="modern"] .episode-badge {
     left: 22px;
     top: 22px;
     padding: 5px 12px;
@@ -1212,14 +1113,8 @@ html[data-layout-media-rows="expanding"] .episode-badge {
 }
 
 /* Top Right: Quality / Game badge */
-html[data-layout-media-rows="modern"] .quality-badge,
-html[data-layout-media-rows="modern"] .game-card-badge,
-html[data-layout-media-rows="expanded"] .quality-badge,
-html[data-layout-media-rows="expanded"] .game-card-badge,
-html[data-layout-media-rows="modern-posters"] .quality-badge,
-html[data-layout-media-rows="modern-posters"] .game-card-badge,
-html[data-layout-media-rows="expanding"] .quality-badge,
-html[data-layout-media-rows="expanding"] .game-card-badge {
+html[data-media-rows-family="modern"] .quality-badge,
+html[data-media-rows-family="modern"] .game-card-badge {
     right: 22px;
     top: 22px;
     padding: 5px 14px;
@@ -1229,14 +1124,8 @@ html[data-layout-media-rows="expanding"] .game-card-badge {
 }
 
 /* Sibling Offset: Shift Quality or Game badge when Unplayed count is present at top right */
-html[data-layout-media-rows="modern"] .count-badge ~ .quality-badge,
-html[data-layout-media-rows="modern"] .count-badge ~ .game-card-badge,
-html[data-layout-media-rows="expanded"] .count-badge ~ .quality-badge,
-html[data-layout-media-rows="expanded"] .count-badge ~ .game-card-badge,
-html[data-layout-media-rows="modern-posters"] .count-badge ~ .quality-badge,
-html[data-layout-media-rows="modern-posters"] .count-badge ~ .game-card-badge,
-html[data-layout-media-rows="expanding"] .count-badge ~ .quality-badge,
-html[data-layout-media-rows="expanding"] .count-badge ~ .game-card-badge {
+html[data-media-rows-family="modern"] .count-badge ~ .quality-badge,
+html[data-media-rows-family="modern"] .count-badge ~ .game-card-badge {
     right: 74px;
 }
 

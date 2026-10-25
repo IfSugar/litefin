@@ -1002,9 +1002,7 @@ html[data-layout-tier="ultra-legacy"] .sidebar:hover .item-text {
     z-index: 5;
 }
 
-html[data-layout-sidebar^="modern"] .sidebar-footer,
-html[data-layout-sidebar="floating-buttons"] .sidebar-footer,
-html[data-layout-sidebar="floating-island"] .sidebar-footer {
+html[data-sidebar-family="modern"] .sidebar-footer {
     display: flex;
     margin-top: auto;
     padding-bottom: 16px;

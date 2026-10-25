@@ -303,42 +303,24 @@
     right: 60px;
 }
 
-html[data-layout-media-rows="modern"][dir="rtl"] .played-badge,
-html[data-layout-media-rows="expanded"][dir="rtl"] .played-badge,
-html[data-layout-media-rows="modern-posters"][dir="rtl"] .played-badge,
-html[data-layout-media-rows="expanding"][dir="rtl"] .played-badge {
+html[data-media-rows-family="modern"][dir="rtl"] .played-badge {
     right: auto;
     left: 22px;
 }
 
-html[data-layout-media-rows="modern"][dir="rtl"] .version-badge,
-html[data-layout-media-rows="modern"][dir="rtl"] .media-source-count-badge,
-html[data-layout-media-rows="expanded"][dir="rtl"] .version-badge,
-html[data-layout-media-rows="expanded"][dir="rtl"] .media-source-count-badge,
-html[data-layout-media-rows="modern-posters"][dir="rtl"] .version-badge,
-html[data-layout-media-rows="modern-posters"][dir="rtl"] .media-source-count-badge,
-html[data-layout-media-rows="expanding"][dir="rtl"] .version-badge,
-html[data-layout-media-rows="expanding"][dir="rtl"] .media-source-count-badge {
+html[data-media-rows-family="modern"][dir="rtl"] .version-badge,
+html[data-media-rows-family="modern"][dir="rtl"] .media-source-count-badge {
     left: auto;
     right: 22px;
 }
 
-html[data-layout-media-rows="modern"][dir="rtl"] .favorite-badge,
-html[data-layout-media-rows="expanded"][dir="rtl"] .favorite-badge,
-html[data-layout-media-rows="modern-posters"][dir="rtl"] .favorite-badge,
-html[data-layout-media-rows="expanding"][dir="rtl"] .favorite-badge {
+html[data-media-rows-family="modern"][dir="rtl"] .favorite-badge {
     left: auto;
     right: 22px;
 }
 
-html[data-layout-media-rows="modern"][dir="rtl"] .version-badge ~ .favorite-badge,
-html[data-layout-media-rows="modern"][dir="rtl"] .media-source-count-badge ~ .favorite-badge,
-html[data-layout-media-rows="expanded"][dir="rtl"] .version-badge ~ .favorite-badge,
-html[data-layout-media-rows="expanded"][dir="rtl"] .media-source-count-badge ~ .favorite-badge,
-html[data-layout-media-rows="modern-posters"][dir="rtl"] .version-badge ~ .favorite-badge,
-html[data-layout-media-rows="modern-posters"][dir="rtl"] .media-source-count-badge ~ .favorite-badge,
-html[data-layout-media-rows="expanding"][dir="rtl"] .version-badge ~ .favorite-badge,
-html[data-layout-media-rows="expanding"][dir="rtl"] .media-source-count-badge ~ .favorite-badge {
+html[data-media-rows-family="modern"][dir="rtl"] .version-badge ~ .favorite-badge,
+html[data-media-rows-family="modern"][dir="rtl"] .media-source-count-badge ~ .favorite-badge {
     left: auto;
     right: 74px;
 }
