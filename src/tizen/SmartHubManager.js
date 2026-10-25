@@ -47,6 +47,7 @@ import { router } from '../core/Router.js';
 import { logger } from '../utils/Logger.js';
 import { pinManager } from '../utils/PinManager.js';
 import { storage } from '../utils/StorageService.js';
+import { getSeriesLastWatchedDates } from '../utils/NextUpActivity.js';
 
 const log = logger.create('SmartHubManager');
 
@@ -424,36 +425,10 @@ class SmartHubManager {
                         _isResume: false
                     }));
 
-                // Fetch series last played dates so next-up items can be sorted
-                // chronologically relative to when the show was last watched.
-                const nextUpSeriesIds = nextUpItems.map((item) => item.SeriesId).filter(Boolean);
-                const seriesLastPlayedMap = {};
-
-                if (nextUpSeriesIds.length > 0) {
-                    try {
-                        const uniqueSeriesIds = [...new Set(nextUpSeriesIds)];
-                        const activeEpisodesRes = await api.getItems({
-                            SeriesIds: uniqueSeriesIds.join(','),
-                            IncludeItemTypes: 'Episode',
-                            SortBy: 'DatePlayed',
-                            SortOrder: 'Descending',
-                            Fields: 'LastPlayedDate',
-                            Recursive: true,
-                            Limit: 100
-                        });
-
-                        const activeEpisodes = activeEpisodesRes?.Items || [];
-                        for (const ep of activeEpisodes) {
-                            const seriesId = ep.SeriesId;
-                            const lastPlayed = ep.UserData?.LastPlayedDate;
-                            if (seriesId && lastPlayed && !seriesLastPlayedMap[seriesId]) {
-                                seriesLastPlayedMap[seriesId] = new Date(lastPlayed).getTime();
-                            }
-                        }
-                    } catch (err) {
-                        log.warn('Failed to batch-fetch next-up parent activity dates:', err);
-                    }
-                }
+                // Rank next-up items the way Jellyfin's own Next Up (and the Litefin plugin)
+                // does: by when the furthest-watched episode was played, so rewatching an
+                // earlier episode does not move the series up.
+                const seriesLastPlayedMap = await getSeriesLastWatchedDates(nextUpItems.map((item) => item.SeriesId));
 
                 // Combine both lists and remove duplicate entries by ID
                 const combined = [...resumeItems, ...nextUpItems];
