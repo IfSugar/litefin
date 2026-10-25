@@ -888,6 +888,9 @@ class SmartHubManager {
      * @private
      */
     _relaunchService(serviceId) {
+        /* 3 s comfortably covers the service's 500 ms exit delay plus process
+         * teardown; relaunching while it is still alive would be a no-op and
+         * leave the proxy down once it exits. */
         setTimeout(() => {
             try {
                 tizen.application.launch(
