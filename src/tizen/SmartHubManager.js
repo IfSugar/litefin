@@ -771,14 +771,12 @@ class SmartHubManager {
      *   2. Launch the ytresolver service via ApplicationControl, passing the
      *      JSON as 'SmartHubPreview' AppControl data.
      *   3. The service's onRequest handler calls webapis.preview.setPreviewData()
-     *      and then calls exit() (Samsung requires the service to terminate for
-     *      the preview to be committed to the Smart Hub display).
+     *      and, on success, exits ~0.5 s later (Samsung only commits preview
+     *      tiles once the service process terminates).
      *   4. Before exiting, the service sends an ACK to 'SmartHubAck'.
      *   5. Resolve on ACK or after SERVICE_TIMEOUT_MS — never block indefinitely.
-     *
-     * The HTTP proxy restarts automatically on the next app launch because
-     * index.js calls tizen.application.launch for the ytresolver service on
-     * every boot (see the Bootstrap section in index.js).
+     *      Either way, _relaunchService() restarts the service 3 s later so the
+     *      trailer/discovery HTTP proxy keeps working.
      *
      * @param {Object} json - Samsung Preview JSON
      * @returns {Promise<void>}
@@ -824,6 +822,7 @@ class SmartHubManager {
                     const status = msgData?.[0]?.value || 'unknown';
                     log.info('Smart Hub service ACK:', status);
                     cleanup();
+                    this._relaunchService(serviceId);
                     resolve();
                 });
             } catch (e) {
@@ -839,6 +838,7 @@ class SmartHubManager {
             timeoutHandle = setTimeout(() => {
                 log.warn(`Smart Hub ACK timed out after ${SERVICE_TIMEOUT_MS / 1000}s — continuing`);
                 cleanup();
+                this._relaunchService(serviceId);
                 resolve();
             }, SERVICE_TIMEOUT_MS);
 
@@ -868,6 +868,28 @@ class SmartHubManager {
                 resolve();
             }
         });
+    }
+
+    /**
+     * Relaunch the ytresolver service after it exits to commit preview data,
+     * so the trailer/discovery HTTP proxy on localhost:8123 comes back.
+     * Launching an already-running service is harmless.
+     *
+     * @param {string} serviceId - Full service application ID
+     * @private
+     */
+    _relaunchService(serviceId) {
+        setTimeout(() => {
+            try {
+                tizen.application.launch(
+                    serviceId,
+                    () => log.info('ytresolver service relaunched after preview commit'),
+                    (e) => log.warn('Service relaunch failed:', e?.message || e)
+                );
+            } catch (e) {
+                log.warn('Service relaunch threw:', e.message);
+            }
+        }, 3000);
     }
 }
 
