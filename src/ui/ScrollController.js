@@ -67,10 +67,11 @@ const ROW_CUTOFF_BUFFER = 40;
 const DEFAULT_SCROLL_OFFSET_TOP = 40;
 
 // Default bottom offset (px) when aligning a row to the bottom of the viewport.
-// Tuned to 8px to ensure the active row's bottom boundary and card subtitles
-// sit comfortably within the TV viewport safe area while ensuring the succeeding
-// row's title remains strictly off-screen below the viewport.
-const DEFAULT_SCROLL_OFFSET_BOTTOM = 8;
+// Tuned to 18px to hit the ideal visual balance:
+// - Keeps the succeeding row's section title strictly off-screen below the viewport.
+// - Gives the active row's card titles, subtitles, and years generous breathing room above the bottom screen edge.
+// - Prevents top-edge clipping of the active row title on portrait and standard poster cards.
+const DEFAULT_SCROLL_OFFSET_BOTTOM = 18;
 
 // Threshold (px) — if the row's top is already within this distance of
 // the ideal scroll position, skip scrolling. Prevents micro-jitter when
@@ -1152,11 +1153,12 @@ class ScrollController {
                 targetScroll = rowTop - (viewHeight / 2) + (rowHeight / 2);
             } else if (alignment === 'bottom') {
                 // Bottom alignment: place row bottom cleanly near the viewport bottom.
-                // .row-items already has built-in 38px bottom padding for card subtitles,
-                // while .media-row has a 28px bottom margin. Aligning with a tuned offset
-                // guarantees the succeeding row title remains strictly off-screen below viewport.
-                const offsetBottom = config.scrollOffsetBottom || DEFAULT_SCROLL_OFFSET_BOTTOM;
-                targetScroll = rowTop + rowHeight - viewHeight - offsetBottom;
+                // Tuned to 18px offset to hit the ideal balance between keeping the succeeding row's
+                // title strictly off-screen while giving card subtitles comfortable breathing room.
+                const offsetBottom = typeof config.scrollOffsetBottom === 'number'
+                    ? config.scrollOffsetBottom
+                    : DEFAULT_SCROLL_OFFSET_BOTTOM;
+                targetScroll = rowTop + rowHeight - viewHeight + offsetBottom;
             } else {
                 // Top alignment: row top sits at configured offset from viewport top
                 targetScroll = rowTop - padding;
@@ -1261,8 +1263,10 @@ class ScrollController {
                         const fallbackAlignment = this.getVerticalScrollAlignment();
                         let targetScroll;
                         if (fallbackAlignment === 'bottom') {
-                            const offsetBottom = config?.scrollOffsetBottom || DEFAULT_SCROLL_OFFSET_BOTTOM;
-                            targetScroll = rowBottom - viewHeight - offsetBottom;
+                            const offsetBottom = typeof config?.scrollOffsetBottom === 'number'
+                                ? config.scrollOffsetBottom
+                                : DEFAULT_SCROLL_OFFSET_BOTTOM;
+                            targetScroll = rowBottom - viewHeight + offsetBottom;
                         } else if (fallbackAlignment === 'top') {
                             targetScroll = rowTop - DEFAULT_SCROLL_OFFSET_TOP;
                         } else {

@@ -132,13 +132,13 @@ test('ScrollController: Mathematical verification that "bottom" alignment signif
         { name: 'Row 3', top: 1240 }
     ];
 
-    const offsetBottom = 8;
+    const offsetBottom = 18;
 
     // Calculate scroll targets for 'top' mode
     const topTargets = rows.map((r) => Math.max(0, r.top - padding));
 
     // Calculate scroll targets for 'bottom' mode (tuned with offsetBottom to prevent next row title peek-through)
-    const bottomTargets = rows.map((r) => Math.max(0, r.top + rowHeight - viewHeight - offsetBottom));
+    const bottomTargets = rows.map((r) => Math.max(0, r.top + rowHeight - viewHeight + offsetBottom));
 
     // In 'top' mode:
     // Row 0 target = 60px
@@ -152,17 +152,17 @@ test('ScrollController: Mathematical verification that "bottom" alignment signif
     assert.strictEqual(topTargets[3], 1200);
 
     // In 'bottom' mode:
-    // Row 0 bottom = 440px <= 1080 -> target = Math.max(0, 440 - 1080 - 8) = 0px
-    // Row 1 bottom = 820px <= 1080 -> target = Math.max(0, 820 - 1080 - 8) = 0px
+    // Row 0 bottom = 440px <= 1080 -> target = Math.max(0, 440 - 1080 + 18) = 0px
+    // Row 1 bottom = 820px <= 1080 -> target = Math.max(0, 820 - 1080 + 18) = 0px
     // Row 0 and Row 1 both have target = 0px -> ZERO SCROLLING OCCURS!
     assert.strictEqual(bottomTargets[0], 0);
     assert.strictEqual(bottomTargets[1], 0);
 
-    // Row 2 reaches down to 1200px: target = 1200 - 1080 - 8 = 112px
-    assert.strictEqual(bottomTargets[2], 112);
+    // Row 2 reaches down to 1200px: target = 1200 - 1080 + 18 = 138px
+    assert.strictEqual(bottomTargets[2], 138);
 
-    // Row 3 reaches down to 1580px: target = 1580 - 1080 - 8 = 492px
-    assert.strictEqual(bottomTargets[3], 492);
+    // Row 3 reaches down to 1580px: target = 1580 - 1080 + 18 = 518px
+    assert.strictEqual(bottomTargets[3], 518);
 
     // Number of scroll movements needed when navigating from Row 0 down to Row 2:
     // In 'top' mode: 2 scroll movements (440 - 60 = 380px, then 820 - 440 = 380px)
