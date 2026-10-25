@@ -128,6 +128,25 @@ function getPlugins(tier, options = {}) {
             new webpack.NormalModuleReplacementPlugin(
                 /src[\\/]player[\\/]core[\\/]MoviVideoPlayer\.js$/,
                 path.resolve(__dirname, 'src/player/core/MoviVideoPlayer.stub.js')
+            ),
+            /*
+             * =======================================================================
+             * TV Bundle CSS: drop mobile-only stylesheets
+             * =======================================================================
+             * Tizen/webOS TV tiers never mount MobileNav (App.js suppresses it for
+             * platformInfo.isTv) and LayoutManager strips the mobile attributes
+             * (html[data-litefin-portrait|scaled|touch]) on TV hardware, so
+             * android-mobile.css and mobile-nav.css can never match on a TV yet
+             * cost ~180KB of raw stylesheet text inside the inline CSS bundle.
+             *
+             * ScrollController's data-horizontal-scroll compositing rules apply on
+             * TVs too - those live in scroll-compositing.css and are included in
+             * BOTH bundle.css and bundle.tv.css, so no behavior is lost here.
+             * =======================================================================
+             */
+            new webpack.NormalModuleReplacementPlugin(
+                /src[\\/]styles[\\/]bundle\.css$/,
+                path.resolve(__dirname, 'src/styles/bundle.tv.css')
             )
         );
     }

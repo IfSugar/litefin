@@ -75,3 +75,6 @@
 @import './modern/sidebar.css';
 @import './android-mobile.css';
 @import './mobile-nav.css';
+
+/* TV-shared GPU/instant row scroll compositing (kept on all tiers) */
+@import './scroll-compositing.css';
