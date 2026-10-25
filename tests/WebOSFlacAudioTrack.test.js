@@ -178,8 +178,9 @@ test('JellyfinPlayer: still drops FLAC tracks on Tizen while enableFlacInVideo i
 });
 
 // isAudioTrackNativelyPlayable, extracted the same way as in AudioTrackSelector.test.js
+// (from StreamUtils.js, where the dedicated Track-Resolution Engine now lives)
 function loadPlayability(platform, settings = {}) {
-    const source = readFileSync(new URL('../src/player/core/JellyfinPlayer.js', import.meta.url), 'utf8').replace(
+    const source = readFileSync(new URL('../src/player/core/StreamUtils.js', import.meta.url), 'utf8').replace(
         /\r\n/g,
         '\n'
     );
@@ -190,13 +191,14 @@ function loadPlayability(platform, settings = {}) {
         platformInfo: { isTizen: platform === 'tizen', isWebOS: platform === 'webos' },
         AUDIO_FALLBACK_STORAGE_KEYS: {},
         storage: { getItem: () => null, setItem: () => {}, removeItem: () => {} },
-        log: { info() {}, debug() {}, warn() {}, error() {} }
+        log: { info() {}, debug() {}, warn() {}, error() {} },
+        MediaHelper: { getTranscodeStatus: () => ({ isVideoDirect: true, isAudioDirect: true }) },
+        languageManager: { normalizeLanguage: (lang) => lang }
     });
     const code = `
         ${source
             .slice(
-                source.indexOf('export const isTrueHdSupported ='),
-                source.indexOf('// ============================================================================\n// Minimal EventEmitter')
+                source.indexOf('export const isTrueHdSupported =')
             )
             .replace(/export /g, '')}
         isAudioTrackNativelyPlayable;

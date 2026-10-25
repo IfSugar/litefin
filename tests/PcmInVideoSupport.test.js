@@ -103,8 +103,9 @@ test('TizenProfile: includes PCM codecs in video profiles when enablePcmInVideo 
 });
 
 test('JellyfinPlayer: isAudioTrackNativelyPlayable gates PCM in video by enablePcmInVideo', () => {
-    // Load JellyfinPlayer in VM context to test isAudioTrackNativelyPlayable
-    const source = readFileSync('./src/player/core/JellyfinPlayer.js', 'utf8');
+    // Load StreamUtils.js in VM context to test isAudioTrackNativelyPlayable
+    // (the helper lives there since the DetailsPage decoupling refactor)
+    const source = readFileSync('./src/player/core/StreamUtils.js', 'utf8');
 
     function createSandbox(settings, platform = { isTizen: true, isWebOS: false }) {
         const currentSettings = { ...settings };
@@ -122,14 +123,15 @@ test('JellyfinPlayer: isAudioTrackNativelyPlayable gates PCM in video by enableP
                 setItem: () => {},
                 removeItem: () => {}
             },
-            log: { info() {}, debug() {}, warn() {}, error() {} }
+            log: { info() {}, debug() {}, warn() {}, error() {} },
+            MediaHelper: { getTranscodeStatus: () => ({ isVideoDirect: true, isAudioDirect: true }) },
+            languageManager: { normalizeLanguage: (lang) => lang }
         };
 
         const normalizedSource = source.replace(/\r\n/g, '\n');
         const code = `
             ${normalizedSource.slice(
-                normalizedSource.indexOf('export const isTrueHdSupported ='),
-                normalizedSource.indexOf('// ============================================================================\n// Minimal EventEmitter')
+                normalizedSource.indexOf('export const isTrueHdSupported =')
             ).replace(/export /g, '')}
             ({ isAudioTrackNativelyPlayable });
         `;

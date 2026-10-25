@@ -4,8 +4,14 @@ import vm from 'node:vm';
 import test from 'node:test';
 import { AUDIO_FALLBACK_STORAGE_KEYS } from '../src/utils/AudioFallbackConfig.js';
 
-// Extract the relevant functions directly from JellyfinPlayer.js source without pulling in the browser/CSS DOM tree
-const source = readFileSync(new URL('../src/player/core/JellyfinPlayer.js', import.meta.url), 'utf8');
+// Extract the relevant functions directly from StreamUtils.js source without
+// pulling in the browser/CSS DOM tree. These helpers moved out of
+// JellyfinPlayer.js into StreamUtils.js so DetailsPage and PrewarmManager can
+// evaluate streams without bundling the player engine; the raw-source-slice
+// strategy avoids executing their module graph (PlayerSettings/DeviceProfile/
+// StorageService hit browser APIs on import), so the sliced code runs on
+// plain VM stubs instead.
+const source = readFileSync(new URL('../src/player/core/StreamUtils.js', import.meta.url), 'utf8');
 
 function setup(settings = {}, caps = {}, initialStorage = {}) {
     const defaultCaps = {
@@ -44,6 +50,12 @@ function setup(settings = {}, caps = {}, initialStorage = {}) {
             setItem: (key, val) => storageMap.set(key, val),
             removeItem: (key) => storageMap.delete(key)
         },
+        // StreamUtils guards these behind runtime conditions that never fire
+        // in this suite (MediaHelper only runs with a TranscodingUrl present;
+        // languageManager checks typeof at each call site), but stubs keep
+        // the extracted source runnable without their module imports.
+        MediaHelper: { getTranscodeStatus: () => ({ isVideoDirect: true, isAudioDirect: true }) },
+        languageManager: { normalizeLanguage: (lang) => lang },
         log: {
             info() {},
             debug() {},
@@ -55,9 +67,13 @@ function setup(settings = {}, caps = {}, initialStorage = {}) {
     // Run the exported functions in the VM context
     const normalizedSource = source.replace(/\r\n/g, '\n');
     const code = `
+        // isTrueHdSupported and doesAudioTrackRequireDirectStream are the first
+        // and last exports of StreamUtils.js - slice from the capability
+        // helper to EOF (everything in between is side-effect-free function
+        // source; the module-level log singleton lives before the slice and
+        // the context provides a stub of the same name).
         ${normalizedSource.slice(
-            normalizedSource.indexOf('export const isTrueHdSupported ='),
-            normalizedSource.indexOf('// ============================================================================\n// Minimal EventEmitter')
+            normalizedSource.indexOf('export const isTrueHdSupported =')
         ).replace(/export /g, '')}
 
         ({ isTrueHdSupported, isDtsSupported, isAudioTrackNativelyPlayable, resolveBestAudioStream, doesAudioTrackRequireDirectStream });

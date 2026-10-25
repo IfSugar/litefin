@@ -31,8 +31,10 @@ const { languageManager } = await import('../src/utils/LanguageManager.js');
 const { MediaHelper } = await import('../src/player/core/MediaHelper.js');
 const { storage } = await import('../src/utils/StorageService.js');
 
-// Read JellyfinPlayer.js source to extract resolveSubtitleStream without loading CSS/DOM
-const playerSource = readFileSync(new URL('../src/player/core/JellyfinPlayer.js', import.meta.url), 'utf8')
+// Read StreamUtils.js source to extract resolveSubtitleStream without loading
+// CSS/DOM (the subtitle-mode helpers moved there from JellyfinPlayer.js in the
+// DetailsPage decoupling refactor)
+const playerSource = readFileSync(new URL('../src/player/core/StreamUtils.js', import.meta.url), 'utf8')
     .replace(/\r\n/g, '\n');
 
 function setup(settings = {}, serverUser = null) {
@@ -78,7 +80,7 @@ function setup(settings = {}, serverUser = null) {
     const endIdx = playerSource.indexOf(endMarker);
 
     if (startIdx === -1 || endIdx === -1) {
-        throw new Error('Failed to locate resolveSubtitleStream source block in JellyfinPlayer.js');
+        throw new Error('Failed to locate resolveSubtitleStream source block in StreamUtils.js');
     }
 
     const codeToRun = playerSource.slice(startIdx, endIdx)

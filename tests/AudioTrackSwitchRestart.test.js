@@ -24,6 +24,13 @@ const source = readFileSync(new URL('../src/player/core/JellyfinPlayer.js', impo
     '\n'
 );
 
+// The DirectPlay container helpers moved to StreamUtils.js in the
+// DetailsPage decoupling refactor, so their declarations are sliced from there.
+const streamUtilsSource = readFileSync(new URL('../src/player/core/StreamUtils.js', import.meta.url), 'utf8').replace(
+    /\r\n/g,
+    '\n'
+);
+
 /** Source of one class method, from its signature to the closing brace at method indentation. */
 function extractMethod(signature) {
     const start = source.indexOf(`\n    ${signature}`);
@@ -32,12 +39,12 @@ function extractMethod(signature) {
     return source.slice(start + 1, end + 6);
 }
 
-/** Source of one module-level declaration, up to its closing brace at column 0. */
+/** Source of one module-level declaration in StreamUtils.js, up to its closing brace at column 0. */
 function extractTopLevel(signature) {
-    const start = source.indexOf(`\n${signature}`);
+    const start = streamUtilsSource.indexOf(`\n${signature}`);
     assert.ok(start !== -1, `declaration not found: ${signature}`);
-    const end = source.indexOf('\n}\n', start);
-    return source.slice(start + 1, end + 3).replace(/^export /, '');
+    const end = streamUtilsSource.indexOf('\n}\n', start);
+    return streamUtilsSource.slice(start + 1, end + 3).replace(/^export /, '');
 }
 
 const playerEventSource = source
@@ -55,7 +62,7 @@ function createContext() {
         PlayerSettings: { get: () => undefined },
         isAudioTrackNativelyPlayable: () => true
     });
-    const storeMatch = source.match(/\nconst containersWithoutAudioTracks = [^;]+;/);
+    const storeMatch = streamUtilsSource.match(/\nconst containersWithoutAudioTracks = [^;]+;/);
     assert.ok(storeMatch, 'container memory not found');
     return vm.runInContext(
         `${playerEventSource}
