@@ -18,7 +18,7 @@ import FontLoader from '../../utils/FontLoader.js';
 import SubtitleStyles from '../../utils/SubtitleStyles.js';
 import { platformInfo } from '../../utils/PlatformInfo.js';
 import { webCodecsProbe } from '../../utils/WebCodecsProbe.js';
-import { resolveBestAudioStream, doesAudioTrackRequireDirectStream, resolveSubtitleStream, getEffectiveSubtitleMode } from './JellyfinPlayer.js';
+import { resolveBestAudioStream, doesAudioTrackRequireDirectStream, resolveSubtitleStream, getEffectiveSubtitleMode } from './StreamUtils.js';
 
 const log = logger.create('PrewarmManager');
 

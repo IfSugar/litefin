@@ -29,11 +29,12 @@ import { pinDialog } from '../ui/PinDialog.js';
 import { pinManager } from '../utils/PinManager.js';
 import { customHeadersDialog } from '../ui/CustomHeadersDialog.js';
 
-// Page imports (static to support Tizen 4's Chromium 56)
+// Base Page class for route proxies and page lifecycle coordination
+import Page from '../pages/Page.js';
+
+// Synchronous Page imports (Core bootstrap pages required immediately on launch)
 import LoginPage from '../pages/LoginPage.js';
 import HomePage from '../pages/HomePage.js';
-import LibraryPage from '../pages/LibraryPage.js';
-import DetailsPage from '../pages/DetailsPage.js';
 import PersonPage from '../pages/PersonPage.js';
 import SearchPage from '../pages/SearchPage.js';
 import DiscoverPage from '../pages/DiscoverPage.js';
@@ -41,9 +42,117 @@ import SeerrDetailsPage from '../pages/SeerrDetailsPage.js';
 import SeerrPersonPage from '../pages/SeerrPersonPage.js';
 import SettingsPage from '../pages/SettingsPage.js';
 import FavoritesPage from '../pages/FavoritesPage.js';
-// Retain cached constructor reference once async chunk resolves
+import OfflinePage from '../pages/OfflinePage.js';
+import ProfilesPage from '../pages/ProfilesPage.js';
+import SlideshowPage from '../pages/SlideshowPage.js';
+import EmulatorPage from '../pages/EmulatorPage.js';
+
+// ============================================================================
+// DYNAMIC CHUNK SINGLETONS AND ASYNC MODULE LOADERS
+// ============================================================================
+// Cache constructors and module promises for lazy-loaded pages.
+// Prevents duplicate chunk requests and guarantees synchronous instantiation
+// once background prewarm resolves.
+
+// DetailsPage chunk state
+let CachedDetailsClass = null;
+let detailsPrewarmPromise = null;
+
+// LibraryPage chunk state
+let CachedLibraryClass = null;
+let libraryPrewarmPromise = null;
+
+// LiveTvPage chunk state
+let CachedLiveTvClass = null;
+let liveTvPrewarmPromise = null;
+
+// PlayerPage chunk state
 let CachedPlayerClass = null;
 let playerPrewarmPromise = null;
+
+/**
+ * Loads the DetailsPage module and its heavy dialog dependencies asynchronously.
+ * Keeps large metadata tables, episode grids, and editor modals out of main.js.
+ * @returns {Promise<Function>}
+ */
+function loadDetailsPageModule() {
+    // Return cached constructor immediately if already prewarmed or loaded
+    if (CachedDetailsClass) {
+        return Promise.resolve(CachedDetailsClass);
+    }
+
+    // Reuse in-flight promise to avoid duplicate chunk fetch operations
+    if (!detailsPrewarmPromise) {
+        detailsPrewarmPromise = import(/* webpackChunkName: "details" */ '../pages/DetailsPage.js')
+            .then((module) => {
+                CachedDetailsClass = module.default;
+                return CachedDetailsClass;
+            })
+            .catch((err) => {
+                // Clear active promise on error to permit future retry attempts
+                detailsPrewarmPromise = null;
+                throw err;
+            });
+    }
+
+    return detailsPrewarmPromise;
+}
+
+/**
+ * Loads the LibraryPage module and virtualized grid dependencies asynchronously.
+ * Defers filter dialogs, sort menus, and large card collections from main bundle.
+ * @returns {Promise<Function>}
+ */
+function loadLibraryPageModule() {
+    // Return cached constructor immediately if already prewarmed or loaded
+    if (CachedLibraryClass) {
+        return Promise.resolve(CachedLibraryClass);
+    }
+
+    // Reuse in-flight promise to avoid duplicate chunk fetch operations
+    if (!libraryPrewarmPromise) {
+        libraryPrewarmPromise = import(/* webpackChunkName: "library" */ '../pages/LibraryPage.js')
+            .then((module) => {
+                CachedLibraryClass = module.default;
+                return CachedLibraryClass;
+            })
+            .catch((err) => {
+                // Clear active promise on error to permit future retry attempts
+                libraryPrewarmPromise = null;
+                throw err;
+            });
+    }
+
+    return libraryPrewarmPromise;
+}
+
+/**
+ * Loads the LiveTvPage module and EPG grid dependencies asynchronously.
+ * Keeps TV guide schedulers and program timetable builders out of initial parse.
+ * @returns {Promise<Function>}
+ */
+function loadLiveTvPageModule() {
+    // Return cached constructor immediately if already prewarmed or loaded
+    if (CachedLiveTvClass) {
+        return Promise.resolve(CachedLiveTvClass);
+    }
+
+    // Reuse in-flight promise to avoid duplicate chunk fetch operations
+    if (!liveTvPrewarmPromise) {
+        liveTvPrewarmPromise = import(/* webpackChunkName: "livetv" */ '../pages/LiveTvPage.js')
+            .then((module) => {
+                CachedLiveTvClass = module.default;
+                return CachedLiveTvClass;
+            })
+            .catch((err) => {
+                // Clear active promise on error to permit future retry attempts
+                liveTvPrewarmPromise = null;
+                throw err;
+            });
+    }
+
+    return liveTvPrewarmPromise;
+}
 
 /**
  * Loads the PlayerPage and hls.js dependencies asynchronously.
@@ -73,21 +182,337 @@ function loadPlayerModule() {
     return playerPrewarmPromise;
 }
 
+// ============================================================================
+// DYNAMIC ROUTE PROXY CLASSES
+// ============================================================================
+// Declared as explicit named classes extending Page so constructor.name
+// matches route identities without non-standard property reconfiguration.
+
+/**
+ * Lightweight route proxy for item details view lifecycle.
+ * Intercepts router navigation, loads the async bundle, and delegates page lifecycle calls.
+ */
+class DetailsPage extends Page {
+    constructor(options = {}) {
+        super(options);
+        // Active instance of RealDetailsPage once instantiated
+        this._realInstance = null;
+
+        // Synchronously initialize instance if chunk was prewarmed in the background
+        if (CachedDetailsClass) {
+            this._realInstance = new CachedDetailsClass(options);
+            this.el = this._realInstance.el;
+            if (this._realInstance.ready) {
+                this._realInstance.ready.then(() => this.markReady());
+            }
+        }
+    }
+
+    get el() {
+        return this._realInstance ? this._realInstance.el : this._proxyEl;
+    }
+
+    set el(val) {
+        this._proxyEl = val;
+        if (this._realInstance) {
+            this._realInstance.el = val;
+        }
+    }
+
+    async init(params = {}) {
+        this.params = params;
+        this._initTimestamp = Date.now();
+        this.container = document.getElementById('page-container') || document.getElementById('app');
+
+        // Capture navigation state flags in case they are cleared during async chunk loading
+        const isBack = router._isBackNavigation;
+        const pendingState = router._pendingRestoreState;
+
+        // Dynamically load details chunk if user navigated before background prewarm finished
+        if (!this._realInstance) {
+            const RealClass = await loadDetailsPageModule();
+            this._realInstance = new RealClass(this.options);
+            if (this._routePattern) {
+                this._realInstance._routePattern = this._routePattern;
+            }
+            if (this._realInstance.ready) {
+                this._realInstance.ready.then(() => this.markReady());
+            }
+        }
+
+        // Restore back navigation flags so real instance consumes them in Page.init()
+        if (isBack && !router._isBackNavigation) {
+            router._isBackNavigation = true;
+            router._pendingRestoreState = pendingState;
+        }
+
+        const res = await this._realInstance.init(params);
+        if (this._realInstance.title) {
+            this.title = this._realInstance.title;
+            document.title = `${this.title} - Litefin`;
+        }
+        return res;
+    }
+
+    getNavigationState() {
+        if (this._realInstance && typeof this._realInstance.getNavigationState === 'function') {
+            return this._realInstance.getNavigationState();
+        }
+        return null;
+    }
+
+    setNavigationState(state) {
+        this._pendingNavState = state;
+        if (this._realInstance && typeof this._realInstance.setNavigationState === 'function') {
+            this._realInstance.setNavigationState(state);
+        }
+    }
+
+    getScrollContainer() {
+        if (this._realInstance && typeof this._realInstance.getScrollContainer === 'function') {
+            return this._realInstance.getScrollContainer();
+        }
+        return null;
+    }
+
+    onBack() {
+        if (this._realInstance && typeof this._realInstance.onBack === 'function') {
+            return this._realInstance.onBack();
+        }
+        return false;
+    }
+
+    destroy() {
+        if (this._realInstance && typeof this._realInstance.destroy === 'function') {
+            this._realInstance.destroy();
+        }
+        super.destroy();
+    }
+}
+
+/**
+ * Lightweight route proxy for library grid and browse lifecycle.
+ * Intercepts router navigation, loads the async bundle, and delegates page lifecycle calls.
+ */
+class LibraryPage extends Page {
+    constructor(options = {}) {
+        super(options);
+        // Active instance of RealLibraryPage once instantiated
+        this._realInstance = null;
+
+        // Synchronously initialize instance if chunk was prewarmed in the background
+        if (CachedLibraryClass) {
+            this._realInstance = new CachedLibraryClass(options);
+            this.el = this._realInstance.el;
+            if (this._realInstance.ready) {
+                this._realInstance.ready.then(() => this.markReady());
+            }
+        }
+    }
+
+    get el() {
+        return this._realInstance ? this._realInstance.el : this._proxyEl;
+    }
+
+    set el(val) {
+        this._proxyEl = val;
+        if (this._realInstance) {
+            this._realInstance.el = val;
+        }
+    }
+
+    async init(params = {}) {
+        this.params = params;
+        this._initTimestamp = Date.now();
+        this.container = document.getElementById('page-container') || document.getElementById('app');
+
+        // Capture navigation state flags in case they are cleared during async chunk loading
+        const isBack = router._isBackNavigation;
+        const pendingState = router._pendingRestoreState;
+
+        // Dynamically load library chunk if user navigated before background prewarm finished
+        if (!this._realInstance) {
+            const RealClass = await loadLibraryPageModule();
+            this._realInstance = new RealClass(this.options);
+            if (this._routePattern) {
+                this._realInstance._routePattern = this._routePattern;
+            }
+            if (this._realInstance.ready) {
+                this._realInstance.ready.then(() => this.markReady());
+            }
+        }
+
+        // Restore back navigation flags so real instance consumes them in Page.init()
+        if (isBack && !router._isBackNavigation) {
+            router._isBackNavigation = true;
+            router._pendingRestoreState = pendingState;
+        }
+
+        const res = await this._realInstance.init(params);
+        if (this._realInstance.title) {
+            this.title = this._realInstance.title;
+            document.title = `${this.title} - Litefin`;
+        }
+        return res;
+    }
+
+    getNavigationState() {
+        if (this._realInstance && typeof this._realInstance.getNavigationState === 'function') {
+            return this._realInstance.getNavigationState();
+        }
+        return null;
+    }
+
+    setNavigationState(state) {
+        this._pendingNavState = state;
+        if (this._realInstance && typeof this._realInstance.setNavigationState === 'function') {
+            this._realInstance.setNavigationState(state);
+        }
+    }
+
+    getScrollContainer() {
+        if (this._realInstance && typeof this._realInstance.getScrollContainer === 'function') {
+            return this._realInstance.getScrollContainer();
+        }
+        return null;
+    }
+
+    onBack() {
+        if (this._realInstance && typeof this._realInstance.onBack === 'function') {
+            return this._realInstance.onBack();
+        }
+        return false;
+    }
+
+    destroy() {
+        if (this._realInstance && typeof this._realInstance.destroy === 'function') {
+            this._realInstance.destroy();
+        }
+        super.destroy();
+    }
+}
+
+/**
+ * Lightweight route proxy for Live TV and EPG timetable lifecycle.
+ * Intercepts router navigation, loads the async bundle, and delegates page lifecycle calls.
+ */
+class LiveTvPage extends Page {
+    constructor(options = {}) {
+        super(options);
+        // Active instance of RealLiveTvPage once instantiated
+        this._realInstance = null;
+
+        // Synchronously initialize instance if chunk was prewarmed in the background
+        if (CachedLiveTvClass) {
+            this._realInstance = new CachedLiveTvClass(options);
+            this.el = this._realInstance.el;
+            if (this._realInstance.ready) {
+                this._realInstance.ready.then(() => this.markReady());
+            }
+        }
+    }
+
+    get el() {
+        return this._realInstance ? this._realInstance.el : this._proxyEl;
+    }
+
+    set el(val) {
+        this._proxyEl = val;
+        if (this._realInstance) {
+            this._realInstance.el = val;
+        }
+    }
+
+    async init(params = {}) {
+        this.params = params;
+        this._initTimestamp = Date.now();
+        this.container = document.getElementById('page-container') || document.getElementById('app');
+
+        // Capture navigation state flags in case they are cleared during async chunk loading
+        const isBack = router._isBackNavigation;
+        const pendingState = router._pendingRestoreState;
+
+        // Dynamically load livetv chunk if user navigated before background prewarm finished
+        if (!this._realInstance) {
+            const RealClass = await loadLiveTvPageModule();
+            this._realInstance = new RealClass(this.options);
+            if (this._routePattern) {
+                this._realInstance._routePattern = this._routePattern;
+            }
+            if (this._realInstance.ready) {
+                this._realInstance.ready.then(() => this.markReady());
+            }
+        }
+
+        // Restore back navigation flags so real instance consumes them in Page.init()
+        if (isBack && !router._isBackNavigation) {
+            router._isBackNavigation = true;
+            router._pendingRestoreState = pendingState;
+        }
+
+        const res = await this._realInstance.init(params);
+        if (this._realInstance.title) {
+            this.title = this._realInstance.title;
+            document.title = `${this.title} - Litefin`;
+        }
+        return res;
+    }
+
+    getNavigationState() {
+        if (this._realInstance && typeof this._realInstance.getNavigationState === 'function') {
+            return this._realInstance.getNavigationState();
+        }
+        return null;
+    }
+
+    setNavigationState(state) {
+        this._pendingNavState = state;
+        if (this._realInstance && typeof this._realInstance.setNavigationState === 'function') {
+            this._realInstance.setNavigationState(state);
+        }
+    }
+
+    getScrollContainer() {
+        if (this._realInstance && typeof this._realInstance.getScrollContainer === 'function') {
+            return this._realInstance.getScrollContainer();
+        }
+        return null;
+    }
+
+    onBack() {
+        if (this._realInstance && typeof this._realInstance.onBack === 'function') {
+            return this._realInstance.onBack();
+        }
+        return false;
+    }
+
+    destroy() {
+        if (this._realInstance && typeof this._realInstance.destroy === 'function') {
+            this._realInstance.destroy();
+        }
+        super.destroy();
+    }
+}
+
 /**
  * Lightweight route proxy for video player lifecycle.
  * Intercepts router navigation, loads the async bundle, and delegates page lifecycle calls.
  * Declared directly as PlayerPage so constructor.name is naturally 'PlayerPage' without Object.defineProperty.
  */
-class PlayerPage {
-    constructor() {
+class PlayerPage extends Page {
+    constructor(options = {}) {
+        super(options);
         // Active instance of RealPlayerPage once instantiated
         this._realInstance = null;
         this.el = null;
 
         // Synchronously initialize instance if chunk was prewarmed in the background
         if (CachedPlayerClass) {
-            this._realInstance = new CachedPlayerClass();
+            this._realInstance = new CachedPlayerClass(options);
             this.el = this._realInstance.el;
+            if (this._realInstance.ready) {
+                this._realInstance.ready.then(() => this.markReady());
+            }
         }
     }
 
@@ -103,8 +528,14 @@ class PlayerPage {
         // Dynamically load player chunk if user launched playback before background prewarm finished
         if (!this._realInstance) {
             const PlayerClass = await loadPlayerModule();
-            this._realInstance = new PlayerClass();
+            this._realInstance = new PlayerClass(this.options);
             this.el = this._realInstance.el;
+            if (this._routePattern) {
+                this._realInstance._routePattern = this._routePattern;
+            }
+            if (this._realInstance.ready) {
+                this._realInstance.ready.then(() => this.markReady());
+            }
         }
 
         return this._realInstance.init(params);
@@ -114,6 +545,7 @@ class PlayerPage {
         if (this._realInstance && typeof this._realInstance.destroy === 'function') {
             this._realInstance.destroy();
         }
+        super.destroy();
     }
 
     onBack() {
@@ -129,12 +561,6 @@ class PlayerPage {
         }
     }
 }
-
-import OfflinePage from '../pages/OfflinePage.js';
-import ProfilesPage from '../pages/ProfilesPage.js';
-import LiveTvPage from '../pages/LiveTvPage.js';
-import SlideshowPage from '../pages/SlideshowPage.js';
-import EmulatorPage from '../pages/EmulatorPage.js';
 import Sidebar from '../components/Sidebar.js';
 import MobileNav from '../components/MobileNav.js';
 
@@ -487,6 +913,31 @@ class App {
 
             // Trigger auto-update check (respects user settings inside)
             versionChecker.checkAtStartup();
+
+            // ====================================================================
+            // Staged Background Prewarming
+            // ====================================================================
+            // 1. Prewarm primary view chunks (DetailsPage, LibraryPage, LiveTvPage)
+            //    500ms after splash dismissal so user navigation is instantaneous.
+            setTimeout(() => {
+                log.info('Prewarming primary view chunks (Details, Library, Live TV)...');
+                Promise.all([
+                    loadDetailsPageModule(),
+                    loadLibraryPageModule(),
+                    loadLiveTvPageModule()
+                ])
+                    .then(() => log.info('Primary view chunks successfully prewarmed in background'))
+                    .catch((err) => log.warn('Primary view chunks prewarm warning:', err));
+            }, 500);
+
+            // 2. Prewarm video playback chunk (PlayerPage, hls.js, audio/sub demuxers)
+            //    1500ms after splash dismissal once primary UI render has settled.
+            setTimeout(() => {
+                log.info('Prewarming PlayerPage chunk in background...');
+                loadPlayerModule()
+                    .then(() => log.info('PlayerPage chunk prewarmed in background'))
+                    .catch((err) => log.warn('PlayerPage prewarm failed:', err));
+            }, 1500);
         });
 
         // Register routes
@@ -502,14 +953,6 @@ class App {
 
         log.info('App initialized successfully');
         eventBus.emit('app:ready');
-
-        // Prewarm player chunk in the background 8 seconds after boot
-        // Defers hls.js and player chunk compilation until home screen has completely finished initial render
-        setTimeout(() => {
-            loadPlayerModule()
-                .then(() => log.info('PlayerPage chunk prewarmed in background'))
-                .catch((err) => log.warn('PlayerPage prewarm failed:', err));
-        }, 8000);
     }
 
     /**

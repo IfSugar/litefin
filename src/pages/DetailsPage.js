@@ -34,7 +34,7 @@ import { RichMetadataTable } from '../components/RichMetadataTable.js';
 import BackdropManager from '../utils/BackdropManager.js';
 import { customHeaders } from '../utils/CustomHeaders.js';
 import { PlayerSettings } from '../utils/PlayerSettings.js';
-import { resolveBestAudioStream, resolveSubtitleStream, isForcedStream, getEffectiveSubtitleMode } from '../player/core/JellyfinPlayer.js';
+import { resolveBestAudioStream, resolveSubtitleStream, isForcedStream, getEffectiveSubtitleMode } from '../player/core/StreamUtils.js';
 import { MediaHelper } from '../player/core/MediaHelper.js';
 import { lazyLoader } from '../utils/LazyLoader.js';
 import { prewarmManager } from '../player/core/PrewarmManager.js';
