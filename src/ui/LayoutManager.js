@@ -287,14 +287,11 @@ class LayoutManager {
 
         const savedLowVram = storage.getItem('litefin:lowVramMode') === 'true';
         const savedDisableScaling = storage.getItem('litefin:disableCardScaling') === 'true';
-        const savedSimpleLoader = storage.getItem('litefin:simpleLoader') === 'true';
         /*
          * Retrieve user preference for loading indicator animation aesthetic.
-         * If litefin:loaderStyle is not set, fallback seamlessly to legacy simpleLoader
-         * boolean preference ('ring' when true, otherwise 'dots').
          * Default is 'ring' (Rotating Ring) — the most CPU/GPU-efficient option.
          */
-        const savedLoaderStyle = storage.getItem('litefin:loaderStyle') || (savedSimpleLoader ? 'ring' : 'ring');
+        const savedLoaderStyle = storage.getItem('litefin:loaderStyle') || 'ring';
         const savedDisableBlurhash = storage.getItem('litefin:disableBlurhash') === 'true';
         /*
          * Disable BlurHash in Library preference.

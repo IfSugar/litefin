@@ -198,7 +198,7 @@
                 // Align fallback default to 'ring' to match LayoutManager single source of truth
                 // Uses indexOf() instead of includes() to guarantee compatibility on legacy Chromium 38 runtimes
                 var isLoaderValid = savedLoaderStyle && validLoaderStyles.indexOf(savedLoaderStyle) !== -1;
-                var loaderStyle = isLoaderValid ? savedLoaderStyle : (savedSimpleLoader ? 'ring' : 'ring');
+                var loaderStyle = isLoaderValid ? savedLoaderStyle : 'ring';
                 document.documentElement.setAttribute('data-loader-style', loaderStyle);
 
                 // Theme variables for early loading (must match CSS definitions)
