@@ -23,7 +23,7 @@ import { buildJellyfinProfile, getDeviceCapabilities } from '../../api/DevicePro
 import SubtitleManager, { DeliveryMethod } from './SubtitleManager.js';
 import { logger } from '../../utils/Logger.js';
 import { PlayerSettings } from '../../utils/PlayerSettings.js';
-import { api, auth } from '../../api/index.js';
+import { api, auth, customHeaders } from '../../api/index.js';
 import { storage } from '../../utils/StorageService.js';
 import { prewarmManager } from './PrewarmManager.js';
 import { webCodecsProbe } from '../../utils/WebCodecsProbe.js';
@@ -3515,8 +3515,38 @@ export class JellyfinPlayer extends EventEmitter {
             // Start playback on backend
             log.info('Initializing backend playback...');
 
+            /*
+             * =========================================================================
+             * Reverse Proxy Custom Authentication Headers Injection
+             * =========================================================================
+             * Native media decoders (such as ExoPlayer on Android or Tizen AVPlay)
+             * execute their bitstream HTTP requests outside Chromium's standard
+             * fetch() / XHR pipeline.
+             *
+             * When the Jellyfin instance sits behind reverse proxies with Zero Trust
+             * access control (e.g. Cloudflare Access service tokens, Authentik,
+             * Authelia, or Cloudflare Tunnel), unauthenticated requests to
+             * /Videos/.../stream.* receive an HTML error or redirect page. ExoPlayer
+             * then fails with UNRECOGNIZED_INPUT_FORMAT (sniff failures).
+             *
+             * We query the CustomHeadersManager for all credentials associated with
+             * this server URL and attach them directly to backendOptions so native
+             * platform bridges can set DefaultRequestProperties on their HTTP data source.
+             * =========================================================================
+             */
+            const targetServerUrl = this.serverUrl || (typeof api !== 'undefined' ? api?.serverUrl : null) || (typeof customHeaders !== 'undefined' ? customHeaders?._activeServerUrl : null);
+            const streamHeaders = (typeof customHeaders !== 'undefined' && customHeaders && typeof customHeaders.getHeadersForUrl === 'function')
+                ? customHeaders.getHeadersForUrl(streamInfo.url, targetServerUrl)
+                : {};
+
+            const streamHeaderCount = streamHeaders ? Object.keys(streamHeaders).length : 0;
+            if (streamHeaderCount > 0) {
+                log.info(`[JellyfinPlayer] Attaching ${streamHeaderCount} custom reverse proxy header(s) to backend stream options`);
+            }
+
             const backendOptions = {
                 ...streamInfo,
+                headers: streamHeaders,
                 item: this._currentItem,
                 mediaSource,
                 startPositionTicks: streamInfo.playerStartPositionTicks, // Use adjusted start position

@@ -156,3 +156,44 @@ test('CustomHeaders: getServerHeaders supports protocol-agnostic lookup fallback
     assert.strictEqual(retrievedWithBare.length, 1);
     assert.strictEqual(retrievedWithBare[0].key, 'CF-Access-Client-Id');
 });
+
+test('CustomHeaders: media streaming and playback URLs receive custom headers', () => {
+    // -------------------------------------------------------------------------
+    // Setup reverse proxy endpoint with Zero Trust service token credentials
+    // -------------------------------------------------------------------------
+    const serverUrl = 'https://ma.eatingheads.com';
+    const credentials = [
+        { key: 'CF-Access-Client-Id', value: 'client-id-xyz.access', enabled: true },
+        { key: 'CF-Access-Client-Secret', value: 'secret-hash-789', enabled: true }
+    ];
+
+    // Persist headers for this server domain
+    customHeaders.setServerHeaders(serverUrl, credentials);
+
+    // -------------------------------------------------------------------------
+    // 1. DirectPlay video stream URL (e.g. MKV/MP4 stream request for ExoPlayer)
+    // -------------------------------------------------------------------------
+    const directPlayStreamUrl = 'https://ma.eatingheads.com/Videos/ea295f86b273eb12b7588fc88f1a8a9d/stream.mkv?Static=true&mediaSourceId=ea295f86b273eb12b7588fc88f1a8a9d&PlaySessionId=123';
+    const streamHeaders = customHeaders.getHeadersForUrl(directPlayStreamUrl, serverUrl);
+
+    assert.strictEqual(streamHeaders['CF-Access-Client-Id'], 'client-id-xyz.access');
+    assert.strictEqual(streamHeaders['CF-Access-Client-Secret'], 'secret-hash-789');
+
+    // -------------------------------------------------------------------------
+    // 2. Transcoding HLS master playlist URL (for Hls.js / HtmlVideoPlayer)
+    // -------------------------------------------------------------------------
+    const transcodePlaylistUrl = 'https://ma.eatingheads.com/videos/ea295f86-b273-eb12-b758-8fc88f1a8a9d/master.m3u8?DeviceId=dev1&MediaSourceId=ea29';
+    const transcodeHeaders = customHeaders.getHeadersForUrl(transcodePlaylistUrl, serverUrl);
+
+    assert.strictEqual(transcodeHeaders['CF-Access-Client-Id'], 'client-id-xyz.access');
+    assert.strictEqual(transcodeHeaders['CF-Access-Client-Secret'], 'secret-hash-789');
+
+    // -------------------------------------------------------------------------
+    // 3. Subtitle cue stream URL (for SubtitleManager external text subtitles)
+    // -------------------------------------------------------------------------
+    const subtitleStreamUrl = 'https://ma.eatingheads.com/Videos/ea295f86b273eb12b7588fc88f1a8a9d/Subtitles/2/0/Stream.vtt?ApiKey=abc';
+    const subtitleHeaders = customHeaders.getHeadersForUrl(subtitleStreamUrl, serverUrl);
+
+    assert.strictEqual(subtitleHeaders['CF-Access-Client-Id'], 'client-id-xyz.access');
+    assert.strictEqual(subtitleHeaders['CF-Access-Client-Secret'], 'secret-hash-789');
+});

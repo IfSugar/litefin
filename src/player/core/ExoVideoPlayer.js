@@ -23,6 +23,8 @@ import { MediaHelper } from './MediaHelper.js';
 import { PlayerEvent } from './JellyfinPlayer.js';
 import { storage } from '../../utils/StorageService.js';
 import { PlayerSettings } from '../../utils/PlayerSettings.js';
+import { customHeaders } from '../../utils/CustomHeaders.js';
+import { api } from '../../api/index.js';
 
 // Dedicated logger channels
 const log = logger.create('ExoVideoPlayer');
@@ -598,9 +600,33 @@ export class ExoVideoPlayer {
 
         log.info(`ExoVideoPlayer.play: configuring hardware tunneling=${enableTunneling}, audioOffload=${enableAudioOffload}`);
 
+        /*
+         * =====================================================================
+         * Reverse Proxy Authentication Headers Resolution
+         * =====================================================================
+         * ExoPlayer issues HTTP GET requests using OkHttp native data sources
+         * rather than browser fetch(). When operating behind reverse proxies
+         * like Cloudflare Zero Trust, Authentik, or Authelia, the video stream
+         * URL requires service token credentials (e.g., CF-Access-Client-Id
+         * and CF-Access-Client-Secret) to prevent HTTP 403 or HTML login redirects.
+         *
+         * We first inspect options.headers supplied by JellyfinPlayer, falling
+         * back to CustomHeadersManager lookup if invoked directly.
+         * =====================================================================
+         */
+        const targetServerUrl = api?.serverUrl || customHeaders?._activeServerUrl;
+        const requestHeaders = (options?.headers && Object.keys(options.headers).length > 0)
+            ? options.headers
+            : (customHeaders?.getHeadersForUrl?.(options.url, targetServerUrl) || {});
+
+        const headerCount = requestHeaders ? Object.keys(requestHeaders).length : 0;
+        if (headerCount > 0) {
+            log.info(`ExoVideoPlayer.play: attaching ${headerCount} custom reverse proxy header(s) to ExoPlayer native data source`);
+        }
+
         await invokeNative('prepare', {
             url: options.url,
-            headers: options.headers || {},
+            headers: requestHeaders || {},
             startPositionMs: resumeMs,
             tunneling: enableTunneling,
             audioOffload: enableAudioOffload
