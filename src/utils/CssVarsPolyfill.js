@@ -8,11 +8,17 @@
  *
  * Eliminates the heavy AST parsing overhead and full-DOM reflow locks of
  * generic third-party polyfills, substituting all theme and custom properties
- * in-place via a high-speed multi-pass regex pass in under 20 milliseconds.
+ * in-place via a high-speed single O(N) balanced-paren scan in under 20 milliseconds.
  * ============================================================================
  */
 
 import { logger } from './Logger.js';
+
+/**
+ * Token locating var() reference sites in CSS text. Index-based scanning
+ * (indexOf + cursor) keeps the stylesheet transform a single O(N) pass.
+ */
+const VAR_TOKEN = 'var(';
 
 const log = logger.create('CssVarsPolyfill');
 
@@ -145,14 +151,25 @@ class CssVarsPolyfill {
 
     /**
      * Resolves all var(--name, fallback) references in a CSS string using an
-     * ultra-optimized, single-pass regex replacement pipeline.
+     * ultra-optimized, single-pass balanced-paren scanning pipeline.
      *
      * To achieve maximum rendering performance on resource-constrained TV chips
      * (such as 1.0 GHz dual-core Smart TVs), we first pre-resolve all internal variable
      * references within the in-memory dictionary itself (a microscopic map of ~100 keys).
      * Once the variable map is completely flattened into raw static values, the entire
-     * multi-megabyte stylesheet string can be transformed in a SINGLE linear regex pass
-     * rather than looping multiple times over megabytes of CSS text.
+     * multi-megabyte stylesheet string is transformed in ONE linear scan that never
+     * reallocates the full text: output segments are collected into an array and joined
+     * exactly once at the end (O(N) time, single final allocation).
+     *
+     * Expressions are located with indexOf('var(') and their extent is measured by
+     * counting balanced parentheses (skipping quoted strings / comments), so fallbacks
+     * that themselves contain functions or nested references - e.g.
+     * var(--bg, hsla(0,0%,100%,.1)) or var(--a, rgba(var(--dark-rgb,15,15,20),.65)) -
+     * are captured completely. A regex capture cannot balance parentheses here and
+     * truncates such fallbacks at the first ')', which corrupts the emitted declaration
+     * (stray ')') or silently drops the fallback value the declaration relies on.
+     * Only the small extracted fallback substring is ever scanned recursively; the
+     * full stylesheet string is never re-scanned, spliced, or re-parsed per match.
      *
      * @param {string} cssText - The raw CSS containing var() expressions
      * @param {Object} vars - Map of variable names to their computed values
@@ -160,11 +177,6 @@ class CssVarsPolyfill {
      * @private
      */
     _resolveCssVars(cssText, vars) {
-        // Matches var(--name) or var(--name, fallback)
-        // Group 1: variable name
-        // Group 2: fallback expression with non-backtracking nested paren support
-        const varRegex = /var\(\s*(--[a-zA-Z0-9_-]+)(?:\s*,\s*([^)]+(?:\([^)]*\)[^)]*)*))?\s*\)/g;
-
         /*
          * ====================================================================
          * STEP 1: Flatten in-memory variables dictionary
@@ -186,18 +198,8 @@ class CssVarsPolyfill {
             for (const key in flatVars) {
                 const val = flatVars[key];
                 // Check if this variable value contains another variable reference
-                if (typeof val === 'string' && val.indexOf('var(--') !== -1) {
-                    const resolved = val.replace(varRegex, (m, name, fb) => {
-                        // If target alias exists, substitute immediately
-                        if (flatVars[name] !== undefined && flatVars[name] !== '') {
-                            return flatVars[name];
-                        }
-                        // Otherwise take fallback if defined
-                        if (fb !== undefined && fb !== '') {
-                            return fb.trim();
-                        }
-                        return m;
-                    });
+                if (typeof val === 'string' && val.indexOf(VAR_TOKEN) !== -1) {
+                    const resolved = this._resolveInText(val, flatVars);
 
                     // Flag if an alias was resolved to trigger subsequent resolution pass
                     if (resolved !== val) {
@@ -210,40 +212,200 @@ class CssVarsPolyfill {
 
         /*
          * ====================================================================
-         * STEP 2: Recursive fallback substitution helper
+         * STEP 2: Single linear replacement pass across the stylesheet text
          * ====================================================================
-         * If a stylesheet references an unknown variable with a nested fallback
-         * (e.g. var(--missing, var(--known, #ffffff))), we unpack the fallback
-         * chain recursively on the fly so the stylesheet is updated in a single pass.
+         * flatVars is pre-flattened, and nested references inside a fallback
+         * are resolved on demand against the small extracted fallback substring
+         * only - so one linear appended-slice scan completely resolves the CSS.
          */
-        const resolveToken = (varName, fallback) => {
-            // Direct variable lookup in pre-flattened dictionary
-            if (flatVars[varName] !== undefined && flatVars[varName] !== '') {
-                return flatVars[varName];
+        return this._resolveInText(cssText, flatVars);
+    }
+
+    /**
+     * Linear balanced-paren scan of a CSS string resolving every var() expression
+     * it fully contains. Built for 800KB+ stylesheets on Chromium 38: match sites
+     * are found with indexOf('var(') advancing a cursor, output pieces are
+     * appended to a segment array and joined EXACTLY ONCE at the end, so there is
+     * no per-match splice / reallocation of the full CSS text.
+     *
+     * Nested references inside a fallback are resolved by recursing ONLY on the
+     * small extracted fallback substring (strictly smaller than the input), so
+     * recursion depth equals the var() nesting depth and each level stays linear.
+     *
+     * @param {string} text - CSS text (whole stylesheet or a substring)
+     * @param {Object} flatVars - Pre-flattened variable map
+     * @returns {string} Text with every resolvable var() expression substituted
+     * @private
+     */
+    _resolveInText(text, flatVars) {
+        const segments = [];
+        let cursor = 0;
+        let pos;
+
+        while ((pos = text.indexOf(VAR_TOKEN, cursor)) !== -1) {
+            // The first argument must be a custom property (--*), allowing blank
+            // space after '('. Anything else (e.g. 'var(' inside a quoted string)
+            // is not a resolvable var() expression - keep it verbatim.
+            const argStart = this._skipCssWhitespace(text, pos + VAR_TOKEN.length);
+            if (text.charCodeAt(argStart) !== 45 || text.charCodeAt(argStart + 1) !== 45) {
+                segments.push(text.slice(cursor, pos + VAR_TOKEN.length));
+                cursor = pos + VAR_TOKEN.length;
+                continue;
             }
 
-            // Fallback resolution path
-            if (fallback !== undefined && fallback !== '') {
-                const trimmed = fallback.trim();
-                // If the fallback itself contains a nested var(), resolve it recursively
-                if (trimmed.indexOf('var(--') !== -1) {
-                    return trimmed.replace(varRegex, (m, subName, subFb) => resolveToken(subName, subFb));
+            // Measure the FULL expression extent by counting balanced parentheses
+            // (this is the replacement for regex group capture).
+            const closeIdx = this._findExpressionClose(text, pos + 3);
+            if (closeIdx === -1) {
+                // Unterminated / malformed expression: keep the remainder verbatim.
+                segments.push(text.slice(cursor));
+                cursor = text.length;
+                break;
+            }
+
+            const inner = text.slice(argStart, closeIdx);
+            const commaIdx = this._findTopLevelChar(inner, ',');
+            const varName = (commaIdx === -1 ? inner : inner.slice(0, commaIdx)).trim();
+            const knownValue = flatVars[varName];
+
+            let replacement = null;
+            if (knownValue !== undefined && knownValue !== '') {
+                // Known custom property: substitute its fully flattened value.
+                replacement = knownValue;
+            } else if (commaIdx !== -1) {
+                // Unknown custom property: the fallback is used in its place.
+                // Nested var() refs are resolved inside the small fallback substring
+                // only (this is where the previous regex-based implementation
+                // truncated the capture and corrupted the stylesheet).
+                const fallback = inner.slice(commaIdx + 1).trim();
+                if (fallback !== '') {
+                    replacement =
+                        fallback.indexOf(VAR_TOKEN) !== -1 ? this._resolveInText(fallback, flatVars) : fallback;
                 }
-                return trimmed;
             }
 
-            // Unresolved variable without fallback remains unchanged
-            return `var(${varName}${fallback !== undefined ? `, ${fallback}` : ''})`;
-        };
+            if (replacement === null) {
+                // Unresolvable (unknown name, no usable fallback): keep the original
+                // expression byte-for-byte instead of re-emitting a normalized copy.
+                segments.push(text.slice(cursor, closeIdx + 1));
+            } else {
+                segments.push(text.slice(cursor, pos));
+                segments.push(replacement);
+            }
+            cursor = closeIdx + 1;
+        }
 
-        /*
-         * ====================================================================
-         * STEP 3: Single linear replacement pass across stylesheet text
-         * ====================================================================
-         * Because flatVars is pre-flattened and resolveToken handles nested
-         * fallbacks on demand, one linear replace() pass completely resolves the CSS.
-         */
-        return cssText.replace(varRegex, (match, varName, fallback) => resolveToken(varName, fallback));
+        if (cursor < text.length) {
+            segments.push(text.slice(cursor));
+        }
+        return segments.length === 0 ? text : segments.join('');
+    }
+
+    /**
+     * Index of the first occurrence of a character at parenthesis top level,
+     * skipping quoted strings and comments.
+     * @param {string} text
+     * @param {string} ch - Single character to locate
+     * @returns {number} Index, or -1 when absent at top level
+     * @private
+     */
+    _findTopLevelChar(text, ch) {
+        let depth = 0;
+        let i = 0;
+        const len = text.length;
+        while (i < len) {
+            const c = text.charAt(i);
+            if (c === '(' || c === '[') {
+                depth++;
+            } else if (c === ')' || c === ']') {
+                if (depth > 0) depth--;
+            } else if (c === '"' || c === "'") {
+                i = this._skipQuotedString(text, i) - 1;
+            } else if (c === '/' && text.charAt(i + 1) === '*') {
+                const end = text.indexOf('*/', i + 2);
+                if (end === -1) return -1;
+                i = end + 1; // i++ below moves past the '*' of '*/'
+            } else if (c === ch && depth === 0) {
+                return i;
+            }
+            i++;
+        }
+        return -1;
+    }
+
+    /**
+     * Index of the ')' closing the parenthesis at openIdx, counting balanced
+     * parentheses while skipping quoted strings and comments.
+     * @param {string} text
+     * @param {number} openIdx - Index of the opening '('
+     * @returns {number} Index of the matching ')' or -1 when unbalanced
+     * @private
+     */
+    _findExpressionClose(text, openIdx) {
+        let depth = 1;
+        let i = openIdx + 1;
+        const len = text.length;
+        while (i < len) {
+            const c = text.charAt(i);
+            if (c === '(') {
+                depth++;
+            } else if (c === ')') {
+                depth--;
+                if (depth === 0) return i;
+            } else if (c === '"' || c === "'") {
+                i = this._skipQuotedString(text, i) - 1;
+            } else if (c === '/' && text.charAt(i + 1) === '*') {
+                const end = text.indexOf('*/', i + 2);
+                if (end === -1) return -1;
+                i = end + 1;
+            }
+            i++;
+        }
+        return -1;
+    }
+
+    /**
+     * Index just past the closing quote of the string starting at start
+     * (handles backslash escapes; unterminated strings run to text length).
+     * @param {string} text
+     * @param {number} start - Index of the opening quote character
+     * @returns {number} Index just past the closing quote
+     * @private
+     */
+    _skipQuotedString(text, start) {
+        const quote = text.charAt(start);
+        let i = start + 1;
+        const len = text.length;
+        while (i < len) {
+            const c = text.charAt(i);
+            if (c === '\\') {
+                i += 2; // escaped character never terminates the string
+            } else if (c === quote) {
+                return i + 1;
+            } else {
+                i++;
+            }
+        }
+        return len;
+    }
+
+    /**
+     * Index of the first non-whitespace character at or after from
+     * (space, tab, LF, CR, FF, VT).
+     * @param {string} text
+     * @param {number} from
+     * @returns {number}
+     * @private
+     */
+    _skipCssWhitespace(text, from) {
+        let i = from;
+        const len = text.length;
+        while (i < len) {
+            const code = text.charCodeAt(i);
+            if (code !== 32 && !(code >= 9 && code <= 13)) return i;
+            i++;
+        }
+        return len;
     }
 
     /**
