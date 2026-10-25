@@ -47,6 +47,7 @@ import { quickPlayItem } from '../utils/QuickPlay.js';
 import { homeLayoutManager } from '../utils/HomeLayoutManager.js';
 import { pluginManager } from '../plugins/PluginManager.js';
 import HeroCarousel from '../ui/HeroCarousel.js';
+import { getSeriesLastWatchedDates } from '../utils/NextUpActivity.js';
 
 const log = logger.create('HomePage');
 
@@ -823,52 +824,17 @@ class HomePage extends Page {
                         }));
 
                     // ──────────────────────────────────────────────────────────
-                    // STAGE 2: Batch Fetching of Parent Show Activity Dates
+                    // STAGE 2: Fetching of Parent Show Activity Dates
                     // ──────────────────────────────────────────────────────────
                     // Because next-up episodes are unplayed by definition, their own
                     // LastPlayedDate is null or undefined. To perform chronological
-                    // Plex-style sorting, we need to know exactly when the parent series
-                    // was last active. We resolve this by batch-fetching the most recent
-                    // play activity of the corresponding shows in a single network request.
-                    const nextUpSeriesIds = nextUpItems.map((item) => item.SeriesId).filter(Boolean);
-
-                    // Initialize series activity timestamp lookup map.
-                    const seriesLastPlayedMap = {};
-
-                    if (nextUpSeriesIds.length > 0) {
-                        try {
-                            // De-duplicate the series IDs to avoid sending redundant entries in the query.
-                            const uniqueSeriesIds = [...new Set(nextUpSeriesIds)];
-
-                            // Query played and in-progress episodes belonging to these series IDs,
-                            // ordered by play date descending (using the official 'DatePlayed' parameter).
-                            // Limit dynamically accommodates high row limit settings (up to 200).
-                            const activeEpisodesRes = await api.getItems({
-                                SeriesIds: uniqueSeriesIds.join(','),
-                                IncludeItemTypes: 'Episode',
-                                SortBy: 'DatePlayed',
-                                SortOrder: 'Descending',
-                                Fields: 'LastPlayedDate',
-                                Recursive: true,
-                                Limit: Math.max(100, homeRowLimit)
-                            });
-
-                            // Process the returned episodes to construct the series activity map.
-                            const activeEpisodes = activeEpisodesRes?.Items || [];
-                            for (const ep of activeEpisodes) {
-                                const seriesId = ep.SeriesId;
-                                const lastPlayed = ep.UserData?.LastPlayedDate;
-
-                                // Map each series to the newest played episode timestamp encountered.
-                                if (seriesId && lastPlayed && !seriesLastPlayedMap[seriesId]) {
-                                    seriesLastPlayedMap[seriesId] = new Date(lastPlayed).getTime();
-                                }
-                            }
-                        } catch (err) {
-                            // Log warning and degrade gracefully back to using DateCreated sorting.
-                            console.warn('[HomePage] Failed to batch-fetch next-up parent activity dates:', err);
-                        }
-                    }
+                    // Plex-style sorting, we rank each series the way Jellyfin's own
+                    // Next Up (and the Litefin plugin) does: by when its furthest-watched
+                    // episode was played, so rewatching an earlier episode does not move
+                    // the series up. Series without a date fall back to DateCreated below.
+                    const seriesLastPlayedMap = await getSeriesLastWatchedDates(
+                        nextUpItems.map((item) => item.SeriesId)
+                    );
 
                     // ──────────────────────────────────────────────────────────
                     // STAGE 3: Merge, Deduplicate, and Interweave
@@ -901,7 +867,7 @@ class HomePage extends Page {
                             // If it's a resume item, we prioritize its direct, precise pause timestamp.
                             timeA = new Date(a.UserData.LastPlayedDate).getTime();
                         } else if (a.SeriesId && seriesLastPlayedMap[a.SeriesId]) {
-                            // If it's a next-up item, we prioritize its parent show's latest activity timestamp.
+                            // If it's a next-up item, we prioritize its series' furthest-watched episode play date.
                             timeA = seriesLastPlayedMap[a.SeriesId];
                         } else if (a.UserData?.LastPlayedDate) {
                             // Fallback to the item's own LastPlayedDate if available.
@@ -917,7 +883,7 @@ class HomePage extends Page {
                             // If it's a resume item, we prioritize its direct, precise pause timestamp.
                             timeB = new Date(b.UserData.LastPlayedDate).getTime();
                         } else if (b.SeriesId && seriesLastPlayedMap[b.SeriesId]) {
-                            // If it's a next-up item, we prioritize its parent show's latest activity timestamp.
+                            // If it's a next-up item, we prioritize its series' furthest-watched episode play date.
                             timeB = seriesLastPlayedMap[b.SeriesId];
                         } else if (b.UserData?.LastPlayedDate) {
                             // Fallback to the item's own LastPlayedDate if available.

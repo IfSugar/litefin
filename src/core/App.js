@@ -285,8 +285,9 @@ class DetailsPage extends Page {
                 return;
             }
             this._realInstance = new RealClass(this.options);
+            // Forward route pattern from proxy wrapper to real page instance
             if (this._routePattern) {
-                this._routePattern = this._routePattern;
+                this._realInstance._routePattern = this._routePattern;
             }
             if (this._realInstance.ready) {
                 this._realInstance.ready.then(() => this.markReady());

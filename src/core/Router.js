@@ -263,11 +263,7 @@ class Router {
         // split-screen issues during cold boot when native deep links set location.hash
         // before router.init(), triggering a trailing hashchange on the next tick.
         // ====================================================================
-        if (
-            this._currentPage &&
-            this._lastNavigatePath !== fullPath &&
-            state.get('router:currentPath') === fullPath
-        ) {
+        if (this._currentPage && this._lastNavigatePath !== fullPath && state.get('router:currentPath') === fullPath) {
             log.info(`Ignoring redundant hashchange for current path "${path}"`);
             return;
         }
