@@ -365,23 +365,25 @@ class SmartHubManager {
                 log.warn('Litefin plugin endpoint failed or not installed. Falling back to client-side merge:', err);
             }
 
-            // ─── Phase 2: Fallback to client-side merging (5 and 5) ─────────────
+            // ─── Phase 2: Fallback to client-side merging (10 and 10) ───────────
             // If the server-side plugin didn't return any items, we perform
-            // a client-side merge by fetching 5 resume items and 5 next-up items.
+            // a client-side merge by fetching 10 resume items and 10 next-up items,
+            // then keep the 10 most recent — same approach as the home row merge,
+            // so an uneven split (e.g. 7 resume, 3 next-up) is still accurate.
             if (mergedItems.length === 0) {
-                log.info('Falling back to client-side merge (5 and 5 items)');
+                log.info('Falling back to client-side merge (10 and 10 items)');
 
                 // Fetch both lists in parallel to minimize network roundtrips
                 const [resumeRes, nextUpRes] = await Promise.all([
                     api.getResumeItems({
-                        Limit: 5,
+                        Limit: 10,
                         ImageTypeLimit: 1,
                         EnableImageTypes: 'Primary,Backdrop,Thumb',
                         EnableTotalRecordCount: false
                     }),
                     (async () => {
                         const params = {
-                            Limit: 5,
+                            Limit: 10,
                             ImageTypeLimit: 1,
                             EnableImageTypes: 'Primary,Backdrop,Thumb',
                             EnableTotalRecordCount: false
@@ -486,7 +488,7 @@ class SmartHubManager {
                     return timeB - timeA;
                 });
 
-                mergedItems = deduplicated;
+                mergedItems = deduplicated.slice(0, 10);
             }
 
             /* Build the Samsung-schema JSON from the merged items list. */
