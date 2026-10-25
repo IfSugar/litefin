@@ -179,7 +179,7 @@ The player includes 23 modular interactive overlays managed by `OSDController.js
     - **Desktop Keyboard & Mouse**: Mouse hover card zoom, mouse wheel list scrolling, comprehensive keyboard shortcuts (Space/K for play/pause, J/L for seeking, M for mute, F/F11 for fullscreen, Esc/Backspace for back, arrow keys & Enter for navigation), and frameless titlebar drag/window controls via Tauri v2.
     - **Mobile & Tablet Touch**: Fluid touch scrolling on `VirtualCardRow` and media grids, touch-friendly tap targets, and responsive layout adaptivity.
 - **Internationalization (i18n)**:
-    - Flat JSON localization engine covering 100+ languages.
+    - Flat JSON localization engine with multi-language support.
     - Full bidirectional support with automated Right-to-Left (RTL) layout switching.
 
 ---
