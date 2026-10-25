@@ -498,7 +498,7 @@ class SmartHubManager {
             /* Log a human-readable summary at INFO level so the tile content is
              * always visible in device logs — no debug mode required. */
             const sectionSummary = previewJson.sections
-                .map((s) => `"${s.title}" (${s.tiles.length} tile${s.tiles.length !== 1 ? 's' : ''})`)
+                .map((s) => `"${s.title}" #${s.position} (${s.tiles.length} tile${s.tiles.length !== 1 ? 's' : ''})`)
                 .join(', ');
             log.info(`Preview JSON built — sections: [${sectionSummary || 'EMPTY — nothing to show'}]`);
 
@@ -612,10 +612,14 @@ class SmartHubManager {
                     ? item.SeriesName
                     : (item.Name || 'Continue Watching');
 
-            // Add a dedicated section containing this item's tile
+            // Add a dedicated section containing this item's tile.
+            // Samsung only guarantees section order when 'position' is set
+            // ("sections are shown in ascending position order"); without it
+            // the home screen applies its own, cache-dependent ordering.
             sections.push({
                 title: sectionTitle,
-                tiles: [tile]
+                position: sections.length + 1,
+                tiles: [{ ...tile, position: 1 }]
             });
         }
 
