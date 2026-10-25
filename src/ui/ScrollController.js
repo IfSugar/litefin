@@ -663,7 +663,14 @@ class ScrollController {
                         currentTrack.style.transform = `translate3d(0px, -${newScroll}px, 0px)`;
                         currentTrack.style.webkitTransform = `translate3d(0px, -${newScroll}px, 0px)`;
                     }
-                    container.scrollTop = 0;
+                    // PERFORMANCE: Writing scrollTop dirties the layout tree even when the
+                    // value is unchanged, forcing reflow work on every ~16ms frame while GPU
+                    // transforms are actively scrolling the track. Only write when the
+                    // container has actually drifted from 0. The guarded read is cheap here
+                    // since transform writes alone never dirty the layout tree.
+                    if (container.scrollTop !== 0) {
+                        container.scrollTop = 0;
+                    }
                 } else {
                     // Write vertical scroll position directly to container.
                     // CRITICAL PERFORMANCE RULE: Do NOT read scrollLeft or other layout
@@ -689,7 +696,11 @@ class ScrollController {
                             currentTrack.style.transform = `translate3d(0px, -${state.target}px, 0px)`;
                             currentTrack.style.webkitTransform = `translate3d(0px, -${state.target}px, 0px)`;
                         }
-                        container.scrollTop = 0;
+                        // PERFORMANCE: Guard the final clamp as well, so animating into a
+                        // container already resting at 0 never dirties a clean layout tree.
+                        if (container.scrollTop !== 0) {
+                            container.scrollTop = 0;
+                        }
                     } else {
                         state.container.scrollTop = state.target;
                     }

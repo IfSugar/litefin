@@ -255,7 +255,11 @@
     /* Clean entrance using global animation */
     opacity: 0;
     animation: fadeIn 0.4s ease-out forwards;
-    will-change: opacity;
+    /* PERFORMANCE: no permanent will-change here. The container's only
+     * animation is a one-shot 0.4s fade-in; a permanent promotion keeps
+     * 9 compositor layers resident on HomePage, costing more VRAM and
+     * raster budget than the short fade is worth on embedded TV GPUs
+     * (on-device probe: 9 extraneous layers at rest). */
 }
 
 progress.card-progress {
@@ -2095,7 +2099,6 @@ html[data-layout-tier="ultra-legacy"] .subtitle-result-meta {
         transform: translate3d(var(--scroll-dist, 0px), 0, 0);
     }
 }
-
 
 /* ==========================================================================
    Description Dialog Modal Styling

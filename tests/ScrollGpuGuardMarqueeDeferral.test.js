@@ -25,7 +25,8 @@ test('ScrollController: GPU animation loop guards container.scrollTop writes', (
     const source = readFileSync(new URL('../src/ui/ScrollController.js', import.meta.url), 'utf8');
 
     // 1. The guarded write pattern must exist (per-frame branch + completion branch)
-    const guardedCount = (source.match(/if \(container\.scrollTop !== 0\) \{\s*container\.scrollTop = 0;/g) || []).length;
+    const guardedCount = (source.match(/if \(container\.scrollTop !== 0\) \{\s*container\.scrollTop = 0;/g) || [])
+        .length;
     assert.strictEqual(
         guardedCount >= 2,
         true,
@@ -34,14 +35,18 @@ test('ScrollController: GPU animation loop guards container.scrollTop writes', (
 
     // 2. Inside the RAF animate loop, the GPU branch must NOT contain a bare
     //    unconditional scrollTop write. Extract the animate loop body.
-    const animateMatch = source.match(/const animate = \(time\) => \{([\s\S]*?)\n {8}this\[animIdKey\] = requestAnimationFrame\(animate\);/);
+    const animateMatch = source.match(
+        /const animate = \(time\) => \{([\s\S]*?)\n {8}this\[animIdKey\] = requestAnimationFrame\(animate\);/
+    );
     assert.ok(animateMatch, 'GPU scroll animate loop must exist');
     const animateBody = animateMatch[1];
 
     // Every scrollTop = 0 write inside the loop must be preceded by the guard check
     const bareWritePattern = /(^|\n)[ \t]*container\.scrollTop = 0;/;
     const bareWrite = animateBody.match(
-        new RegExp(`${bareWritePattern.source.replace('container\\.scrollTop = 0;', '')}(?<!!== 0\\) \\{\\n[\\s\\S]{0,600})container\\.scrollTop = 0;`)
+        new RegExp(
+            `${bareWritePattern.source.replace('container\\.scrollTop = 0;', '')}(?<!!== 0\\) \\{\\n[\\s\\S]{0,600})container\\.scrollTop = 0;`
+        )
     );
     // Simple, robust structural check instead: the guard check must appear
     // before EVERY scrollTop = 0 occurrence in the loop body.
@@ -107,12 +112,21 @@ test('LazyLoader: marquee measurement is deferred while scroll transitions are i
     const checkMatch = source.match(/_checkTextMarquee\(target\) \{([\s\S]*?)\n {4}\}/);
     assert.ok(checkMatch, '_checkTextMarquee must be defined');
     const checkBody = checkMatch[1];
-    assert.strictEqual(checkBody.includes("target.classList.contains('focused')"), true,
-        '_checkTextMarquee must guard against focus having left the card');
-    assert.strictEqual(checkBody.includes('scrollW = span.scrollWidth'), true,
-        '_checkTextMarquee must read span.scrollWidth');
-    assert.strictEqual(checkBody.includes("el.classList.add('marquee-active')"), true,
-        '_checkTextMarquee must engage the marquee class on overflow');
+    assert.strictEqual(
+        checkBody.includes("target.classList.contains('focused')"),
+        true,
+        '_checkTextMarquee must guard against focus having left the card'
+    );
+    assert.strictEqual(
+        checkBody.includes('scrollW = span.scrollWidth'),
+        true,
+        '_checkTextMarquee must read span.scrollWidth'
+    );
+    assert.strictEqual(
+        checkBody.includes("el.classList.add('marquee-active')"),
+        true,
+        '_checkTextMarquee must engage the marquee class on overflow'
+    );
 
     // 4. Flush helper exists and is invoked from BOTH settle paths
     assert.strictEqual(
@@ -145,70 +159,44 @@ test('LazyLoader: marquee measurement is deferred while scroll transitions are i
     );
 });
 
-test('ScrollController + CSS: scroll-active compositor budget gate wiring', () => {
+test('ScrollController + CSS: no per-episode compositor toggling (GPU layer churn ban)', () => {
+    // WHY: A per-episode gate that toggles will-change promotion on/off across
+    // every keypress forces the compositor to tear down and rebuild ~40+ layers
+    // twice per press on embedded Mali GPUs (on-device regression report:
+    // single presses felt ~10x slower). The scroll path must stay toggle-free;
+    // demotion wins must be achieved with static, scroll-state-independent CSS.
     const source = readFileSync(new URL('../src/ui/ScrollController.js', import.meta.url), 'utf8');
     const css = readFileSync(new URL('../src/styles/components.css', import.meta.url), 'utf8');
 
-    // 1. Axis tracking state is initialized in the constructor
+    // 1. The scroll engine must never reference the scroll-active attribute
+    //    or the reverted axis-gating helpers.
     assert.strictEqual(
-        source.includes('this._activeScrollAxes = new Set();'),
-        true,
-        '_activeScrollAxes must be initialized in the constructor'
+        source.includes('data-scroll-active'),
+        false,
+        'ScrollController must not toggle data-scroll-active (per-episode layer churn regression)'
+    );
+    assert.strictEqual(
+        source.includes('_activeScrollAxes') && source.includes('_beginScrollActivity'),
+        false,
+        'Reverted axis-gate helpers must not return to the scroll engine'
     );
 
-    // 2. The gate is engaged when the RAF scroll engine starts.
-    //    Match the 8-space-indented engine start (the 16-space occurrence is
-    //    the per-frame continuation inside the animate loop).
-    const rafStartIdx = source.indexOf('\n        this[animIdKey] = requestAnimationFrame(animate);');
-    assert.ok(rafStartIdx !== -1, 'RAF engine start must exist');
-    const preRaf = source.slice(Math.max(0, rafStartIdx - 400), rafStartIdx);
+    // 2. CSS must never gate styles on the scroll-state attribute.
     assert.strictEqual(
-        preRaf.includes("this._beginScrollActivity(isVertical ? 'vertical' : 'horizontal')"),
-        true,
-        'RAF engine start must engage the scroll-active gate for the moving axis'
+        css.includes('data-scroll-active'),
+        false,
+        'CSS must not gate styles on data-scroll-active (per-episode toggle regression)'
     );
 
-    // 3. _checkScrollFinished recompute + DOM sync + scroll:finished emission
-    const checkMatch = source.match(/_checkScrollFinished\(\) \{([\s\S]*?)\n    \}/);
-    assert.ok(checkMatch, '_checkScrollFinished must be defined');
-    const checkBody = checkMatch[1];
+    // 3. The static demotion that replaced the gate: .card-progress-container
+    //    must NOT carry a permanent will-change promotion (9 extraneous layers
+    //    at rest on HomePage, guarding only a one-shot 0.4s fade-in).
+    const progressMatch = css.match(/\.card-progress-container \{([\s\S]*?)\n\}/);
+    assert.ok(progressMatch, '.card-progress-container rule must exist in components.css');
+    const hasPromotion = /will-change\s*:/.test(progressMatch[1]);
     assert.strictEqual(
-        checkBody.includes('this._activeScrollAxes.delete'),
-        true,
-        '_checkScrollFinished must release finished axes'
-    );
-    assert.strictEqual(
-        checkBody.includes('this._syncScrollActivityFlag()'),
-        true,
-        '_checkScrollFinished must sync the DOM gate attribute'
-    );
-
-    // 4. The DOM sync mirrors axes onto data-scroll-active and clears on settle
-    assert.strictEqual(
-        source.includes("root.setAttribute('data-scroll-active'"),
-        true,
-        'The gate must set <html data-scroll-active> while axes are active'
-    );
-    assert.strictEqual(
-        source.includes("root.removeAttribute('data-scroll-active')"),
-        true,
-        'The gate must be removed at scroll-settle timing'
-    );
-
-    // 5. CSS gate: focus FX suppression + will-change demotion with track exception
-    assert.strictEqual(
-        css.includes('html[data-scroll-active] .media-card,'),
-        true,
-        'CSS must suppress card focus FX while scrolling'
-    );
-    assert.strictEqual(
-        css.includes('html[data-scroll-active~="vertical"] *'),
-        true,
-        'CSS must demote stray will-change layers during vertical moves'
-    );
-    assert.strictEqual(
-        css.includes('html[data-scroll-active~="vertical"] .vertical-scroll-track'),
-        true,
-        'CSS must preserve the promoted vertical scroll track during the gate'
+        hasPromotion,
+        false,
+        '.card-progress-container must not carry a permanent will-change promotion'
     );
 });
