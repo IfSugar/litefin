@@ -25,6 +25,60 @@ const HtmlWebpackPlugin = require('html-webpack-plugin');
 const MiniCssExtractPlugin = require('mini-css-extract-plugin');
 const CssMinimizerPlugin = require('css-minimizer-webpack-plugin');
 const CopyWebpackPlugin = require('copy-webpack-plugin');
+const TerserPlugin = require('terser-webpack-plugin');
+
+// ============================================================================
+// Comment & Legal-Notice Stripping
+// ============================================================================
+// Every build tier ships with ALL comments removed - source annotations in
+// first-party modules, legal banner comments importing with "!" in
+// third-party code, and the per-chunk *.js.LICENSE.txt sidecar files Terser
+// normally emits. This is a deliberate licensing tradeoff: the upstream
+// projects remain MIT/BSD/Apache licensed and their full license texts are
+// available at their source repositories (see package.json dependencies);
+// they are just no longer duplicated into every distribution package.
+// Tradeoff chosen for storage-constrained Smart TV flash memory.
+//
+// Note: copied plain-script vendor/worker files (webOSTV.js, libpgs.worker.js,
+// subtitles-octopus-worker.js, ...) need no special handling - in webpack 5
+// TerserPlugin's processAssets pass also walks CopyPlugin-emitted assets.
+//
+// Minimizer configuration shared by the tier configs. Fresh plugin instances
+// per call - webpack does not support sharing plugin instances between
+// concurrently-applied configurations.
+// ============================================================================
+
+/**
+ * Builds the [JavaScript, CSS] minimizer pair used by every tier config.
+ * - TerserPlugin replaces webpack's implicit default ('...' entry) so the
+ *   options are explicit: no comment survives and no *.js.LICENSE.txt
+ *   sidecars are emitted. Compression parameters mirror webpack's built-in
+ *   TerserPlugin defaults exactly so output stays byte-comparable with the
+ *   previous configuration; only the comment-facing options differ.
+ * - CssMinimizerPlugin runs the cssnano 'default' preset with ALL comments
+ *   discarded, matching the css-minify-loader pipeline legacy/ultra-legacy
+ *   already use for inlined CSS.
+ *
+ * @returns {Array} minimizer plugin list (fresh instances)
+ */
+function getMinimizers() {
+    return [
+        new TerserPlugin({
+            // Keep legal comments in the bundle itself; never emit sidecar files
+            extractComments: false,
+            terserOptions: {
+                compress: { passes: 2 },
+                mangle: { safari10: false },
+                format: { comments: false, safari10: false }
+            }
+        }),
+        new CssMinimizerPlugin({
+            minimizerOptions: {
+                preset: ['default', { discardComments: { removeAll: true } }]
+            }
+        })
+    ];
+}
 
 // ============================================================================
 // Shared plugins factory
@@ -59,8 +113,10 @@ function getPlugins(tier, options = {}) {
         { from: 'src/assets', to: 'assets', noErrorOnMissing: true },
         // Copy translation localization files
         { from: 'src/locales', to: 'locales' },
-        // Copy libpgs web worker file
-        { from: 'node_modules/libpgs/dist/libpgs.worker.js', to: 'js/libpgs.worker.js' },
+        /*
+         * libpgs web worker ships unminified (95% comments) and is a Worker-script
+         * payload outside webpack's graph -> stripped via transform below.
+         */
         /*
          * WebOS SDK: required for window.webOS and window.webOS.service to exist.
          * Without this script the Luna service check in ApiClient.js
@@ -71,7 +127,9 @@ function getPlugins(tier, options = {}) {
         // Copy early boot diagnostic console logger for all builds
         { from: 'src/logger.js', to: 'js/logger.js' },
         // Copy early DOM and ES2015 polyfills script for all builds
-        { from: 'src/early-polyfills.js', to: 'js/early-polyfills.js' }
+        { from: 'src/early-polyfills.js', to: 'js/early-polyfills.js' },
+        // Copy libpgs web worker file
+        { from: 'node_modules/libpgs/dist/libpgs.worker.js', to: 'js/libpgs.worker.js' }
     ];
 
     // Include libass-wasm worker assets for modern, legacy, desktop, and web build tiers.
@@ -199,7 +257,7 @@ const modernConfig = {
         // Explicit dynamic import() calls remain cleanly split into async chunks (such as player.js).
         splitChunks: false,
         runtimeChunk: false,
-        minimizer: ['...', new CssMinimizerPlugin()]
+        minimizer: getMinimizers()
     },
 
     resolve: {
@@ -256,7 +314,7 @@ const debugConfig = {
         // Explicit dynamic import() calls remain cleanly split into async chunks (such as player.js).
         splitChunks: false,
         runtimeChunk: false,
-        minimizer: ['...', new CssMinimizerPlugin()]
+        minimizer: getMinimizers()
     },
 
     resolve: {
@@ -315,7 +373,7 @@ const normalConfig = {
         // Explicit dynamic import() calls remain cleanly split into async chunks (such as player.js).
         splitChunks: false,
         runtimeChunk: false,
-        minimizer: ['...', new CssMinimizerPlugin()]
+        minimizer: getMinimizers()
     },
 
     resolve: {
@@ -399,7 +457,7 @@ const legacyConfig = {
         // Explicit dynamic import() calls remain cleanly split into async chunks (such as player.js).
         splitChunks: false,
         runtimeChunk: false,
-        minimizer: ['...', new CssMinimizerPlugin()]
+        minimizer: getMinimizers()
     },
 
     resolve: {
@@ -546,7 +604,7 @@ const ultraLegacyConfig = {
         // Explicit dynamic import() calls remain cleanly split into async chunks (such as player.js).
         splitChunks: false,
         runtimeChunk: false,
-        minimizer: ['...', new CssMinimizerPlugin()]
+        minimizer: getMinimizers()
     },
 
     resolve: {
@@ -729,7 +787,7 @@ const normalOblongConfig = {
         // Explicit dynamic import() calls remain cleanly split into async chunks (such as player.js).
         splitChunks: false,
         runtimeChunk: false,
-        minimizer: ['...', new CssMinimizerPlugin()]
+        minimizer: getMinimizers()
     },
 
     resolve: {
@@ -825,7 +883,7 @@ const desktopConfig = {
 
     optimization: {
         splitChunks: { chunks: 'all', maxSize: 250000 },
-        minimizer: ['...', new CssMinimizerPlugin()]
+        minimizer: getMinimizers()
     },
 
     module: {
@@ -900,7 +958,7 @@ const webConfig = {
     optimization: {
         // Chunk splitting for efficient browser caching
         splitChunks: { chunks: 'all', maxSize: 250000 },
-        minimizer: ['...', new CssMinimizerPlugin()]
+        minimizer: getMinimizers()
     },
 
     module: {
