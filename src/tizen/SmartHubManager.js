@@ -331,7 +331,10 @@ class SmartHubManager {
             // Parse configured Next Up max days filter from preferences, defaulting to 365
             const maxDays = parseInt(storage.getItem('pref:nextUpMaxDays'), 10);
             const daysLimit = isNaN(maxDays) ? 365 : maxDays;
-            const mergedParams = { limit: 10 };
+            // Ask the plugin for the same number of items as the merged home row so it
+            // selects the same candidates; the Smart Hub then shows the first 10 of them.
+            const homeRowLimit = parseInt(storage.getItem('pref:homeRowsLimit') || 12, 10);
+            const mergedParams = { limit: Math.max(10, homeRowLimit) };
 
             // Compute cutoff timestamp if a positive days limit constraint is defined
             let cutoffIso = null;
@@ -345,8 +348,8 @@ class SmartHubManager {
             }
 
             // Query the custom endpoint provided by our Litefin plugin.
-            // When using the plugin, we fetch up to 10 pre-merged, deduplicated,
-            // and chronologically sorted items directly from the server.
+            // When using the plugin, we fetch the home row's number of pre-merged,
+            // deduplicated, and chronologically sorted items, and keep the first 10.
             try {
                 log.info('Attempting to fetch pre-merged continue/next-up items from Litefin plugin');
                 const response = await api.getMergedRows(mergedParams);
