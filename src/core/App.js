@@ -32,20 +32,15 @@ import { customHeadersDialog } from '../ui/CustomHeadersDialog.js';
 // Base Page class for route proxies and page lifecycle coordination
 import Page from '../pages/Page.js';
 
-// Synchronous Page imports (Core bootstrap pages required immediately on launch)
+// Synchronous Page imports ({@link AsyncPageProxy} covers the rest of the routes)
+// Login/Home/Search must boot immediately in every scenario (cold boot,
+// session restore, and the server-offline recovery path). OfflinePage is
+// required synchronously because the browser-online probe can flip to false
+// before any async chunk would have a chance to load.
 import LoginPage from '../pages/LoginPage.js';
 import HomePage from '../pages/HomePage.js';
-import PersonPage from '../pages/PersonPage.js';
 import SearchPage from '../pages/SearchPage.js';
-import DiscoverPage from '../pages/DiscoverPage.js';
-import SeerrDetailsPage from '../pages/SeerrDetailsPage.js';
-import SeerrPersonPage from '../pages/SeerrPersonPage.js';
-import SettingsPage from '../pages/SettingsPage.js';
-import FavoritesPage from '../pages/FavoritesPage.js';
 import OfflinePage from '../pages/OfflinePage.js';
-import ProfilesPage from '../pages/ProfilesPage.js';
-import SlideshowPage from '../pages/SlideshowPage.js';
-import EmulatorPage from '../pages/EmulatorPage.js';
 
 // ============================================================================
 // DYNAMIC CHUNK SINGLETONS AND ASYNC MODULE LOADERS
@@ -517,11 +512,11 @@ class PlayerPage extends Page {
     }
 
     get osd() {
-        return this._realInstance ? (this._realInstance.osd || this._realInstance._osd) : null;
+        return this._realInstance ? this._realInstance.osd || this._realInstance._osd : null;
     }
 
     get _osd() {
-        return this._realInstance ? (this._realInstance._osd || this._realInstance.osd) : null;
+        return this._realInstance ? this._realInstance._osd || this._realInstance.osd : null;
     }
 
     async init(params) {
@@ -559,6 +554,274 @@ class PlayerPage extends Page {
         if (this._realInstance && typeof this._realInstance.showResumeProfileSelector === 'function') {
             return this._realInstance.showResumeProfileSelector();
         }
+    }
+}
+
+// ============================================================================
+// GENERIC ASYNC PAGE CHUNK MACHINERY (Settings, Person, Seerr, Discover, ...)
+// ============================================================================
+// Same proxy/prewarm pattern as the four explicit proxies above, factored into
+// a shared loader factory and one base proxy class to avoid duplicating ~800
+// lines of delegation boilerplate nine times. Each page keeps an explicit
+// named subclass so route registration identities stay human-readable and
+// constructor.name keeps matching the registered route.
+
+/**
+ * Creates singleton chunk state { cached, load } for an async page module.
+ * Guarantees a single in-flight chunk fetch across concurrent navigations and
+ * background prewarms; clears the active promise on error so a later route hit
+ * can retry the import.
+ * @param {Function} importer - Zero-arg dynamic import thunk for the page module
+ * @returns {{cached: Function|null, load: () => Promise<Function>}}
+ */
+function createPageChunkLoader(importer) {
+    const chunk = { cached: null, promise: null };
+
+    chunk.load = () => {
+        // Return cached constructor immediately if already prewarmed or loaded
+        if (chunk.cached) {
+            return Promise.resolve(chunk.cached);
+        }
+
+        // Reuse in-flight promise to avoid duplicate chunk fetch operations
+        if (!chunk.promise) {
+            chunk.promise = importer()
+                .then((module) => {
+                    chunk.cached = module.default;
+                    return chunk.cached;
+                })
+                .catch((err) => {
+                    // Clear active promise on error to permit future retry attempts
+                    chunk.promise = null;
+                    throw err;
+                });
+        }
+
+        return chunk.promise;
+    };
+
+    return chunk;
+}
+
+// One chunk state per page module. The two JellySeerr pages share ONE chunk
+// file (identical webpackChunkName): both import each other's seerr API
+// client layer, so emitting a single chunk keeps that module from being
+// duplicated into two separate script files under the splitChunks-off
+// legacy configuration.
+const settingsChunk = createPageChunkLoader(
+    () => import(/* webpackChunkName: "settings" */ '../pages/SettingsPage.js')
+);
+const personChunk = createPageChunkLoader(() => import(/* webpackChunkName: "person" */ '../pages/PersonPage.js'));
+const seerrDetailsChunk = createPageChunkLoader(
+    () => import(/* webpackChunkName: "seerr" */ '../pages/SeerrDetailsPage.js')
+);
+const seerrPersonChunk = createPageChunkLoader(
+    () => import(/* webpackChunkName: "seerr" */ '../pages/SeerrPersonPage.js')
+);
+const discoverChunk = createPageChunkLoader(
+    () => import(/* webpackChunkName: "discover" */ '../pages/DiscoverPage.js')
+);
+const favoritesChunk = createPageChunkLoader(
+    () => import(/* webpackChunkName: "favorites" */ '../pages/FavoritesPage.js')
+);
+const profilesChunk = createPageChunkLoader(
+    () => import(/* webpackChunkName: "profiles" */ '../pages/ProfilesPage.js')
+);
+const slideshowChunk = createPageChunkLoader(
+    () => import(/* webpackChunkName: "slideshow" */ '../pages/SlideshowPage.js')
+);
+const emulatorChunk = createPageChunkLoader(
+    () => import(/* webpackChunkName: "emulator" */ '../pages/EmulatorPage.js')
+);
+
+/**
+ * Shared route proxy base for async page chunks. Intercepts router navigation,
+ * loads the async bundle on demand, and delegates page lifecycle calls to the
+ * real instance. The constructor receives the singleton chunk state so the
+ * named subclasses below can bind their loader while constructor.name keeps
+ * matching their registered route identities.
+ */
+class AsyncPageProxy extends Page {
+    constructor(options = {}, chunk = null) {
+        super(options);
+        // Active instance of the real page once instantiated
+        this._realInstance = null;
+        this._proxyEl = null;
+        this._chunk = chunk;
+
+        // Synchronously initialize instance if chunk was prewarmed in the background
+        if (chunk && chunk.cached) {
+            this._realInstance = new chunk.cached(options);
+            this._proxyEl = this._realInstance.el;
+            if (this._realInstance.ready) {
+                this._realInstance.ready.then(() => this.markReady());
+            }
+        }
+    }
+
+    get el() {
+        return this._realInstance ? this._realInstance.el : this._proxyEl;
+    }
+
+    set el(val) {
+        this._proxyEl = val;
+        if (this._realInstance) {
+            this._realInstance.el = val;
+        }
+    }
+
+    async init(params = {}) {
+        this.params = params;
+        this._initTimestamp = Date.now();
+        this.container = document.getElementById('page-container') || document.getElementById('app');
+
+        // Capture navigation state flags in case they are cleared during async chunk loading
+        const isBack = router._isBackNavigation;
+        const pendingState = router._pendingRestoreState;
+
+        // Dynamically load the page chunk if user navigated before background prewarm finished
+        if (!this._realInstance && this._chunk) {
+            const RealClass = await this._chunk.load();
+            this._realInstance = new RealClass(this.options);
+            this._proxyEl = this._realInstance.el;
+            if (this._routePattern) {
+                this._realInstance._routePattern = this._routePattern;
+            }
+            if (this._realInstance.ready) {
+                this._realInstance.ready.then(() => this.markReady());
+            }
+        }
+
+        // Restore back navigation flags so real instance consumes them in Page.init()
+        if (isBack && !router._isBackNavigation) {
+            router._isBackNavigation = true;
+            router._pendingRestoreState = pendingState;
+        }
+
+        const res = await this._realInstance.init(params);
+        if (this._realInstance && this._realInstance.title) {
+            this.title = this._realInstance.title;
+            document.title = `${this.title} - Litefin`;
+        }
+        return res;
+    }
+
+    getNavigationState() {
+        if (this._realInstance && typeof this._realInstance.getNavigationState === 'function') {
+            return this._realInstance.getNavigationState();
+        }
+        return null;
+    }
+
+    setNavigationState(state) {
+        this._pendingNavState = state;
+        if (this._realInstance && typeof this._realInstance.setNavigationState === 'function') {
+            this._realInstance.setNavigationState(state);
+        }
+    }
+
+    getScrollContainer() {
+        if (this._realInstance && typeof this._realInstance.getScrollContainer === 'function') {
+            return this._realInstance.getScrollContainer();
+        }
+        return null;
+    }
+
+    onBack() {
+        if (this._realInstance && typeof this._realInstance.onBack === 'function') {
+            return this._realInstance.onBack();
+        }
+        return false;
+    }
+
+    destroy() {
+        if (this._realInstance && typeof this._realInstance.destroy === 'function') {
+            this._realInstance.destroy();
+        }
+        super.destroy();
+    }
+}
+
+/**
+ * Route proxy for the full settings console (870KB source, by far the largest
+ * page module in the client). Settings is rarely the first navigation target,
+ * so deferring it keeps ~230KB of minified JS out of the startup parse.
+ */
+class SettingsPage extends AsyncPageProxy {
+    constructor(options) {
+        super(options, settingsChunk);
+    }
+}
+
+/**
+ * Route proxy for person credits / filmography views.
+ */
+class PersonPage extends AsyncPageProxy {
+    constructor(options) {
+        super(options, personChunk);
+    }
+}
+
+/**
+ * Route proxy for JellySeerr item detail view (request/search results).
+ */
+class SeerrDetailsPage extends AsyncPageProxy {
+    constructor(options) {
+        super(options, seerrDetailsChunk);
+    }
+}
+
+/**
+ * Route proxy for JellySeerr person cast credits (shares the seerr chunk).
+ */
+class SeerrPersonPage extends AsyncPageProxy {
+    constructor(options) {
+        super(options, seerrPersonChunk);
+    }
+}
+
+/**
+ * Route proxy for the discover / curated collections view.
+ */
+class DiscoverPage extends AsyncPageProxy {
+    constructor(options) {
+        super(options, discoverChunk);
+    }
+}
+
+/**
+ * Route proxy for the user favorites view.
+ */
+class FavoritesPage extends AsyncPageProxy {
+    constructor(options) {
+        super(options, favoritesChunk);
+    }
+}
+
+/**
+ * Route proxy for the "Who's Watching" profile switcher view.
+ */
+class ProfilesPage extends AsyncPageProxy {
+    constructor(options) {
+        super(options, profilesChunk);
+    }
+}
+
+/**
+ * Route proxy for the photo slideshow viewer.
+ */
+class SlideshowPage extends AsyncPageProxy {
+    constructor(options) {
+        super(options, slideshowChunk);
+    }
+}
+
+/**
+ * Route proxy for the JellyEmu game player view.
+ */
+class EmulatorPage extends AsyncPageProxy {
+    constructor(options) {
+        super(options, emulatorChunk);
     }
 }
 import Sidebar from '../components/Sidebar.js';
@@ -657,9 +920,12 @@ class App {
         // Measures time from HTML <head> parse and browser navigationStart
         const now = Date.now();
         const htmlToApp = now - (window.__htmlStart || now);
-        const navStart = (window.performance && window.performance.timing) ? window.performance.timing.navigationStart : null;
-        const osToApp = navStart ? (now - navStart) : null;
-        log.info(`Initializing Litefin... [Boot Telemetry: HTML-to-App=${htmlToApp}ms, WAM-to-App=${osToApp !== null ? osToApp + 'ms' : 'N/A'}]`);
+        const navStart =
+            window.performance && window.performance.timing ? window.performance.timing.navigationStart : null;
+        const osToApp = navStart ? now - navStart : null;
+        log.info(
+            `Initializing Litefin... [Boot Telemetry: HTML-to-App=${htmlToApp}ms, WAM-to-App=${osToApp !== null ? osToApp + 'ms' : 'N/A'}]`
+        );
 
         // 3. Initialize layout manager
         layoutManager.init();
@@ -673,10 +939,7 @@ class App {
 
         // Initialize OSD background gradient opacity CSS variable
         const osdGradientOpacity = PlayerSettings.get('osdGradientOpacity');
-        document.documentElement.style.setProperty(
-            '--osd-gradient-opacity',
-            (osdGradientOpacity / 100).toFixed(2)
-        );
+        document.documentElement.style.setProperty('--osd-gradient-opacity', (osdGradientOpacity / 100).toFixed(2));
 
         // 3.1. Initialize CSS vars polyfill (no-op on Chrome 49+, active on Tizen 3.0 / Chrome 47).
         //      Must run AFTER layoutManager.init() so the data-theme attribute and theme
@@ -762,8 +1025,8 @@ class App {
             // On Web browsers, re-initialize immediately on refresh/boot (unless explicitly on the /profiles screen
             // with multiple users or PIN) so plugins remain active across web page reloads.
             const shouldDefer = isWeb
-                ? (isProfilesRoute && (sessionCount > 1 || activeHasPin))
-                : (((sessionCount > 1 && !rememberLastUser) || activeHasPin) && !skipProfilesOnce);
+                ? isProfilesRoute && (sessionCount > 1 || activeHasPin)
+                : ((sessionCount > 1 && !rememberLastUser) || activeHasPin) && !skipProfilesOnce;
 
             if (shouldDefer) {
                 log.info('Deferring plugin manager initialization: profiles screen or PIN gate is active');
@@ -921,11 +1184,7 @@ class App {
             //    500ms after splash dismissal so user navigation is instantaneous.
             setTimeout(() => {
                 log.info('Prewarming primary view chunks (Details, Library, Live TV)...');
-                Promise.all([
-                    loadDetailsPageModule(),
-                    loadLibraryPageModule(),
-                    loadLiveTvPageModule()
-                ])
+                Promise.all([loadDetailsPageModule(), loadLibraryPageModule(), loadLiveTvPageModule()])
                     .then(() => log.info('Primary view chunks successfully prewarmed in background'))
                     .catch((err) => log.warn('Primary view chunks prewarm warning:', err));
             }, 500);
@@ -938,6 +1197,31 @@ class App {
                     .then(() => log.info('PlayerPage chunk prewarmed in background'))
                     .catch((err) => log.warn('PlayerPage prewarm failed:', err));
             }, 1500);
+
+            // 3. Prewarm secondary view chunks (Settings, Person, Seerr, Discover,
+            //    Favorites, Profiles, Slideshow, Emulator) 2500ms after splash dismissal.
+            //    All chunks below this stage are shared-script file:// reads on TV platforms
+            //    (or one-time HTTP fetches on web), so a single grouped batch keeps the
+            //    runtime request count low and every route is instant afterwards.
+            const secondaryChunks = [
+                settingsChunk,
+                personChunk,
+                seerrDetailsChunk,
+                seerrPersonChunk,
+                discoverChunk,
+                favoritesChunk,
+                profilesChunk,
+                slideshowChunk,
+                emulatorChunk
+            ];
+            setTimeout(() => {
+                log.info(
+                    'Prewarming secondary view chunks (Settings, Person, Seerr, Discover, Favorites, Profiles, Slideshow, Emulator)...'
+                );
+                Promise.all(secondaryChunks.map((chunk) => chunk.load()))
+                    .then(() => log.info('Secondary view chunks successfully prewarmed in background'))
+                    .catch((err) => log.warn('Secondary view chunks prewarm warning:', err));
+            }, 2500);
         });
 
         // Register routes
@@ -968,7 +1252,10 @@ class App {
         // showing the sidebar (which contains the active user's name) would be inconsistent.
         const fullScreenRoutes = ['/login', '/offline', '/profiles'];
         const isFullScreen =
-            fullScreenRoutes.includes(path) || path.startsWith('/player') || path.startsWith('/slideshow') || path.startsWith('/emulator');
+            fullScreenRoutes.includes(path) ||
+            path.startsWith('/player') ||
+            path.startsWith('/slideshow') ||
+            path.startsWith('/emulator');
 
         if (isFullScreen) {
             document.body.classList.add('no-sidebar');
@@ -1173,7 +1460,8 @@ class App {
                      * If the user manually toggles the setting, their stored preference is respected.
                      * Media playback views (/player) are always spared to avoid interruptions.
                      * ========================================================================= */
-                    const isTv = typeof platformInfo !== 'undefined' ? (platformInfo.isTizen || platformInfo.isWebOS) : true;
+                    const isTv =
+                        typeof platformInfo !== 'undefined' ? platformInfo.isTizen || platformInfo.isWebOS : true;
                     const savedReload = storage.getItem('pref:reloadOnResume');
                     const reloadOnResume = savedReload !== null ? savedReload === 'true' : isTv;
 
@@ -1308,7 +1596,10 @@ class App {
                 // - MusicGenre tracks are linked by GenreIds
                 // - Person tracks are linked by PersonIds/ArtistIds
                 // - Folders are linked by physical ParentId
-                if (item && ['MusicAlbum', 'MusicArtist', 'MusicGenre', 'Artist', 'Person', 'Folder'].includes(item.Type)) {
+                if (
+                    item &&
+                    ['MusicAlbum', 'MusicArtist', 'MusicGenre', 'Artist', 'Person', 'Folder'].includes(item.Type)
+                ) {
                     try {
                         let tracks = null;
                         // For music albums and collections, sort by disc and track number first
@@ -1664,10 +1955,9 @@ class App {
      * @private
      */
     _registerRoutes() {
-        // NOTE: Using synchronous registration to avoid dynamic import()
-        // which is not supported in Tizen 4's Chromium 56 engine
+        // Registration is synchronous (class references only); heavy page modules
+        // resolve lazily through the async chunk proxies declared above.
 
-        // Import pages at top of file (see imports above)
         // Register all routes
         router.register('/login', LoginPage);
         router.register('/profiles', ProfilesPage);
@@ -1734,7 +2024,11 @@ class App {
                     // Saved session exists but server is unreachable
                     log.info('Initial route: Server is offline, navigating to OfflinePage');
                     router.navigate('/offline', { replace: true });
-                } else if (isAuthenticated && ((sessionCount > 1 && !rememberLastUser) || activeHasPin) && !skipProfilesOnce) {
+                } else if (
+                    isAuthenticated &&
+                    ((sessionCount > 1 && !rememberLastUser) || activeHasPin) &&
+                    !skipProfilesOnce
+                ) {
                     // Multiple users stored (and remember last user is disabled), or the restored profile is PIN-locked —
                     // make them pick a profile (which enforces any PIN).
                     log.info(
