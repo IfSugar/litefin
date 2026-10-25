@@ -594,12 +594,6 @@ html[data-layout-tier="ultra-legacy"] .alpha-btn::before {
     border-radius: var(--jf-border-radius-lg);
 }
 
-.library-grid .media-card .card-image img,
-.library-grid .media-card .media-fallback {
-    border-radius: inherit;
-    -webkit-border-radius: inherit;
-}
-
 /* Modern Layouts: 24px Rounded Corners for Library Grids */
 html[data-layout-media-rows="modern"] .library-grid .media-card .card-image,
 html[data-layout-media-rows="expanded"] .library-grid .media-card .card-image,

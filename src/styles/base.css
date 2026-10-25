@@ -905,13 +905,6 @@ body.player-active #sidebar-container {
     /* Ensure images/content respect the radius */
 }
 
-/* Ensure fallbacks and overlays also get rounded */
-.media-fallback,
-.card-overlay-tint,
-.skeleton-image {
-    border-radius: var(--jf-border-radius);
-}
-
 .focusable:focus,
 .focusable.focused,
 [tabindex]:focus,

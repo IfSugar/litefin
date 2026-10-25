@@ -322,9 +322,6 @@ progress.card-progress::-webkit-progress-value {
     text-align: center;
     padding: 20px;
     background: #1a1a1a;
-    /* Default */
-    border-radius: inherit;
-    -webkit-border-radius: inherit;
     overflow: hidden;
     z-index: 1;
 }
