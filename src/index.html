@@ -2,6 +2,7 @@
 <html lang="en" data-theme="purplehaze" data-layout="classic">
 
 <head>
+    <script>window.__htmlStart = Date.now();</script>
     <meta charset="UTF-8">
     <style>
         /* 
@@ -117,16 +118,6 @@
     <title>Litefin</title>
     <link rel="icon" type="image/png" href="assets/icon-80.png">
     <link rel="apple-touch-icon" href="assets/icon-80.png">
-    <!--
-        WebOS SDK — must load before any app JS so that window.webOS and
-        window.webOS.service are available when ApiClient runs its Luna check.
-        Loaded dynamically to prevent PalmServiceBridge console errors on non-LG devices.
-    -->
-    <script>
-        if (/Web[O0]S|NetCast|LG[ -]Browser/i.test(navigator.userAgent)) {
-            document.write('<script src="js/webOSTV.js"><\\/script>');
-        }
-    </script>
     <script src="js/logger.js"></script>
 
     <script src="js/early-polyfills.js"></script>
@@ -307,9 +298,10 @@
                 // Restore loading indicator style to prevent flash of wrong spinner
                 var validLoaderStyles = ['dots','ring','dual-ring','orbit','satellite','triple-ring','dotted-ring','eclipse-sweep','sonar-ring','push-pulse','horizontal-dots','pulsing-grid'];
                 var savedLoaderStyle = localStorage.getItem('litefin:loaderStyle');
-                var savedSimpleLoader = localStorage.getItem('litefin:simpleLoader') === 'true';
                 // Align fallback default to 'ring' to match LayoutManager single source of truth
-                var loaderStyle = validLoaderStyles.includes(savedLoaderStyle) ? savedLoaderStyle : (savedSimpleLoader ? 'ring' : 'ring');
+                // Uses indexOf() instead of includes() to guarantee compatibility on legacy Chromium 38 runtimes
+                var isLoaderValid = savedLoaderStyle && validLoaderStyles.indexOf(savedLoaderStyle) !== -1;
+                var loaderStyle = isLoaderValid ? savedLoaderStyle : (savedSimpleLoader ? 'ring' : 'ring');
                 document.documentElement.setAttribute('data-loader-style', loaderStyle);
 
                 // Theme variables for early loading (must match CSS definitions)

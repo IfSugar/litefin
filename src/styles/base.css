@@ -1206,13 +1206,7 @@ body.settings-loaded #app-splash .loading-spinner {
    Welcome Screen (Temporary)
    ============================================================================ */
 
-
-@import 'sidebar.css';
-@import 'library.css';
-@import 'library_rows.css';
-@import 'player-page.css';
-@import 'player-osd.css';
-
+/* Component layout styles are aggregated in bundle.css */
 /* ============================================================================
    Typography
    ============================================================================ */

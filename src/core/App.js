@@ -41,8 +41,96 @@ import SeerrDetailsPage from '../pages/SeerrDetailsPage.js';
 import SeerrPersonPage from '../pages/SeerrPersonPage.js';
 import SettingsPage from '../pages/SettingsPage.js';
 import FavoritesPage from '../pages/FavoritesPage.js';
+// Retain cached constructor reference once async chunk resolves
+let CachedPlayerClass = null;
+let playerPrewarmPromise = null;
+
+/**
+ * Loads the PlayerPage and hls.js dependencies asynchronously.
+ * Keeps heavy playback and subtitle demuxing engines out of initial boot V8 compilation.
+ * @returns {Promise<Function>}
+ */
+function loadPlayerModule() {
+    // Return cached constructor immediately if already prewarmed or loaded
+    if (CachedPlayerClass) {
+        return Promise.resolve(CachedPlayerClass);
+    }
+
+    // Reuse in-flight promise to avoid duplicate chunk fetch operations
+    if (!playerPrewarmPromise) {
+        playerPrewarmPromise = import(/* webpackChunkName: "player" */ '../pages/PlayerPage.js')
+            .then((module) => {
+                CachedPlayerClass = module.default;
+                return CachedPlayerClass;
+            })
+            .catch((err) => {
+                // Clear active promise on error to permit future retry attempts
+                playerPrewarmPromise = null;
+                throw err;
+            });
+    }
+
+    return playerPrewarmPromise;
+}
+
+/**
+ * Lightweight route proxy for video player lifecycle.
+ * Intercepts router navigation, loads the async bundle, and delegates page lifecycle calls.
+ * Declared directly as PlayerPage so constructor.name is naturally 'PlayerPage' without Object.defineProperty.
+ */
+class PlayerPage {
+    constructor() {
+        // Active instance of RealPlayerPage once instantiated
+        this._realInstance = null;
+        this.el = null;
+
+        // Synchronously initialize instance if chunk was prewarmed in the background
+        if (CachedPlayerClass) {
+            this._realInstance = new CachedPlayerClass();
+            this.el = this._realInstance.el;
+        }
+    }
+
+    get osd() {
+        return this._realInstance ? (this._realInstance.osd || this._realInstance._osd) : null;
+    }
+
+    get _osd() {
+        return this._realInstance ? (this._realInstance._osd || this._realInstance.osd) : null;
+    }
+
+    async init(params) {
+        // Dynamically load player chunk if user launched playback before background prewarm finished
+        if (!this._realInstance) {
+            const PlayerClass = await loadPlayerModule();
+            this._realInstance = new PlayerClass();
+            this.el = this._realInstance.el;
+        }
+
+        return this._realInstance.init(params);
+    }
+
+    destroy() {
+        if (this._realInstance && typeof this._realInstance.destroy === 'function') {
+            this._realInstance.destroy();
+        }
+    }
+
+    onBack() {
+        if (this._realInstance && typeof this._realInstance.onBack === 'function') {
+            return this._realInstance.onBack();
+        }
+        return false;
+    }
+
+    showResumeProfileSelector() {
+        if (this._realInstance && typeof this._realInstance.showResumeProfileSelector === 'function') {
+            return this._realInstance.showResumeProfileSelector();
+        }
+    }
+}
+
 import OfflinePage from '../pages/OfflinePage.js';
-import PlayerPage from '../pages/PlayerPage.js';
 import ProfilesPage from '../pages/ProfilesPage.js';
 import LiveTvPage from '../pages/LiveTvPage.js';
 import SlideshowPage from '../pages/SlideshowPage.js';
@@ -139,7 +227,13 @@ class App {
 
         debugOverlay.init(DEBUG_LOGS, DEBUG_OVERLAY, DEBUG_WIDTH, DEBUG_HEIGHT, DEBUG_POSITION);
 
-        log.info('Initializing Litefin...');
+        // Calculate early-boot telemetry
+        // Measures time from HTML <head> parse and browser navigationStart
+        const now = Date.now();
+        const htmlToApp = now - (window.__htmlStart || now);
+        const navStart = (window.performance && window.performance.timing) ? window.performance.timing.navigationStart : null;
+        const osToApp = navStart ? (now - navStart) : null;
+        log.info(`Initializing Litefin... [Boot Telemetry: HTML-to-App=${htmlToApp}ms, WAM-to-App=${osToApp !== null ? osToApp + 'ms' : 'N/A'}]`);
 
         // 3. Initialize layout manager
         layoutManager.init();
@@ -408,6 +502,14 @@ class App {
 
         log.info('App initialized successfully');
         eventBus.emit('app:ready');
+
+        // Prewarm player chunk in the background 8 seconds after boot
+        // Defers hls.js and player chunk compilation until home screen has completely finished initial render
+        setTimeout(() => {
+            loadPlayerModule()
+                .then(() => log.info('PlayerPage chunk prewarmed in background'))
+                .catch((err) => log.warn('PlayerPage prewarm failed:', err));
+        }, 8000);
     }
 
     /**
@@ -1144,7 +1246,7 @@ class App {
         router.register('/livetv', LiveTvPage);
         router.register('/offline', OfflinePage);
         router.register('/slideshow/:photoId', SlideshowPage);
-        router.register('/player/:id/:resume', PlayerPage); // Video player page
+        router.register('/player/:id/:resume', PlayerPage); // Video player page (async chunk)
         router.register('/emulator/:id', EmulatorPage); // JellyEmu game player page
 
         // Season redirect (for backward compatibility or deep links)

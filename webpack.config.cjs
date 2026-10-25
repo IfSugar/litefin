@@ -175,7 +175,11 @@ const modernConfig = {
     },
 
     optimization: {
-        splitChunks: { chunks: 'all', maxSize: 100000 },
+        // Consolidated single-entry bundle for local TV package storage (file://)
+        // Disables automatic chunk fragmentation to avoid 110+ blocking script tags on slow flash memory.
+        // Explicit dynamic import() calls remain cleanly split into async chunks (such as player.js).
+        splitChunks: false,
+        runtimeChunk: false,
         minimizer: ['...', new CssMinimizerPlugin()]
     },
 
@@ -228,7 +232,11 @@ const debugConfig = {
     },
 
     optimization: {
-        splitChunks: { chunks: 'all', maxSize: 100000 },
+        // Consolidated single-entry bundle for local TV package storage (file://)
+        // Disables automatic chunk fragmentation to avoid 110+ blocking script tags on slow flash memory.
+        // Explicit dynamic import() calls remain cleanly split into async chunks (such as player.js).
+        splitChunks: false,
+        runtimeChunk: false,
         minimizer: ['...', new CssMinimizerPlugin()]
     },
 
@@ -283,7 +291,11 @@ const normalConfig = {
     },
 
     optimization: {
-        splitChunks: { chunks: 'all', maxSize: 100000 },
+        // Consolidated single-entry bundle for local TV package storage (file://)
+        // Disables automatic chunk fragmentation to avoid 110+ blocking script tags on slow flash memory.
+        // Explicit dynamic import() calls remain cleanly split into async chunks (such as player.js).
+        splitChunks: false,
+        runtimeChunk: false,
         minimizer: ['...', new CssMinimizerPlugin()]
     },
 
@@ -363,7 +375,11 @@ const legacyConfig = {
     },
 
     optimization: {
-        splitChunks: { chunks: 'all', maxSize: 100000 },
+        // Consolidated single-entry bundle for local TV package storage (file://)
+        // Disables automatic chunk fragmentation to avoid 110+ blocking script tags on slow flash memory.
+        // Explicit dynamic import() calls remain cleanly split into async chunks (such as player.js).
+        splitChunks: false,
+        runtimeChunk: false,
         minimizer: ['...', new CssMinimizerPlugin()]
     },
 
@@ -498,7 +514,11 @@ const ultraLegacyConfig = {
     },
 
     optimization: {
-        splitChunks: { chunks: 'all', maxSize: 100000 },
+        // Consolidated single-entry bundle for local TV package storage (file://)
+        // Disables automatic chunk fragmentation to avoid 110+ blocking script tags on slow flash memory.
+        // Explicit dynamic import() calls remain cleanly split into async chunks (such as player.js).
+        splitChunks: false,
+        runtimeChunk: false,
         minimizer: ['...', new CssMinimizerPlugin()]
     },
 
@@ -671,8 +691,11 @@ const normalOblongConfig = {
     },
 
     optimization: {
-        // Shared optimization settings
-        splitChunks: { chunks: 'all', maxSize: 100000 },
+        // Consolidated single-entry bundle for local TV package storage (file://)
+        // Disables automatic chunk fragmentation to avoid 110+ blocking script tags on slow flash memory.
+        // Explicit dynamic import() calls remain cleanly split into async chunks (such as player.js).
+        splitChunks: false,
+        runtimeChunk: false,
         minimizer: ['...', new CssMinimizerPlugin()]
     },
 

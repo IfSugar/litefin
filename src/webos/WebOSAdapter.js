@@ -10,6 +10,7 @@
  * ============================================================================
  */
 
+import 'webostvjs';
 import { eventBus } from '../core/EventBus.js';
 import { storage } from '../utils/StorageService.js';
 import { logger } from '../utils/Logger.js';
