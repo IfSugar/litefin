@@ -32,14 +32,13 @@ import { customHeadersDialog } from '../ui/CustomHeadersDialog.js';
 // Base Page class for route proxies and page lifecycle coordination
 import Page from '../pages/Page.js';
 
-// Synchronous Page imports ({@link AsyncPageProxy} covers the rest of the routes)
-// Login/Home/Search must boot immediately in every scenario (cold boot,
-// session restore, and the server-offline recovery path). OfflinePage is
+// Synchronous Page imports (every remaining route resolves lazily through a
+// {@link AsyncPageProxy} below). Login and Home must boot immediately in every
+// scenario (cold boot and the post-login landing path). OfflinePage is
 // required synchronously because the browser-online probe can flip to false
 // before any async chunk would have a chance to load.
 import LoginPage from '../pages/LoginPage.js';
 import HomePage from '../pages/HomePage.js';
-import SearchPage from '../pages/SearchPage.js';
 import OfflinePage from '../pages/OfflinePage.js';
 
 // ============================================================================
@@ -57,9 +56,7 @@ let detailsPrewarmPromise = null;
 let CachedLibraryClass = null;
 let libraryPrewarmPromise = null;
 
-// LiveTvPage chunk state
-let CachedLiveTvClass = null;
-let liveTvPrewarmPromise = null;
+// LiveTv/Search chunk state now lives in the generic machinery below
 
 // PlayerPage chunk state
 let CachedPlayerClass = null;
@@ -122,34 +119,6 @@ function loadLibraryPageModule() {
 }
 
 /**
- * Loads the LiveTvPage module and EPG grid dependencies asynchronously.
- * Keeps TV guide schedulers and program timetable builders out of initial parse.
- * @returns {Promise<Function>}
- */
-function loadLiveTvPageModule() {
-    // Return cached constructor immediately if already prewarmed or loaded
-    if (CachedLiveTvClass) {
-        return Promise.resolve(CachedLiveTvClass);
-    }
-
-    // Reuse in-flight promise to avoid duplicate chunk fetch operations
-    if (!liveTvPrewarmPromise) {
-        liveTvPrewarmPromise = import(/* webpackChunkName: "livetv" */ '../pages/LiveTvPage.js')
-            .then((module) => {
-                CachedLiveTvClass = module.default;
-                return CachedLiveTvClass;
-            })
-            .catch((err) => {
-                // Clear active promise on error to permit future retry attempts
-                liveTvPrewarmPromise = null;
-                throw err;
-            });
-    }
-
-    return liveTvPrewarmPromise;
-}
-
-/**
  * Loads the PlayerPage and hls.js dependencies asynchronously.
  * Keeps heavy playback and subtitle demuxing engines out of initial boot V8 compilation.
  * @returns {Promise<Function>}
@@ -175,6 +144,61 @@ function loadPlayerModule() {
     }
 
     return playerPrewarmPromise;
+}
+
+// ============================================================================
+// LAZY PLAYER CHUNK PREWARMING
+// ============================================================================
+// The player chunk (hls.js, demuxers, subtitle pipelines) is deliberately NOT
+// prewarmed right after boot: fetching it while the home page is still
+// rendering steals CPU and memory from the first paint on TV hardware.
+// Instead it loads when there is a real playback signal:
+//   1. Immediately when the user enters a /details route (strongest predictor
+//      of playback on media-first apps like this one), and
+//   2. After a long inactivity window otherwise - schedulePlayerPrewarm() is
+//      re-armed by every remote/keyboard interaction (focus moves, OK,
+//      back presses, route changes), so background chunk reads never compete
+//      with active navigation.
+// ============================================================================
+const PLAYER_PREWARM_IDLE_MS = 12000;
+let playerPrewarmTimer = null;
+
+/**
+ * Starts (or restarts) the idle timer for background player chunk loading.
+ * Re-arming on every interaction means the timer only ever fires when the
+ * user has actually been idle for the full window.
+ */
+function schedulePlayerPrewarm() {
+    if (playerPrewarmPromise) {
+        return; // chunk already cached or an import() is in flight
+    }
+    if (playerPrewarmTimer) {
+        clearTimeout(playerPrewarmTimer);
+    }
+    playerPrewarmTimer = setTimeout(() => {
+        playerPrewarmTimer = null;
+        prewarmPlayerChunk('idle');
+    }, PLAYER_PREWARM_IDLE_MS);
+}
+
+/**
+ * Initiates background loading of the player chunk outside of any
+ * interaction context. Safe to call repeatedly - no-ops once the chunk is
+ * loaded or an import() is already in flight.
+ * @param {string} reason - Human-readable trigger, for the boot log
+ */
+function prewarmPlayerChunk(reason) {
+    if (playerPrewarmPromise) {
+        return;
+    }
+    if (playerPrewarmTimer) {
+        clearTimeout(playerPrewarmTimer);
+        playerPrewarmTimer = null;
+    }
+    log.info(`Prewarming PlayerPage chunk in background (${reason})...`);
+    loadPlayerModule()
+        .then(() => log.info('PlayerPage chunk prewarmed in background'))
+        .catch((err) => log.warn('PlayerPage prewarm failed:', err));
 }
 
 // ============================================================================
@@ -388,108 +412,6 @@ class LibraryPage extends Page {
 }
 
 /**
- * Lightweight route proxy for Live TV and EPG timetable lifecycle.
- * Intercepts router navigation, loads the async bundle, and delegates page lifecycle calls.
- */
-class LiveTvPage extends Page {
-    constructor(options = {}) {
-        super(options);
-        // Active instance of RealLiveTvPage once instantiated
-        this._realInstance = null;
-
-        // Synchronously initialize instance if chunk was prewarmed in the background
-        if (CachedLiveTvClass) {
-            this._realInstance = new CachedLiveTvClass(options);
-            this.el = this._realInstance.el;
-            if (this._realInstance.ready) {
-                this._realInstance.ready.then(() => this.markReady());
-            }
-        }
-    }
-
-    get el() {
-        return this._realInstance ? this._realInstance.el : this._proxyEl;
-    }
-
-    set el(val) {
-        this._proxyEl = val;
-        if (this._realInstance) {
-            this._realInstance.el = val;
-        }
-    }
-
-    async init(params = {}) {
-        this.params = params;
-        this._initTimestamp = Date.now();
-        this.container = document.getElementById('page-container') || document.getElementById('app');
-
-        // Capture navigation state flags in case they are cleared during async chunk loading
-        const isBack = router._isBackNavigation;
-        const pendingState = router._pendingRestoreState;
-
-        // Dynamically load livetv chunk if user navigated before background prewarm finished
-        if (!this._realInstance) {
-            const RealClass = await loadLiveTvPageModule();
-            this._realInstance = new RealClass(this.options);
-            if (this._routePattern) {
-                this._realInstance._routePattern = this._routePattern;
-            }
-            if (this._realInstance.ready) {
-                this._realInstance.ready.then(() => this.markReady());
-            }
-        }
-
-        // Restore back navigation flags so real instance consumes them in Page.init()
-        if (isBack && !router._isBackNavigation) {
-            router._isBackNavigation = true;
-            router._pendingRestoreState = pendingState;
-        }
-
-        const res = await this._realInstance.init(params);
-        if (this._realInstance.title) {
-            this.title = this._realInstance.title;
-            document.title = `${this.title} - Litefin`;
-        }
-        return res;
-    }
-
-    getNavigationState() {
-        if (this._realInstance && typeof this._realInstance.getNavigationState === 'function') {
-            return this._realInstance.getNavigationState();
-        }
-        return null;
-    }
-
-    setNavigationState(state) {
-        this._pendingNavState = state;
-        if (this._realInstance && typeof this._realInstance.setNavigationState === 'function') {
-            this._realInstance.setNavigationState(state);
-        }
-    }
-
-    getScrollContainer() {
-        if (this._realInstance && typeof this._realInstance.getScrollContainer === 'function') {
-            return this._realInstance.getScrollContainer();
-        }
-        return null;
-    }
-
-    onBack() {
-        if (this._realInstance && typeof this._realInstance.onBack === 'function') {
-            return this._realInstance.onBack();
-        }
-        return false;
-    }
-
-    destroy() {
-        if (this._realInstance && typeof this._realInstance.destroy === 'function') {
-            this._realInstance.destroy();
-        }
-        super.destroy();
-    }
-}
-
-/**
  * Lightweight route proxy for video player lifecycle.
  * Intercepts router navigation, loads the async bundle, and delegates page lifecycle calls.
  * Declared directly as PlayerPage so constructor.name is naturally 'PlayerPage' without Object.defineProperty.
@@ -633,6 +555,8 @@ const slideshowChunk = createPageChunkLoader(
 const emulatorChunk = createPageChunkLoader(
     () => import(/* webpackChunkName: "emulator" */ '../pages/EmulatorPage.js')
 );
+const searchChunk = createPageChunkLoader(() => import(/* webpackChunkName: "search" */ '../pages/SearchPage.js'));
+const liveTvChunk = createPageChunkLoader(() => import(/* webpackChunkName: "livetv" */ '../pages/LiveTvPage.js'));
 
 /**
  * Shared route proxy base for async page chunks. Intercepts router navigation,
@@ -822,6 +746,28 @@ class SlideshowPage extends AsyncPageProxy {
 class EmulatorPage extends AsyncPageProxy {
     constructor(options) {
         super(options, emulatorChunk);
+    }
+}
+
+/**
+ * Route proxy for the global search view. Formerly part of the synchronous
+ * boot path; search is only reachable after login once content browsing
+ * works, so the chunk fetch costs nothing at cold boot.
+ */
+class SearchPage extends AsyncPageProxy {
+    constructor(options) {
+        super(options, searchChunk);
+    }
+}
+
+/**
+ * Route proxy for the Live TV guide / EPG timetable view. Loaded strictly on
+ * demand - previously stage-1 prewarmed, it is the rarest navigation target
+ * among primary views on non-broadcast setups.
+ */
+class LiveTvPage extends AsyncPageProxy {
+    constructor(options) {
+        super(options, liveTvChunk);
     }
 }
 import Sidebar from '../components/Sidebar.js';
@@ -1180,48 +1126,41 @@ class App {
             // ====================================================================
             // Staged Background Prewarming
             // ====================================================================
-            // 1. Prewarm primary view chunks (DetailsPage, LibraryPage, LiveTvPage)
+            // 1. Prewarm primary view chunks (DetailsPage, LibraryPage)
             //    500ms after splash dismissal so user navigation is instantaneous.
+            //    LiveTv is excluded: like search, settings and all the seerr/
+            //    discover routes it loads strictly on demand through its proxy.
             setTimeout(() => {
-                log.info('Prewarming primary view chunks (Details, Library, Live TV)...');
-                Promise.all([loadDetailsPageModule(), loadLibraryPageModule(), loadLiveTvPageModule()])
+                log.info('Prewarming primary view chunks (Details, Library)...');
+                Promise.all([loadDetailsPageModule(), loadLibraryPageModule()])
                     .then(() => log.info('Primary view chunks successfully prewarmed in background'))
                     .catch((err) => log.warn('Primary view chunks prewarm warning:', err));
             }, 500);
 
-            // 2. Prewarm video playback chunk (PlayerPage, hls.js, audio/sub demuxers)
-            //    1500ms after splash dismissal once primary UI render has settled.
-            setTimeout(() => {
-                log.info('Prewarming PlayerPage chunk in background...');
-                loadPlayerModule()
-                    .then(() => log.info('PlayerPage chunk prewarmed in background'))
-                    .catch((err) => log.warn('PlayerPage prewarm failed:', err));
-            }, 1500);
+            // 2. Player chunk is intentionally NOT prewarmed here: it used to
+            //    fire 1500ms after splash and steal CPU/RAM from HomePage's
+            //    first render. See the LAZY PLAYER CHUNK PREWARMING section -
+            //    it now triggers on /details entry or a long idle window.
+            if (router.getCurrentPath() !== '/offline') {
+                // Idle prewarm would be pure waste while the offline recovery
+                // page is up (network dead, playback impossible), so only arm
+                // it on real post-login boots. Route changes re-arm it anyway.
+                schedulePlayerPrewarm();
+            }
 
-            // 3. Prewarm secondary view chunks (Settings, Person, Seerr, Discover,
-            //    Favorites, Profiles, Slideshow, Emulator) 2500ms after splash dismissal.
-            //    All chunks below this stage are shared-script file:// reads on TV platforms
-            //    (or one-time HTTP fetches on web), so a single grouped batch keeps the
-            //    runtime request count low and every route is instant afterwards.
-            const secondaryChunks = [
-                settingsChunk,
-                personChunk,
-                seerrDetailsChunk,
-                seerrPersonChunk,
-                discoverChunk,
-                favoritesChunk,
-                profilesChunk,
-                slideshowChunk,
-                emulatorChunk
-            ];
-            setTimeout(() => {
-                log.info(
-                    'Prewarming secondary view chunks (Settings, Person, Seerr, Discover, Favorites, Profiles, Slideshow, Emulator)...'
-                );
-                Promise.all(secondaryChunks.map((chunk) => chunk.load()))
-                    .then(() => log.info('Secondary view chunks successfully prewarmed in background'))
-                    .catch((err) => log.warn('Secondary view chunks prewarm warning:', err));
-            }, 2500);
+            // One-time activity wiring for the lazy player prewarm. Every
+            // interaction resets the idle timer; entering a details view is
+            // playback-likely enough to fetch the chunk immediately.
+            eventBus.on('router:navigate', (event) => {
+                if (event && typeof event.path === 'string' && event.path.startsWith('/details')) {
+                    prewarmPlayerChunk('details entry');
+                    return;
+                }
+                schedulePlayerPrewarm();
+            });
+            eventBus.on('focus:changed', () => schedulePlayerPrewarm());
+            eventBus.on('focus:activated', () => schedulePlayerPrewarm());
+            eventBus.on('key:back', () => schedulePlayerPrewarm());
         });
 
         // Register routes
