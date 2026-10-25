@@ -436,6 +436,13 @@ const legacyConfig = {
              * in a single pass in under 20ms.
              * =======================================================================
              */
+            /*
+             * css-minify-loader runs FIRST (use array executes bottom-up) on the
+             * raw stylesheet text, before css-loader wraps it in a JS string.
+             * style-loader injects the resulting string verbatim and Terser
+             * cannot touch it, so without this loader every comment and byte of
+             * whitespace in the .css sources ships inside main.js.
+             */
             {
                 test: /\.css$/,
                 use: [
@@ -448,7 +455,8 @@ const legacyConfig = {
                             }
                         }
                     },
-                    'css-loader'
+                    'css-loader',
+                    path.resolve(__dirname, 'css-minify-loader.cjs')
                 ]
             },
             {
@@ -575,6 +583,11 @@ const ultraLegacyConfig = {
              * <style id="litefin-bundled-styles"> element, eliminating DOM fragmentation
              * and enabling near-instantaneous CSS custom property resolution.
              * =======================================================================
+             * css-minify-loader runs FIRST (use array executes bottom-up) on the raw
+             * stylesheet text, before css-loader wraps it in a JS string. The injected
+             * style string bypasses Terser entirely, so raw .css comments and
+             * whitespace would otherwise ship verbatim inside js/main.js.
+             * =======================================================================
              */
             {
                 test: /\.css$/,
@@ -588,7 +601,8 @@ const ultraLegacyConfig = {
                             }
                         }
                     },
-                    'css-loader'
+                    'css-loader',
+                    path.resolve(__dirname, 'css-minify-loader.cjs')
                 ]
             },
             {
